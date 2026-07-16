@@ -1,0 +1,6 @@
+{
+  "name": "OpenComm",
+  "description": "Premium professional networking and local job marketplace",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
