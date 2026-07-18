@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, SlidersHorizontal, MapPin, DollarSign, Calendar, 
@@ -7,6 +8,7 @@ import {
   Heart, MessageSquare, BadgeCheck
 } from 'lucide-react';
 import { Job } from '../../types';
+import JobCard from '../cards/JobCard';
 
 interface JobsPageProps {
   jobs: Job[];
@@ -33,6 +35,9 @@ export default function JobsPage({
   isLoggedIn = false,
   onOpenAuth,
 }: JobsPageProps) {
+  const { jobId } = useParams();
+  const navigate = useNavigate();
+
   // Filters state
   const [locationFilter, setLocationFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('All'); // All, Full-time, Part-time, Freelance, Remote
@@ -44,6 +49,24 @@ export default function JobsPage({
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
   const [bidRate, setBidRate] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
+
+  // Handle setting active job from jobId in route parameter
+  useEffect(() => {
+    if (jobId) {
+      const job = jobs.find(j => j.id === jobId);
+      if (job) {
+        setApplyingJob(job);
+        setBidRate(job.salary);
+        setCoverLetter('Hi! I am very interested in this role and would love to collaborate on this. I have extensive experience in responsive development, TypeScript, and modern frameworks.');
+      } else {
+        setApplyingJob(null);
+        triggerToast("Job listing not found.");
+        navigate('/jobs', { replace: true });
+      }
+    } else {
+      setApplyingJob(null);
+    }
+  }, [jobId, jobs]);
 
   // Hardcode some categories for the quick chips
   const categoriesList = ['All', 'Developer', 'Designer', 'Electrician', 'Carpenter', 'Driver', 'Chef', 'Teacher', 'Photographer', 'Mechanic', 'Cleaner'];
@@ -283,226 +306,30 @@ export default function JobsPage({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6 w-full">
               {sortedJobs.map((job) => {
-                const isFeatured = job.id === 'job-1' || job.id === 'job-3';
-                const maxSkillsToShow = 2;
-                const visibleSkills = job.requirements.slice(0, maxSkillsToShow);
-                const remainingSkillsCount = job.requirements.length - maxSkillsToShow;
-                
                 return (
-                  <motion.div
+                  <JobCard
                     key={job.id}
-                    layoutId={`job-card-${job.id}`}
-                    onClick={() => {
-                      setApplyingJob(job);
-                      setBidRate(job.salary);
-                      setCoverLetter('Hi! I am very interested in this role and would love to collaborate on this. I have extensive experience in responsive development, TypeScript, and modern frameworks.');
+                    id={job.id}
+                    companyName={job.company}
+                    companyLogo={job.companyLogo}
+                    companyVerified={job.verified}
+                    title={job.title}
+                    shortDescription={job.description}
+                    location={job.location}
+                    salaryRange={job.salary}
+                    category={job.category}
+                    saved={job.bookmarked}
+                    applied={job.applied}
+                    onSave={toggleBookmark}
+                    onViewDetails={() => {
+                      navigate(`/jobs/${job.id}`);
                     }}
-                    className={`w-full overflow-hidden p-5 sm:p-[18px] bg-white sm:bg-transparent sm:premium-purple-card border border-[#ECECEC] sm:border-purple-500/10 dark:sm:border-purple-500/15 rounded-[22px] sm:rounded-none shadow-[0_8px_30px_rgba(0,0,0,0.08)] sm:shadow-none relative flex flex-col sm:flex-row gap-3.5 sm:gap-4 transition-all duration-200 cursor-pointer text-left ${
-                      isFeatured && !window.matchMedia('(max-width: 640px)').matches
-                        ? 'border-purple-500/25 dark:border-purple-500/30' 
-                        : ''
-                    }`}
-                  >
-                    {/* Mobile Top Row */}
-                    <div className="flex sm:hidden items-center justify-between gap-2 w-full">
-                      <div className="flex items-center gap-3.5">
-                        <img 
-                          src={job.companyLogo} 
-                          alt={job.company} 
-                          referrerPolicy="no-referrer"
-                          className="w-[56px] h-[56px] rounded-[16px] object-cover border border-[#ECECEC] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.04)] shrink-0"
-                        />
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[18px] font-semibold text-slate-800 leading-none">
-                              {job.company}
-                            </span>
-                            {job.verified && (
-                              <BadgeCheck className="w-5 h-5 text-[#2563EB] shrink-0" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {isFeatured && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-50 text-purple-600 border border-purple-100">
-                          Featured
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Desktop Left side: Company Logo */}
-                    <div className="hidden sm:block shrink-0">
-                      <img 
-                        src={job.companyLogo} 
-                        alt={job.company} 
-                        referrerPolicy="no-referrer"
-                        className="w-12 h-12 rounded-[14px] object-cover border border-slate-200/40 dark:border-purple-500/10 shrink-0 bg-slate-50 dark:bg-[#1C152B]"
-                      />
-                    </div>
-
-                    {/* Right side: Information Details */}
-                    <div className="flex-1 min-w-0 space-y-2.5">
-                      {/* Top row: Company details, Verified Badge, Bookmark buttons (Desktop only) */}
-                      <div className="hidden sm:flex items-center justify-between gap-2">
-                        <div className="flex items-center space-x-1.5 min-w-0 flex-wrap">
-                          <span className="text-[15px] font-semibold text-slate-600 dark:text-purple-300">
-                            {job.company}
-                          </span>
-                          
-                          {job.verified && (
-                            <div className="flex items-center space-x-1" title="Verified client">
-                              <span className="inline-flex items-center justify-center w-4.5 h-4.5 rounded-full bg-[#2563EB] text-white shadow-[0_0_8px_rgba(37,99,235,0.45)] hover:scale-110 transition-transform duration-150">
-                                <svg className="w-2.5 h-2.5 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                </svg>
-                              </span>
-                              <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">Verified</span>
-                            </div>
-                          )}
-
-                          {isFeatured && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/15">
-                              Featured
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Actions block: Share and save */}
-                        <div className="flex items-center space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button 
-                            onClick={(e) => handleShare(job, e)}
-                            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-purple-300 hover:bg-slate-100/50 dark:hover:bg-purple-950/30 rounded-lg transition-all cursor-pointer"
-                            title="Share listing"
-                          >
-                            <Share2 className="w-5 h-5" />
-                          </button>
-
-                          <button 
-                            onClick={(e) => toggleBookmark(job.id, e)}
-                            className={`p-1.5 rounded-lg transition-all cursor-pointer hover:bg-slate-100/50 dark:hover:bg-purple-950/30 hover:scale-115 ${
-                              job.bookmarked 
-                                ? 'text-[#7C3AED]' 
-                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                            }`}
-                            title={job.bookmarked ? "Remove bookmark" : "Save job"}
-                          >
-                            <Bookmark className={`w-5 h-5 ${job.bookmarked ? 'fill-current' : ''}`} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Job Title */}
-                      <h3 className="text-[20px] sm:text-[18px] font-bold text-slate-900 dark:text-white sm:dark:text-white sm:text-slate-900 leading-snug tracking-tight line-clamp-1">
-                        {job.title}
-                      </h3>
-
-                      {/* Mobile Salary and Location */}
-                      <div className="flex sm:hidden flex-col gap-2 w-full">
-                        <span className="text-[18px] font-bold text-emerald-600">
-                          {job.salary}
-                        </span>
-                        <span className="text-[15px] text-slate-500 flex items-center font-medium">
-                          <MapPin className="w-5 h-5 mr-1.5 text-slate-400 shrink-0" strokeWidth={1.5} />
-                          {job.location}
-                        </span>
-                      </div>
-
-                      {/* Job Description */}
-                      <p className="block sm:hidden text-[15px] font-normal leading-[1.6] text-slate-600 line-clamp-3">
-                        {job.description}
-                      </p>
-                      <p className="hidden sm:block text-[14px] font-normal leading-[1.7] text-slate-500 dark:text-purple-200/70 line-clamp-2">
-                        {job.description}
-                      </p>
-
-                      {/* Metadata badges row (Desktop only) */}
-                      <div className="hidden sm:flex flex-wrap items-center gap-3 text-[13px] font-medium text-slate-500 dark:text-slate-400 pt-1">
-                        <span className="px-2.5 py-0.5 bg-[#F3E8FF] dark:bg-[#3B2A5C]/80 text-[#7C3AED] dark:text-[#D8B4FE] text-[11px] font-bold uppercase tracking-wider font-mono rounded-md">
-                          {job.category}
-                        </span>
-                        <span className="text-[14px] font-semibold text-emerald-600 dark:text-emerald-400">
-                          {job.salary}
-                        </span>
-                        <span className="text-slate-500 dark:text-slate-400 flex items-center font-medium">
-                          <MapPin className="w-5 h-5 mr-1 text-slate-400 dark:text-purple-400/50 shrink-0" strokeWidth={1.5} />
-                          {job.location}
-                        </span>
-                      </div>
-
-                      {/* Mobile Skills Chips */}
-                      <div className="flex sm:hidden items-center gap-1.5 flex-wrap">
-                        <span className="text-[13px] font-bold text-slate-400 mr-1 uppercase tracking-wider font-mono">Skills:</span>
-                        {visibleSkills.map((req, i) => (
-                          <span key={i} className="px-3 py-1 bg-slate-50 border border-slate-100 text-slate-600 text-[13px] font-semibold rounded-full">
-                            {req}
-                          </span>
-                        ))}
-                        {remainingSkillsCount > 0 && (
-                          <span className="px-2.5 py-1 text-[13px] font-mono font-bold text-slate-500 bg-slate-100 rounded-full">
-                            +{remainingSkillsCount}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Desktop Skills & requirements tags */}
-                      <div className="hidden sm:flex items-center gap-1.5 flex-wrap pt-2.5 border-t border-slate-100 dark:border-purple-900/20">
-                        <span className="text-[11px] font-bold text-slate-400 dark:text-purple-400 uppercase tracking-wider font-mono mr-1">Skills:</span>
-                        {visibleSkills.map((req, i) => (
-                          <span key={i} className="px-3 py-1 bg-[#F3E8FF] dark:bg-[#3B2A5C] text-[#6D28D9] dark:text-[#D8B4FE] text-[10px] font-semibold rounded-full border border-purple-500/5">
-                            {req}
-                          </span>
-                        ))}
-                        {remainingSkillsCount > 0 && (
-                          <span className="px-2.5 py-1 text-[10px] font-mono font-bold text-slate-500 dark:text-purple-300 bg-slate-100 dark:bg-[#2C243A] rounded-full">
-                            +{remainingSkillsCount}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Mobile Buttons */}
-                      <div className="flex sm:hidden items-center gap-3 w-full mt-1.5" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => {
-                            setApplyingJob(job);
-                            setBidRate(job.salary);
-                            setCoverLetter('Hi! I am very interested in this role and would love to collaborate on this. I have extensive experience in responsive development, TypeScript, and modern frameworks.');
-                          }}
-                          className="h-[46px] rounded-[16px] bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm shadow-[0_4px_15px_rgba(124,58,237,0.25)] flex items-center justify-center flex-1 cursor-pointer active:scale-98 transition-transform"
-                        >
-                          Apply Now
-                        </button>
-                        
-                        <button
-                          onClick={(e) => {
-                            toggleBookmark(job.id, e);
-                          }}
-                          className={`h-[46px] w-[46px] rounded-[16px] border ${
-                            job.bookmarked 
-                              ? 'border-red-200 bg-red-50 text-red-500' 
-                              : 'border-[#ECECEC] bg-white text-slate-600'
-                          } flex items-center justify-center cursor-pointer active:scale-98 transition-transform shrink-0`}
-                          title={job.bookmarked ? "Remove bookmark" : "Save job"}
-                        >
-                          <Heart className={`w-5 h-5 ${job.bookmarked ? 'fill-current' : ''}`} />
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            triggerToast(`Opening direct message thread with ${job.company}...`);
-                          }}
-                          className="h-[46px] w-[46px] rounded-[16px] border border-[#ECECEC] bg-white text-slate-600 flex items-center justify-center cursor-pointer active:scale-98 transition-transform shrink-0"
-                          title="Message employer"
-                        >
-                          <MessageSquare className="w-5 h-5" />
-                        </button>
-                      </div>
-
-                    </div>
-                  </motion.div>
+                    onApply={(id, e) => {
+                      navigate(`/jobs/${job.id}`);
+                    }}
+                  />
                 );
               })}
             </div>
@@ -615,7 +442,7 @@ export default function JobsPage({
       <AnimatePresence>
         {applyingJob && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
-            <div className="absolute inset-0" onClick={() => setApplyingJob(null)} />
+            <div className="absolute inset-0" onClick={() => jobId ? navigate('/jobs') : setApplyingJob(null)} />
             
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -640,7 +467,7 @@ export default function JobsPage({
                 </div>
                 
                 <button 
-                  onClick={() => setApplyingJob(null)}
+                  onClick={() => jobId ? navigate('/jobs') : setApplyingJob(null)}
                   className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -690,7 +517,7 @@ export default function JobsPage({
               <div className="flex items-center justify-end space-x-3 pt-5 mt-4 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setApplyingJob(null)}
+                  onClick={() => jobId ? navigate('/jobs') : setApplyingJob(null)}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer"
                 >
                   Cancel
@@ -699,7 +526,11 @@ export default function JobsPage({
                   type="button"
                   onClick={() => {
                     handleApplyJob(applyingJob.id, bidRate, coverLetter);
-                    setApplyingJob(null);
+                    if (jobId) {
+                      navigate('/jobs');
+                    } else {
+                      setApplyingJob(null);
+                    }
                   }}
                   className="px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white shadow-md hover:shadow-lg transition-all cursor-pointer"
                 >

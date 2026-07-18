@@ -1,8 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
+import { analytics } from './analytics';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+export let NEXT_PUBLIC_APP_URL = (import.meta as any).env?.VITE_NEXT_PUBLIC_APP_URL || '';
+
+// Fallback to current browser origin if undefined
+if (!NEXT_PUBLIC_APP_URL && typeof window !== 'undefined') {
+  NEXT_PUBLIC_APP_URL = window.location.origin;
+}
 
 export let supabase: any = null;
 
@@ -17,21 +25,25 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL !== 'YOUR_SUPABASE_URL') {
 
 // Dynamically try to load/refresh Supabase client from a runtime config endpoint
 export async function initializeRuntimeSupabase() {
-  if (supabase) return supabase;
   try {
     const res = await fetch('/api/config');
     if (res.ok) {
       const data = await res.json();
+      if (data.appUrl) {
+        NEXT_PUBLIC_APP_URL = data.appUrl;
+      }
       if (data.supabaseUrl && data.supabaseAnonKey) {
-        supabase = createClient(data.supabaseUrl, data.supabaseAnonKey);
-        console.log('Supabase client initialized dynamically from runtime /api/config');
+        if (!supabase) {
+          supabase = createClient(data.supabaseUrl, data.supabaseAnonKey);
+          console.log('Supabase client initialized dynamically from runtime /api/config');
+        }
         return supabase;
       }
     }
   } catch (err) {
     console.warn('Could not load dynamic configuration from /api/config. Using offline mode.');
   }
-  return null;
+  return supabase;
 }
 
 // =========================================================================
@@ -67,11 +79,19 @@ export interface LocalProfile {
   city: string;
   state: string;
   country: string;
+  country_code?: string;
+  state_code?: string;
+  district?: string;
+  latitude?: number;
+  longitude?: number;
   preferred_language: string;
   account_status: 'active' | 'disabled';
   profile_type: 'basic' | 'worker' | 'company';
   created_at: string;
   updated_at: string;
+  email_verified_for_actions?: boolean;
+  onboarding_completed?: boolean;
+  banner_id?: string;
 }
 
 export interface LocalWorkerProfile {
@@ -146,7 +166,8 @@ const DEFAULT_PROFILES: LocalProfile[] = [
     account_status: 'active',
     profile_type: 'basic',
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
+    email_verified_for_actions: true
   }
 ];
 
@@ -168,47 +189,180 @@ export const openCommDb = {
 };
 
 // Unified database interactions
+export async function assertUserEmailConfirmed() {
+  if (supabase) {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) {
+      throw new Error("Authentication required. Please sign in.");
+    }
+    
+    // Fetch profile and check email_verified_for_actions
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('email_verified_for_actions')
+      .eq('id', user.id)
+      .single();
+      
+    if (profileErr || !profile || !profile.email_verified_for_actions) {
+      throw new Error("Email verification is required for applications, job posting, hiring requests, and professional messaging.");
+    }
+  } else {
+    // Local emulation checking
+    const loggedInId = localStorage.getItem('opencomm_user_id') || 'user-demo-id';
+    const profiles = openCommDb.getProfiles();
+    const profile = profiles.find(p => p.id === loggedInId);
+    if (!profile || !profile.email_verified_for_actions) {
+      throw new Error("Email verification is required for applications, job posting, hiring requests, and professional messaging.");
+    }
+  }
+}
+
 export const dbService = {
   async getProfile(userId: string): Promise<LocalProfile | null> {
+    let remoteProfile: any = null;
     if (supabase) {
       try {
         const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-        if (!error && data) return data;
+        if (!error && data) {
+          remoteProfile = data;
+        }
       } catch (err) {
         console.error('getProfile Supabase error:', err);
       }
     }
     const profiles = openCommDb.getProfiles();
-    return profiles.find(p => p.id === userId) || null;
+    const localProfile = profiles.find(p => p.id === userId) || null;
+
+    if (remoteProfile) {
+      // Merge remote profile with local profile to preserve fields that cannot be saved on remote (e.g. onboarding_completed)
+      const merged = {
+        ...localProfile,
+        ...remoteProfile,
+        city: remoteProfile.city || localProfile?.city || '',
+        state: remoteProfile.state || localProfile?.state || '',
+        country: remoteProfile.country || localProfile?.country || '',
+        country_code: remoteProfile.country_code || localProfile?.country_code || '',
+        state_code: remoteProfile.state_code || localProfile?.state_code || '',
+        district: remoteProfile.district || localProfile?.district || '',
+        latitude: remoteProfile.latitude !== undefined ? remoteProfile.latitude : localProfile?.latitude,
+        longitude: remoteProfile.longitude !== undefined ? remoteProfile.longitude : localProfile?.longitude,
+        preferred_language: remoteProfile.preferred_language || localProfile?.preferred_language || '',
+        bio: remoteProfile.bio || localProfile?.bio || '',
+        avatar_url: remoteProfile.avatar_url || localProfile?.avatar_url || '',
+        banner_id: remoteProfile.banner_id || localProfile?.banner_id || 'banner_01',
+        onboarding_completed: remoteProfile.onboarding_completed ?? localProfile?.onboarding_completed ?? (remoteProfile.city ? true : false),
+        email_verified_for_actions: remoteProfile.email_verified_for_actions ?? localProfile?.email_verified_for_actions ?? false,
+      } as LocalProfile;
+
+      // Update the local cache with the merged profile
+      const idx = profiles.findIndex(p => p.id === userId);
+      if (idx >= 0) {
+        profiles[idx] = merged;
+      } else {
+        profiles.push(merged);
+      }
+      openCommDb.saveProfiles(profiles);
+
+      return merged;
+    }
+    return localProfile;
   },
 
   async updateProfile(userId: string, updates: Partial<LocalProfile>): Promise<LocalProfile> {
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('profiles').upsert({
-          id: userId,
-          ...updates,
-          updated_at: new Date().toISOString()
-        }).select().single();
-        if (!error && data) return data;
-      } catch (err) {
-        console.error('updateProfile Supabase error:', err);
-      }
-    }
+    // 1. First, save to local profiles emulation so local data is always up-to-date
     const profiles = openCommDb.getProfiles();
     const idx = profiles.findIndex(p => p.id === userId);
     const updated = {
-      ...(profiles[idx] || { id: userId, created_at: new Date().toISOString(), profile_type: 'basic', account_status: 'active' }),
+      ...(profiles[idx] || { id: userId, created_at: new Date().toISOString(), profile_type: 'basic', account_status: 'active', onboarding_completed: false }),
       ...updates,
       updated_at: new Date().toISOString()
     } as LocalProfile;
+    
+    // Explicitly update onboarding_completed if updates contains it, or if bio/city is provided
+    if (updates.city || updates.onboarding_completed) {
+      updated.onboarding_completed = true;
+    }
+
     if (idx >= 0) profiles[idx] = updated;
     else profiles.push(updated);
     openCommDb.saveProfiles(profiles);
+
+    // 2. Next, save to remote Supabase, filtering out non-existent columns (onboarding_completed, email_verified_for_actions)
+    if (supabase) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.id === userId) {
+          const allowedRemoteColumns = [
+            'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
+            'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
+            'bio', 'account_status', 'profile_type', 'created_at', 'updated_at',
+            'onboarding_completed', 'banner_id'
+          ];
+          
+          const filteredUpdates: any = {};
+          for (const [key, val] of Object.entries(updates)) {
+            if (allowedRemoteColumns.includes(key)) {
+              filteredUpdates[key] = val;
+            }
+          }
+
+          // Check if profile exists to prevent any potential RLS upsert anomalies
+          const { data: existing } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('id', userId)
+            .maybeSingle();
+
+          let result;
+          if (existing) {
+            result = await supabase
+              .from('profiles')
+              .update({
+                ...filteredUpdates,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', userId)
+              .select()
+              .maybeSingle();
+          } else {
+            result = await supabase
+              .from('profiles')
+              .insert({
+                id: userId,
+                ...filteredUpdates,
+                updated_at: new Date().toISOString()
+              })
+              .select()
+              .maybeSingle();
+          }
+
+          if (result.error) {
+            console.error('updateProfile Supabase error returned:', result.error.message);
+          } else if (result.data) {
+            // Merge data from remote back into local cache
+            const freshProfiles = openCommDb.getProfiles();
+            const freshIdx = freshProfiles.findIndex(p => p.id === userId);
+            if (freshIdx >= 0) {
+              freshProfiles[freshIdx] = {
+                ...freshProfiles[freshIdx],
+                ...result.data
+              };
+              openCommDb.saveProfiles(freshProfiles);
+            }
+          }
+        } else {
+          console.log(`[dbService] Bypassed Supabase remote sync for local/unauthenticated user profile update (userId: ${userId})`);
+        }
+      } catch (err) {
+        console.error('updateProfile Supabase exception:', err);
+      }
+    }
+
     return updated;
   },
 
   async createWorkerProfile(worker: LocalWorkerProfile): Promise<LocalWorkerProfile> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         await supabase.from('worker_profiles').upsert({
@@ -247,6 +401,14 @@ export const dbService = {
 
     // Sync user profile type
     await this.updateProfile(worker.id, { profile_type: 'worker' });
+    
+    // Track worker profile creation in Google Analytics
+    analytics.trackWorkerProfileCreated({
+      profession: worker.profession,
+      skills: worker.skills,
+      rate: worker.hourly_rate
+    });
+
     return worker;
   },
 
@@ -278,6 +440,7 @@ export const dbService = {
   },
 
   async createCompanyProfile(company: LocalCompanyProfile): Promise<LocalCompanyProfile> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('companies').insert({
@@ -300,6 +463,14 @@ export const dbService = {
 
     // Sync user profile type
     await this.updateProfile(company.id, { profile_type: 'company' });
+
+    // Track company profile creation in Google Analytics
+    analytics.trackEmployerProfileCreated({
+      name: company.name,
+      city: company.city || '',
+      state: company.state || ''
+    });
+
     return company;
   },
 
@@ -331,6 +502,7 @@ export const dbService = {
 
   // Contact requests privacy
   async requestContactDetails(req: Omit<LocalContactRequest, 'id' | 'created_at' | 'status'>): Promise<LocalContactRequest> {
+    await assertUserEmailConfirmed();
     const requests = openCommDb.getContactRequests();
     const newReq: LocalContactRequest = {
       ...req,
@@ -361,6 +533,7 @@ export const dbService = {
 
   // Hiring Requests Flow
   async sendHiringRequest(req: Omit<LocalHiringRequest, 'id' | 'created_at' | 'status'>): Promise<LocalHiringRequest> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('hiring_requests').insert({
@@ -471,6 +644,7 @@ export const dbService = {
 
   // Jobs integration
   async createJobInDb(job: any, postedBy: string): Promise<any> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('jobs').insert({
@@ -483,7 +657,14 @@ export const dbService = {
           posted_by: postedBy,
           is_active: true
         }).select().single();
-        if (!error && data) return data;
+        if (!error && data) {
+          analytics.trackJobPosted({
+            title: job.title,
+            category: job.category,
+            salary: job.salary
+          });
+          return data;
+        }
       } catch (err) {
         console.error('createJobInDb Supabase error:', err);
       }
@@ -505,6 +686,7 @@ export const dbService = {
 
   // Job Applications
   async applyToJobInDb(jobId: string, applicantId: string, note: string): Promise<any> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('job_applications').insert({
@@ -513,7 +695,10 @@ export const dbService = {
           cover_letter: note,
           status: 'pending'
         }).select().single();
-        if (!error && data) return data;
+        if (!error && data) {
+          analytics.trackJobApplied(jobId, note.length);
+          return data;
+        }
       } catch (err) {
         console.error('applyToJobInDb Supabase error:', err);
       }
@@ -620,6 +805,7 @@ export const dbService = {
   },
 
   async createConversationInDb(jobId: string | null, applicantId: string | null, creatorId: string, memberId: string): Promise<any> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('conversations').insert({
@@ -651,6 +837,7 @@ export const dbService = {
   },
 
   async sendMessageToDb(convoId: string, senderId: string, senderName: string, senderAvatar: string, text: string): Promise<any> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('messages').insert({
@@ -735,6 +922,7 @@ export const dbService = {
   },
 
   async addReviewInDb(reviewerId: string, revieweeId: string, rating: number, comment: string): Promise<any> {
+    await assertUserEmailConfirmed();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('reviews').insert({

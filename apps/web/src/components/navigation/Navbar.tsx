@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Compass, Home, Briefcase, Users, MessageSquare, User, 
@@ -24,6 +25,8 @@ interface NavbarProps {
   userType: 'normal' | 'worker' | 'company';
   onOpenAuth: (tab: 'signin' | 'signup') => void;
   onLogout: () => void;
+  isEmailVerified?: boolean;
+  onVerifyEmail?: () => void;
 }
 
 export default function Navbar({
@@ -43,7 +46,10 @@ export default function Navbar({
   userType,
   onOpenAuth,
   onLogout,
+  isEmailVerified = true,
+  onVerifyEmail,
 }: NavbarProps) {
+  const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
@@ -57,17 +63,24 @@ export default function Navbar({
   };
 
   const navItems = [
-    { id: 'home', label: 'Home', icon: Home },
-    { id: 'jobs', label: 'Jobs', icon: Briefcase },
-    { id: 'workers', label: 'Workers', icon: Users },
+    { id: 'home', label: 'Home', icon: Home, to: '/' },
+    { id: 'jobs', label: 'Jobs', icon: Briefcase, to: '/jobs' },
+    { id: 'workers', label: 'Workers', icon: Users, to: '/workers' },
     ...(isLoggedIn ? [
-      { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount },
-      { id: 'profile', label: 'Profile', icon: User },
+      { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, to: '/messages' },
+      { id: 'profile', label: 'Profile', icon: User, to: '/profile' },
     ] : [])
   ];
 
   const handleNavClick = (viewId: string) => {
-    setCurrentView(viewId);
+    if (viewId === 'home') navigate('/');
+    else if (viewId === 'jobs') navigate('/jobs');
+    else if (viewId === 'workers') navigate('/workers');
+    else if (viewId === 'messages') navigate('/messages');
+    else if (viewId === 'profile') navigate('/profile');
+    else if (viewId === 'saved-jobs') navigate('/profile/saved-jobs');
+    else if (viewId === 'saved-workers') navigate('/profile/saved-workers');
+    
     setShowNotifications(false);
     setShowProfileMenu(false);
     setShowSettingsMenu(false);
@@ -81,9 +94,10 @@ export default function Navbar({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-13 md:h-16 flex items-center justify-between">
           
           {/* Logo Brand Section */}
-          <div 
-            className="flex items-center space-x-2 cursor-pointer shrink-0" 
+          <Link 
+            to="/"
             onClick={() => handleNavClick('home')}
+            className="flex items-center space-x-2 cursor-pointer shrink-0" 
             id="brand-logo"
           >
             <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-tr from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-md shadow-blue-500/20">
@@ -92,7 +106,7 @@ export default function Navbar({
             <span className="text-base md:text-lg font-bold tracking-tight font-display bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent">
               OpenComm
             </span>
-          </div>
+          </Link>
 
           {/* Center Navigation Links (Hidden on mobile) */}
           <nav className="hidden lg:flex items-center space-x-1 bg-slate-100/60 dark:bg-slate-900/40 p-1 rounded-full border border-slate-200/10 dark:border-slate-800/10" id="desktop-nav">
@@ -103,9 +117,15 @@ export default function Navbar({
                 (item.id === 'profile' && (currentView === 'saved-jobs' || currentView === 'saved-workers'));
               
               return (
-                <button
+                <Link
                   key={item.id}
-                  onClick={() => handleNavClick(item.id)}
+                  to={item.to}
+                  onClick={() => {
+                    setShowNotifications(false);
+                    setShowProfileMenu(false);
+                    setShowSettingsMenu(false);
+                    setShowThemeMenu(false);
+                  }}
                   className="relative px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-300 flex items-center space-x-2 cursor-pointer outline-none"
                   id={`nav-${item.id}`}
                 >
@@ -125,7 +145,7 @@ export default function Navbar({
                       {item.badgeCount}
                     </span>
                   ) : null}
-                </button>
+                </Link>
               );
             })}
           </nav>
@@ -237,15 +257,18 @@ export default function Navbar({
                       setShowNotifications(false);
                       setShowSettingsSub(false); // Reset settings expansion on open
                     }}
-                    className="w-8 h-8 md:w-9 md:h-9 rounded-full overflow-hidden border border-slate-200 dark:border-slate-800 hover:scale-105 transition-all cursor-pointer shrink-0"
+                    className="relative w-8 h-8 md:w-9 md:h-9 rounded-full border border-slate-200 dark:border-slate-800 hover:scale-105 transition-all cursor-pointer shrink-0"
                     id="profile-avatar-btn"
                   >
                     <img 
                       src={userPhoto} 
                       alt={username} 
                       referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full rounded-full object-cover"
                     />
+                    {!isEmailVerified && (
+                      <span className="absolute -top-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:ring-[#080B18]" />
+                    )}
                   </button>
 
                   <AnimatePresence>
@@ -260,19 +283,42 @@ export default function Navbar({
                           transition={{ duration: 0.15 }}
                           className="absolute right-0 mt-2.5 w-64 bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-2xl shadow-xl z-50 overflow-hidden py-1.5"
                         >
-                          {/* Header info card */}
+                           {/* Header info card */}
                           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center space-x-3 text-left bg-slate-50/40 dark:bg-slate-900/30">
                             <img 
                               src={userPhoto} 
                               alt={username} 
                               referrerPolicy="no-referrer"
-                              className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700"
+                              className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
                             />
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <span className="block font-semibold text-sm text-slate-900 dark:text-white truncate">{username}</span>
-                              <span className="block text-[11px] text-slate-400 truncate">
-                                {userType === 'worker' ? 'Worker Profile' : userType === 'company' ? 'Company Partner' : 'Professional / Buyer'}
-                              </span>
+                              <div className="mt-1 flex flex-col space-y-0.5">
+                                {isEmailVerified ? (
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                    Email Verified
+                                  </span>
+                                ) : (
+                                  <div className="flex flex-col items-start space-y-0.5">
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                                      Email Not Verified
+                                    </span>
+                                    {onVerifyEmail && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setShowProfileMenu(false);
+                                          onVerifyEmail();
+                                        }}
+                                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-left"
+                                        id="btn-dropdown-verify-now"
+                                      >
+                                        Verify Now
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
 
@@ -428,9 +474,15 @@ export default function Navbar({
               (item.id === 'profile' && (currentView === 'saved-jobs' || currentView === 'saved-workers'));
             
             return (
-              <button
+              <Link
                 key={item.id}
-                onClick={() => handleNavClick(item.id)}
+                to={item.to}
+                onClick={() => {
+                  setShowNotifications(false);
+                  setShowProfileMenu(false);
+                  setShowSettingsMenu(false);
+                  setShowThemeMenu(false);
+                }}
                 className="relative flex flex-col items-center justify-center flex-1 h-full py-0.5 text-slate-500 dark:text-slate-400 focus:outline-none min-h-[44px]"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 id={`mobile-nav-${item.id}`}
@@ -451,7 +503,7 @@ export default function Navbar({
                     {item.badgeCount}
                   </span>
                 ) : null}
-              </button>
+              </Link>
             );
           })}
         </nav>

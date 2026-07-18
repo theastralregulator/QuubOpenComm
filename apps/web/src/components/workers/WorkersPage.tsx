@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, SlidersHorizontal, MapPin, Star, Bookmark, MessageSquare, 
@@ -7,6 +8,8 @@ import {
   BadgeCheck, MessageCircle, Clock, ShieldCheck, Globe, StarHalf
 } from 'lucide-react';
 import { Worker } from '../../types';
+import WorkerCard from '../cards/WorkerCard';
+import { analytics } from '../../lib/analytics';
 
 interface WorkersPageProps {
   workers: Worker[];
@@ -35,6 +38,8 @@ export default function WorkersPage({
   isLoggedIn = false,
   onOpenAuth,
 }: WorkersPageProps) {
+  const { workerId } = useParams();
+  const navigate = useNavigate();
   // --- ADDITIONAL FILTER STATES ---
   const [locationFilter, setLocationFilter] = useState('');
   const [availabilityFilter, setAvailabilityFilter] = useState('All'); // All, Available Now, Part-time, Full-time
@@ -50,6 +55,29 @@ export default function WorkersPage({
   const [selectedWorkerProfile, setSelectedWorkerProfile] = useState<Worker | null>(null);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  // Sync worker profile state with URL route parameter
+  useEffect(() => {
+    if (workerId) {
+      const worker = workers.find(w => w.id === workerId);
+      if (worker) {
+        setSelectedWorkerProfile(worker);
+      } else {
+        setSelectedWorkerProfile(null);
+        triggerToast("Worker profile not found.");
+        navigate('/workers', { replace: true });
+      }
+    } else {
+      setSelectedWorkerProfile(null);
+    }
+  }, [workerId, workers]);
+
+  // Track selected worker profile view in Google Analytics
+  useEffect(() => {
+    if (selectedWorkerProfile) {
+      analytics.trackProfileViewed('worker', selectedWorkerProfile.id, selectedWorkerProfile.name);
+    }
+  }, [selectedWorkerProfile]);
 
   const requireAuthGuard = (action: string, callback: () => void) => {
     if (isLoggedIn) {
@@ -72,6 +100,7 @@ export default function WorkersPage({
     setSearchQuery(term);
     setIsSearchFocused(false);
     triggerToast(`Searching for "${term}"`);
+    analytics.trackSearch(term);
   };
 
   // --- ACTIVE FILTER COUNT CALCULATION ---
@@ -397,245 +426,33 @@ export default function WorkersPage({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {sortedWorkers.map((worker) => {
-              const isBookmarked = (worker as any).bookmarked || false;
-
-              // Setup availability design
-              let availColor = "bg-slate-400";
-              if (worker.availability === 'Available Now') {
-                availColor = "bg-emerald-500";
-              } else if (worker.availability === 'Part-time') {
-                availColor = "bg-indigo-500";
-              } else if (worker.availability === 'Full-time') {
-                availColor = "bg-blue-500";
-              }
-
-              const maxSkillsToShow = 2;
-              const visibleSkills = worker.skills.slice(0, maxSkillsToShow);
-              const remainingSkillsCount = worker.skills.length - maxSkillsToShow;
-
-              return (
-                <motion.div
-                  key={worker.id}
-                  layoutId={`worker-card-${worker.id}`}
-                  onClick={() => setSelectedWorkerProfile(worker)}
-                  className="w-full overflow-hidden p-5 sm:p-[18px] bg-white sm:bg-transparent sm:premium-purple-card border border-[#ECECEC] sm:border-transparent dark:sm:border-transparent rounded-[22px] sm:rounded-none shadow-[0_8px_30px_rgba(0,0,0,0.08)] sm:shadow-none relative flex flex-col sm:flex-row gap-3.5 sm:gap-4 transition-all duration-200 cursor-pointer text-left"
-                >
-                  {/* Mobile Top Row */}
-                  <div className="flex sm:hidden items-center justify-between gap-2 w-full">
-                    <div className="flex items-center gap-3.5">
-                      <div className="relative shrink-0">
-                        <img 
-                          src={worker.photo} 
-                          alt={worker.name} 
-                          referrerPolicy="no-referrer"
-                          className="w-[56px] h-[56px] rounded-[16px] object-cover border border-[#ECECEC] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
-                        />
-                        <span 
-                          className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${availColor}`} 
-                          title={worker.availability}
-                        />
-                      </div>
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[18px] font-semibold text-slate-800 leading-none">
-                            {worker.name}
-                          </span>
-                          {worker.verified && (
-                            <BadgeCheck className="w-5 h-5 text-[#2563EB] shrink-0" />
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-1">
-                          <span className="inline-flex items-center text-amber-500 font-bold bg-amber-500/5 px-2 py-0.5 rounded-lg text-[12px] font-mono border border-amber-500/10">
-                            <Star className="w-4 h-4 mr-0.5 fill-current" /> 
-                            {worker.rating.toFixed(1)}
-                          </span>
-                          <span className="text-xs text-slate-400 font-medium font-sans">
-                            ({worker.experience} yrs exp)
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Desktop Left side: Profile Photo & Availability indicator badge */}
-                  <div className="hidden sm:block relative shrink-0">
-                    <img 
-                      src={worker.photo} 
-                      alt={worker.name} 
-                      referrerPolicy="no-referrer"
-                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-[14px] object-cover border border-slate-200/40 dark:border-purple-500/10 shrink-0 bg-slate-50 dark:bg-[#1C152B]"
-                    />
-                    <span 
-                      className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-[#171222] ${availColor}`} 
-                      title={worker.availability}
-                    />
-                  </div>
-
-                  {/* Right side: Worker info and compact rows */}
-                  <div className="flex-1 min-w-0 space-y-2">
-                    {/* Top Row: Name, Verified check, Rating badge, Action buttons (Desktop only) */}
-                    <div className="hidden sm:flex items-center justify-between gap-2">
-                      <div className="flex items-center space-x-1.5 min-w-0 flex-wrap">
-                        <span className="text-[18px] font-bold text-slate-900 dark:text-white truncate">
-                          {worker.name}
-                        </span>
-                        {worker.verified && (
-                          <div className="flex items-center space-x-1" title="Verified Expert">
-                            <span className="inline-flex items-center justify-center w-4.5 h-4.5 rounded-full bg-[#2563EB] text-white shadow-[0_0_8px_rgba(37,99,235,0.45)] hover:scale-110 transition-transform duration-150 animate-fade-in">
-                              <svg className="w-2.5 h-2.5 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            </span>
-                            <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">Verified</span>
-                          </div>
-                        )}
-                        <span className="inline-flex items-center text-amber-500 font-bold bg-amber-500/5 dark:bg-amber-500/10 px-2 py-0.5 rounded-lg text-[12px] font-mono border border-amber-500/10">
-                          <Star className="w-4 h-4 mr-0.5 fill-current" /> 
-                          {worker.rating.toFixed(1)}
-                        </span>
-                      </div>
-
-                      {/* Actions: Message & Bookmark */}
-                      <div className="flex items-center space-x-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button 
-                          onClick={() => {
-                            requireAuthGuard('Message Worker', () => onOpenMessage(worker.name));
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-purple-300 hover:bg-slate-100/50 dark:hover:bg-purple-950/30 rounded-lg transition-all cursor-pointer"
-                          title="Message professional"
-                        >
-                          <MessageSquare className="w-5 h-5" />
-                        </button>
-                        
-                        <button 
-                          onClick={(e) => {
-                            toggleWorkerBookmark(worker.id, e);
-                          }}
-                          className={`p-1.5 rounded-lg transition-all cursor-pointer hover:bg-slate-100/50 dark:hover:bg-purple-950/30 hover:scale-115 ${
-                            isBookmarked 
-                              ? 'text-red-500' 
-                              : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                          }`}
-                          title={isBookmarked ? "Remove bookmark" : "Save professional"}
-                        >
-                          <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Role / Profession title (Avoid all uppercase!) */}
-                    <p className="text-[20px] sm:text-[13px] font-bold text-slate-900 sm:text-indigo-600 dark:sm:text-indigo-400 font-sans leading-snug">
-                      {worker.title}
-                    </p>
-
-                    {/* Mobile Rate and Location */}
-                    <div className="flex sm:hidden flex-col gap-2 w-full">
-                      <span className="text-[18px] font-bold text-emerald-600">
-                        ${worker.hourlyRate}/hr
-                      </span>
-                      <span className="text-[15px] text-slate-500 flex items-center font-medium">
-                        <MapPin className="w-5 h-5 mr-1.5 text-slate-400 shrink-0" strokeWidth={1.5} />
-                        {worker.location}
-                      </span>
-                    </div>
-
-                    {/* Compact stats: Availability, Exp, Rate, Location (Desktop only) */}
-                    <div className="hidden sm:flex items-center flex-wrap gap-2 text-[13px] font-medium text-slate-500 dark:text-purple-200/50 pt-0.5">
-                      <span className="font-semibold text-slate-600 dark:text-purple-300">{worker.experience} years experience</span>
-                      <span>•</span>
-                      <span className="text-blue-600 dark:text-blue-400 font-bold">Hourly rate: ${worker.hourlyRate}/hr</span>
-                      <span>•</span>
-                      <span className="truncate max-w-[140px] flex items-center">
-                        <MapPin className="w-5 h-5 mr-1 text-slate-400 dark:text-purple-400/50 shrink-0" strokeWidth={1.5} />
-                        {worker.location.split(',')[0]}
-                      </span>
-                    </div>
-
-                    {/* Short Bio */}
-                    <p className="block sm:hidden text-[15px] font-normal leading-[1.6] text-slate-600 line-clamp-3">
-                      {worker.bio}
-                    </p>
-                    <p className="hidden sm:block text-[14px] font-normal leading-[1.7] text-slate-500 dark:text-purple-200/70 line-clamp-2">
-                      {worker.bio}
-                    </p>
-
-                    {/* Mobile Skills Chips */}
-                    <div className="flex sm:hidden items-center gap-1.5 flex-wrap">
-                      <span className="text-[13px] font-bold text-slate-400 mr-1 uppercase tracking-wider font-mono">Skills:</span>
-                      {visibleSkills.map((skill, index) => (
-                        <span key={index} className="px-3 py-1 bg-slate-50 border border-slate-100 text-slate-600 text-[13px] font-semibold rounded-full">
-                          {skill}
-                        </span>
-                      ))}
-                      {remainingSkillsCount > 0 && (
-                        <span className="px-2.5 py-1 text-[13px] font-mono font-bold text-slate-500 bg-slate-100 rounded-full">
-                          +{remainingSkillsCount}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Desktop Skills Capsules */}
-                    <div className="hidden sm:flex items-center gap-1.5 flex-wrap pt-2.5 border-t border-slate-100 dark:border-purple-900/20">
-                      <span className="text-[11px] font-bold text-slate-400 dark:text-purple-400 uppercase tracking-wider font-mono mr-1">Skills:</span>
-                      {visibleSkills.map((skill, index) => (
-                        <span 
-                          key={index} 
-                          className="px-3 py-1 bg-[#F3E8FF] dark:bg-[#3B2A5C] text-[#6D28D9] dark:text-[#D8B4FE] text-[10px] font-semibold rounded-full border border-purple-500/5"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                      {remainingSkillsCount > 0 && (
-                        <span className="px-2.5 py-1 text-[10px] font-mono font-bold text-slate-500 dark:text-purple-300 bg-slate-100 dark:bg-[#2C243A] rounded-full">
-                          +{remainingSkillsCount}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Mobile Buttons */}
-                    <div className="flex sm:hidden items-center gap-3 w-full mt-1.5" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={(e) => {
-                          requireAuthGuard('Hire Worker', () => onOpenHire(worker, e));
-                        }}
-                        className="h-[46px] rounded-[16px] bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm shadow-[0_4px_15px_rgba(124,58,237,0.25)] flex items-center justify-center flex-1 cursor-pointer active:scale-98 transition-transform"
-                      >
-                        Hire Now
-                      </button>
-                      
-                      <button
-                        onClick={(e) => {
-                          toggleWorkerBookmark(worker.id, e);
-                        }}
-                        className={`h-[46px] w-[46px] rounded-[16px] border ${
-                          isBookmarked 
-                            ? 'border-red-200 bg-red-50 text-red-500' 
-                            : 'border-[#ECECEC] bg-white text-slate-600'
-                        } flex items-center justify-center cursor-pointer active:scale-98 transition-transform shrink-0`}
-                        title={isBookmarked ? "Remove bookmark" : "Save professional"}
-                      >
-                        <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} />
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          requireAuthGuard('Message Worker', () => onOpenMessage(worker.name));
-                        }}
-                        className="h-[46px] w-[46px] rounded-[16px] border border-[#ECECEC] bg-white text-slate-600 flex items-center justify-center cursor-pointer active:scale-98 transition-transform shrink-0"
-                        title="Message worker"
-                      >
-                        <MessageSquare className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+              {sortedWorkers.map((worker) => {
+                const isBookmarked = (worker as any).bookmarked || false;
+                return (
+                  <WorkerCard
+                    key={worker.id}
+                    id={worker.id}
+                    name={worker.name}
+                    avatarUrl={worker.photo}
+                    verified={worker.verified}
+                    professionalTitle={worker.title}
+                    rating={worker.rating}
+                    experienceYears={worker.experience}
+                    hourlyRate={worker.hourlyRate}
+                    shortBio={worker.bio}
+                    location={worker.location}
+                    availability={worker.availability}
+                    saved={isBookmarked}
+                    onSave={toggleWorkerBookmark}
+                    onViewProfile={() => navigate(`/workers/${worker.id}`)}
+                    onMessage={() => {
+                      requireAuthGuard('Message Worker', () => onOpenMessage(worker.name));
+                    }}
+                  />
+                );
+              })}
+            </div>
         )}
       </div>
 
@@ -828,7 +645,7 @@ export default function WorkersPage({
         {selectedWorkerProfile && (
           <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/50 dark:bg-slate-950/70 backdrop-blur-md">
             {/* Backdrop click to close */}
-            <div className="absolute inset-0" onClick={() => setSelectedWorkerProfile(null)} />
+            <div className="absolute inset-0" onClick={() => workerId ? navigate('/workers') : setSelectedWorkerProfile(null)} />
 
             <motion.div
               initial={{ x: '100%' }}
@@ -840,7 +657,7 @@ export default function WorkersPage({
               {/* Header Floating Action */}
               <div className="absolute top-4 left-4 z-50">
                 <button
-                  onClick={() => setSelectedWorkerProfile(null)}
+                  onClick={() => workerId ? navigate('/workers') : setSelectedWorkerProfile(null)}
                   className="p-2.5 bg-white/90 dark:bg-slate-900/90 hover:bg-white dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-full shadow-lg border border-slate-200/50 dark:border-slate-800 flex items-center justify-center cursor-pointer transition-all hover:scale-105"
                 >
                   <ArrowLeft className="w-4 h-4 mr-1" />

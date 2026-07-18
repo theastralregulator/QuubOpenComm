@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin, 
   ChevronRight, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
-  Mail
+  Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
 } from 'lucide-react';
 import { Job, Worker, Category, Activity, Notification, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
-import { supabase, initializeRuntimeSupabase, dbService } from './lib/supabase';
+import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL } from './lib/supabase';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
+import { analytics } from './lib/analytics';
 import { 
   INITIAL_CATEGORIES, 
   INITIAL_JOBS, 
@@ -28,11 +30,17 @@ import QuickActions from './components/home/QuickActions';
 import DashboardSummary from './components/home/DashboardSummary';
 import RecommendedForYou from './components/home/RecommendedForYou';
 import JobsPage from './components/jobs/JobsPage';
+import JobDetailPage from './components/jobs/JobDetailPage';
 import WorkersPage from './components/workers/WorkersPage';
+import WorkerDetailPage from './components/workers/WorkerDetailPage';
 import SavedJobsPage from './components/saved/SavedJobsPage';
 import SavedWorkersPage from './components/saved/SavedWorkersPage';
 import MessagesPage from './components/messages/MessagesPage';
 import ProfilePage from './components/profile/ProfilePage';
+import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
+import LocationSelector from './components/common/LocationSelector';
+import RouteTracker from './components/common/RouteTracker';
+import NotFoundPage from './components/common/NotFoundPage';
 
 export default function App() {
   // --- CORE SYSTEM STATES ---
@@ -51,8 +59,33 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
-  // Router Active view
-  const [currentView, setCurrentView] = useState('home'); // home, jobs, workers, messages, profile, saved-jobs, saved-workers
+  // Router Hooks
+  const location = useLocation();
+  const navigate = useNavigate();
+  const path = location.pathname;
+
+  // Derive currentView from path
+  let currentView = 'home';
+  if (path === '/') currentView = 'home';
+  else if (path.startsWith('/jobs')) currentView = 'jobs';
+  else if (path.startsWith('/workers')) currentView = 'workers';
+  else if (path.startsWith('/messages')) currentView = 'messages';
+  else if (path === '/profile') currentView = 'profile';
+  else if (path === '/profile/saved-jobs') currentView = 'saved-jobs';
+  else if (path === '/profile/saved-workers') currentView = 'saved-workers';
+  else if (path === '/verify-email') currentView = 'verify-email';
+
+  // Navigate function replacing original currentView state setter
+  const setCurrentView = (viewId: string) => {
+    if (viewId === 'home') navigate('/');
+    else if (viewId === 'jobs') navigate('/jobs');
+    else if (viewId === 'workers') navigate('/workers');
+    else if (viewId === 'messages') navigate('/messages');
+    else if (viewId === 'profile') navigate('/profile');
+    else if (viewId === 'saved-jobs') navigate('/profile/saved-jobs');
+    else if (viewId === 'saved-workers') navigate('/profile/saved-workers');
+    else if (viewId === 'verify-email') navigate('/verify-email');
+  };
   
   // Dynamic User Profile
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
@@ -77,17 +110,25 @@ export default function App() {
   // Auth Modal States
   const [showAuthModal, setShowAuthModal] = useState<'signin' | 'signup' | 'locked' | null>(null);
   const [lockedFeature, setLockedFeature] = useState<string | null>(null);
-  const [signupStep, setSignupStep] = useState<1 | 2 | 3>(1);
+  const [signupStep, setSignupStep] = useState<1 | 2 | 3 | 4>(1);
   const [signupType, setSignupType] = useState<'normal' | 'worker' | 'company'>('normal');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
+  const [showCodeVerificationInput, setShowCodeVerificationInput] = useState(false);
+  const [verificationCodeInput, setVerificationCodeInput] = useState('');
+  const [croppedFile, setCroppedFile] = useState<File | null>(null);
   const [onboardingForm, setOnboardingForm] = useState({
     city: 'Austin',
     state: 'Texas',
     country: 'United States',
+    country_code: 'US',
+    state_code: 'TX',
+    district: 'Travis County',
+    latitude: 30.2672 as number | undefined,
+    longitude: -97.7431 as number | undefined,
     preferred_language: 'English',
     bio: 'Local professional specialized in high-fidelity craftsmanship.',
-    avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80'
+    avatar_url: ''
   });
   const [signupForm, setSignupForm] = useState({
     name: '',
@@ -109,8 +150,50 @@ export default function App() {
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isEmailNotConfirmedError, setIsEmailNotConfirmedError] = useState<boolean>(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // --- AUTH CALLBACK ROUTE STATES ---
+  const [authCallbackStatus, setAuthCallbackStatus] = useState<'processing' | 'success' | 'error'>('processing');
+  const [authCallbackError, setAuthCallbackError] = useState<string>('');
+  const [callbackEmail, setCallbackEmail] = useState<string>('');
+
+  // --- EMAIL VERIFICATION SYSTEM STATES ---
+  const [isEmailVerified, setIsEmailVerified] = useState<boolean>(false);
+  const [pendingEmail, setPendingEmail] = useState<string>(() => {
+    return localStorage.getItem('opencomm_pending_email') || '';
+  });
+  const [isEditingPendingEmail, setIsEditingPendingEmail] = useState<boolean>(false);
+  const [editedPendingEmail, setEditedPendingEmail] = useState<string>(pendingEmail || '');
+  useEffect(() => {
+    setEditedPendingEmail(pendingEmail);
+  }, [pendingEmail]);
+  const updatePendingEmail = (email: string) => {
+    setPendingEmail(email);
+    localStorage.setItem('opencomm_pending_email', email);
+  };
+  const [showVerificationModal, setShowVerificationModal] = useState<boolean>(false);
+  const [verificationActionName, setVerificationActionName] = useState<string>('');
+  const [verificationSuccessCallback, setVerificationSuccessCallback] = useState<(() => void) | null>(null);
+  const [mockVerificationUrl, setMockVerificationUrl] = useState<string>('');
+  const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
+
+  // Protect routes and trigger sign in if needed
+  function ProtectedRoute({ children }: { children: React.ReactNode }) {
+    useEffect(() => {
+      if (!isLoggedIn) {
+        setSignupStep(1);
+        setShowAuthModal('signin');
+        triggerToast("Please sign in to access this page.");
+      }
+    }, [isLoggedIn]);
+
+    if (!isLoggedIn) {
+      return <Navigate to="/" replace />;
+    }
+    return <>{children}</>;
+  }
 
   // --- RESEND EMAIL COOLDOWN COUNTDOWN ---
   useEffect(() => {
@@ -127,6 +210,7 @@ export default function App() {
   const [newJobCompany, setNewJobCompany] = useState('');
   const [newJobSalary, setNewJobSalary] = useState('');
   const [newJobLocation, setNewJobLocation] = useState('');
+  const [newJobLocationData, setNewJobLocationData] = useState<any>({});
   const [newJobCategory, setNewJobCategory] = useState('Developer');
   const [newJobDesc, setNewJobDesc] = useState('');
   const [newJobReqs, setNewJobReqs] = useState('');
@@ -136,6 +220,7 @@ export default function App() {
   const [newWorkerTitle, setNewWorkerTitle] = useState('');
   const [newWorkerRate, setNewWorkerRate] = useState(65);
   const [newWorkerLocation, setNewWorkerLocation] = useState('');
+  const [newWorkerLocationData, setNewWorkerLocationData] = useState<any>({});
   const [newWorkerBio, setNewWorkerBio] = useState('');
   const [newWorkerSkills, setNewWorkerSkills] = useState('');
 
@@ -160,6 +245,15 @@ export default function App() {
       root.classList.remove('dark');
     }
   }, [theme]);
+
+  // --- GOOGLE ANALYTICS INITIALIZATION & AUTO PAGE VIEW TRACKING ---
+  useEffect(() => {
+    analytics.init();
+  }, []);
+
+  useEffect(() => {
+    analytics.trackPageView(currentView);
+  }, [currentView]);
 
   // --- INITIALIZE SUPABASE AUTH LISTENER ---
   useEffect(() => {
@@ -188,6 +282,146 @@ export default function App() {
     });
   }, []);
 
+  // --- DIRECT EMAIL VERIFICATION DEEP LINK REDIRECT HANDLER ---
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('verified') === 'true') {
+      triggerToast("Email verified successfully! All secure actions are now unlocked!");
+      setIsEmailVerified(true);
+      
+      // Sync DB state locally
+      const userId = localStorage.getItem('opencomm_user_id');
+      if (userId) {
+        dbService.getProfile(userId).then(profile => {
+          if (profile) {
+            dbService.updateProfile(userId, { email_verified_for_actions: true });
+          }
+        });
+      }
+
+      // Clean the URL query params cleanly
+      window.history.replaceState({}, '', '/');
+    }
+  }, []);
+
+  // --- AUTH CALLBACK PROCESSOR EFFECT ---
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.location.pathname !== '/auth/callback') return;
+
+    const processCallback = async () => {
+      // 1. Ensure supabase client is initialized
+      const client = await initializeRuntimeSupabase();
+      if (!client) {
+        setAuthCallbackStatus('error');
+        setAuthCallbackError("Could not initialize authentication client. Please try again.");
+        return;
+      }
+
+      // 2. Check for error parameters in query string
+      const params = new URLSearchParams(window.location.search);
+      const errorParam = params.get('error');
+      const errorCode = params.get('error_code');
+      const errorDesc = params.get('error_description');
+
+      if (errorParam || errorCode || errorDesc) {
+        setAuthCallbackStatus('error');
+        if (errorCode === 'otp_expired' || errorDesc?.toLowerCase().includes('expired') || errorDesc?.toLowerCase().includes('otp')) {
+          setAuthCallbackError("The verification link has expired or has already been used. Please request a new verification email to continue.");
+        } else {
+          setAuthCallbackError(errorDesc || "The verification link is invalid or has already been used. Please request a new verification email.");
+        }
+        return;
+      }
+
+      // 3. Check for PKCE 'code' parameter
+      const code = params.get('code');
+      if (code) {
+        try {
+          const { data, error } = await client.auth.exchangeCodeForSession(code);
+          if (error) {
+            setAuthCallbackStatus('error');
+            const errMsg = error.message.toLowerCase();
+            if (errMsg.includes('expired') || errMsg.includes('otp')) {
+              setAuthCallbackError("The verification link has expired or has already been used. Please request a new verification email to continue.");
+            } else {
+              setAuthCallbackError(error.message);
+            }
+            return;
+          }
+          
+          if (data?.session) {
+            await handleCallbackSession(data.session);
+            return;
+          }
+        } catch (err: any) {
+          setAuthCallbackStatus('error');
+          setAuthCallbackError(err.message || "Failed to complete authentication exchange.");
+          return;
+        }
+      }
+
+      // 4. If no code, check if there is an active session (e.g. parsed from hash implicit flow)
+      try {
+        const { data: { session } } = await client.auth.getSession();
+        if (session) {
+          await handleCallbackSession(session);
+        } else {
+          // Wait 1.5s in case hash is being parsed by SDK
+          setTimeout(async () => {
+            const { data: { session: delayedSession } } = await client.auth.getSession();
+            if (delayedSession) {
+              await handleCallbackSession(delayedSession);
+            } else {
+              setAuthCallbackStatus('error');
+              setAuthCallbackError("No authentication session could be restored. Please try signing up again.");
+            }
+          }, 1500);
+        }
+      } catch (err: any) {
+        setAuthCallbackStatus('error');
+        setAuthCallbackError(err.message || "An unexpected error occurred.");
+      }
+    };
+
+    const handleCallbackSession = async (session: any) => {
+      const user = session.user;
+      setCallbackEmail(user.email || '');
+      
+      // Get profile
+      const profile = await dbService.getProfile(user.id);
+      
+      // Sync state
+      await syncUserSession(session);
+
+      setAuthCallbackStatus('success');
+      
+      // Clear URL and redirect
+      setTimeout(() => {
+        window.history.replaceState({}, '', '/');
+        if (profile && profile.onboarding_completed) {
+          // Already onboarded
+          setShowAuthModal(null);
+          setCurrentView('home');
+          triggerToast("Email verified successfully! Welcome back.");
+        } else {
+          // Needs onboarding
+          setShowAuthModal('signup');
+          setSignupStep(3);
+          setSignupForm(prev => ({
+            ...prev,
+            email: user.email || '',
+            name: user.user_metadata?.full_name || (user.email || '').split('@')[0],
+            phone: user.user_metadata?.phone || ''
+          }));
+          triggerToast("Email verified successfully! Let's complete your profile setup.");
+        }
+      }, 1500);
+    };
+
+    processCallback();
+  }, []);
+
   const syncUserSession = async (session: any) => {
     const user = session.user;
     const userId = user.id;
@@ -205,8 +439,23 @@ export default function App() {
         phone: user.user_metadata?.phone || '',
         phone_verified: false,
         profile_type: 'basic',
-        account_status: 'active'
+        account_status: 'active',
+        email_verified_for_actions: false
       });
+    } else {
+      // Rule 2 check: If profile_type is not 'basic' and email_verified_for_actions is false, safely migrate to basic.
+      if (profile.profile_type !== 'basic' && !profile.email_verified_for_actions) {
+        console.warn(`[Rule 2] Auto-downgrading unverified profile ${userId} from "${profile.profile_type}" to "basic"`);
+        profile = await dbService.updateProfile(userId, { profile_type: 'basic' });
+      }
+    }
+    
+    // 8. Verification status must come only from Supabase Auth
+    const isVerified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
+    setIsEmailVerified(isVerified);
+
+    if (isVerified && !profile.email_verified_for_actions) {
+      await dbService.updateProfile(userId, { email_verified_for_actions: true });
     }
 
     setIsLoggedIn(true);
@@ -220,7 +469,8 @@ export default function App() {
     localStorage.setItem('opencomm_user_type', profile.profile_type || 'normal');
     localStorage.setItem('opencomm_user_id', userId);
 
-    if (!profile.city) {
+    const isOnboarded = !!profile.onboarding_completed || !!profile.city || !!profile.bio;
+    if (!isOnboarded) {
       setShowAuthModal('signup');
       setSignupStep(3);
       setSignupForm(prev => ({
@@ -229,11 +479,17 @@ export default function App() {
         email: userEmail,
         phone: profile?.phone || user.user_metadata?.phone || ''
       }));
+    } else {
+      if (!profile.onboarding_completed) {
+        dbService.updateProfile(userId, { onboarding_completed: true });
+        profile.onboarding_completed = true;
+      }
     }
   };
 
   const handleLogoutCleanState = () => {
     setIsLoggedIn(false);
+    setIsEmailVerified(true);
     setUsername('Akhil Varma');
     setUserPhoto('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
     setUserType('normal');
@@ -289,10 +545,152 @@ export default function App() {
     }
   };
 
+  const requireEmailVerification = async (actionName: string, onVerified: () => void) => {
+    if (!isLoggedIn) {
+      setLockedFeature(actionName);
+      setShowAuthModal('locked');
+      return;
+    }
+
+    let isVerified = isEmailVerified;
+    if (supabase) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          isVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
+          setIsEmailVerified(isVerified);
+        }
+      } catch (err) {
+        console.error("Failed to check fresh verification status:", err);
+      }
+    }
+
+    if (isVerified) {
+      onVerified();
+    } else {
+      setVerificationActionName(actionName);
+      setVerificationSuccessCallback(() => onVerified);
+      setAuthError('');
+      setEmailSentSuccessfully(false);
+      setShowVerificationModal(true);
+    }
+  };
+
+  const checkEmailVerificationFreshStatus = async () => {
+    setAuthError('');
+    if (!supabase) {
+      setAuthError("Supabase is not configured.");
+      return;
+    }
+
+    try {
+      setIsAuthSubmitting(true);
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error) throw error;
+
+      if (user) {
+        // 8. Verification status must come only from Supabase Auth
+        const isVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
+        setIsEmailVerified(isVerified);
+        if (isVerified) {
+          try {
+            await supabase
+              .from('profiles')
+              .update({ email_verified_for_actions: true })
+              .eq('id', user.id);
+          } catch (profileErr) {
+            console.error("Failed to sync profile email verification status:", profileErr);
+          }
+
+          triggerToast("Email verified! Feature unlocked.");
+          setShowVerificationModal(false);
+          if (verificationSuccessCallback) {
+            verificationSuccessCallback();
+          }
+        } else {
+          setAuthError("Email verification is still pending. Please click the confirmation link in your inbox first.");
+        }
+      } else {
+        setAuthError("No authenticated session found.");
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Failed to fetch verification status.");
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  };
+
+  const handleResendVerificationInModal = async () => {
+    setAuthError('');
+    if (resendCooldown > 0) return;
+    
+    try {
+      setIsAuthSubmitting(true);
+      
+      let emailToResend = signupForm.email || 'akhil@opencomm.org';
+      let userId = localStorage.getItem('opencomm_user_id') || 'user-demo-id';
+      let accessToken = '';
+
+      if (supabase) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          emailToResend = session.user.email || emailToResend;
+          userId = session.user.id;
+          accessToken = session.access_token;
+        }
+      }
+
+      if (!emailToResend) {
+        setAuthError("No email address found to dispatch verification.");
+        return;
+      }
+
+      const res = await fetch('/api/send-verification-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+        },
+        body: JSON.stringify({
+          email: emailToResend,
+          userId,
+          redirectAction: verificationActionName || ''
+        })
+      });
+
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to dispatch verification email.");
+      }
+
+      setResendCooldown(60);
+      setEmailSentSuccessfully(true);
+      
+      if (data.mock) {
+        triggerToast("Verification link generated (Console Fallback)!");
+        console.log("Mock verification URL:", data.url);
+        setMockVerificationUrl(data.url);
+      } else {
+        triggerToast("Verification email dispatched successfully!");
+      }
+    } catch (err: any) {
+      const errMsg = (err.message || "").toLowerCase();
+      if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+        setAuthError("Rate limit reached. Please wait a moment before trying again.");
+      } else {
+        setAuthError(err.message || "Failed to resend verification email.");
+      }
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  };
+
   const handleLoginSuccess = (uName: string, uType: 'normal' | 'worker' | 'company') => {
     setIsLoggedIn(true);
     setUserType(uType);
     setUsername(uName);
+    analytics.trackLogin('direct', uName);
     
     const photos = [
       'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
@@ -368,6 +766,38 @@ export default function App() {
   };
 
   // --- MULTI-STEP SIGNUP FLOW HANDLERS ---
+  const handleBypassToDemoMode = () => {
+    setAuthError('');
+    setIsAuthSubmitting(true);
+    triggerToast("Switching to Local Emulator Mode...");
+    
+    setTimeout(() => {
+      setIsAuthSubmitting(false);
+      setSignupStep(3);
+      triggerToast("Account created locally! Let's set up your profile.");
+      
+      // Dispatch mock verification in local sandbox environment
+      fetch('/api/send-verification-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: signupForm.email || 'developer@opencomm.io',
+          userId: 'user-demo-id',
+          redirectAction: 'onboarding'
+        })
+      }).then(res => res.json())
+        .then(data => {
+          if (data.url) {
+            console.log("Onboarding Background Mock Verification Link (Bypassed):", data.url);
+            setMockVerificationUrl(data.url);
+          }
+        })
+        .catch(err => console.error("Failed to send mock onboarding verification email:", err));
+    }, 800);
+  };
+
   const handleSignUpStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -392,11 +822,25 @@ export default function App() {
 
     if (supabase) {
       try {
+        // Check if account already exists
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', signupForm.email)
+          .maybeSingle();
+
+        if (existingProfile) {
+          setIsAuthSubmitting(false);
+          setAuthError("This email address is already registered. Please sign in instead.");
+          return;
+        }
+
+        // Standard signup flow
         const { data, error } = await supabase.auth.signUp({
           email: signupForm.email,
           password: signupPassword,
           options: {
-            emailRedirectTo: window.location.origin,
+            emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/onboarding`,
             data: {
               full_name: signupForm.name,
               phone: signupForm.phone
@@ -407,24 +851,236 @@ export default function App() {
         setIsAuthSubmitting(false);
 
         if (error) {
-          setAuthError(error.message);
+          const errMsg = error.message.toLowerCase();
+          if (errMsg.includes('already registered') || errMsg.includes('already exists')) {
+            setAuthError("This email address is already registered. Please sign in instead.");
+          } else if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+            setAuthError("Rate limit reached. Please wait a moment before trying again.");
+          } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
+            setAuthError("Network error. Please check your connection and try again.");
+          } else {
+            setAuthError(error.message);
+          }
           return;
         }
 
-        setSignupStep(2);
-        setResendCooldown(60);
-        triggerToast("Verification email dispatched! Please check your inbox.");
+        const user = data?.user;
+        const session = data?.session;
+        if (!user) {
+          setAuthError("An unexpected error occurred during account creation. Please try again.");
+          return;
+        }
+
+        // 10. Signup flow:
+        // if email confirmation is required, store only pendingEmail and navigate to /verify-email
+        // do not treat the user as verified
+        // do not require a session before OTP confirmation if Supabase returns session: null
+        updatePendingEmail(signupForm.email);
+
+        const emailConfirmed = Boolean(user.email_confirmed_at || user.confirmed_at);
+        if (session && emailConfirmed) {
+          setIsEmailVerified(true);
+          setSignupStep(3);
+          triggerToast("Account created! Let's set up your basic profile.");
+        } else {
+          setIsEmailVerified(false);
+          setSignupStep(1); // reset modal signup steps
+          setShowAuthModal(null); // close the modal
+          setVerificationCodeInput('');
+          triggerToast("Account created! Please verify your email using the OTP.");
+          navigate('/verify-email');
+        }
+        analytics.trackSignUp('email', user.id);
+
       } catch (err: any) {
         setIsAuthSubmitting(false);
-        setAuthError(err.message || "Registration failed.");
+        const errMsg = (err.message || "").toLowerCase();
+        if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+          setAuthError("Rate limit reached. Please wait a moment before trying again.");
+        } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
+          setAuthError("Network error. Please check your connection and try again.");
+        } else {
+          setAuthError(err.message || "Registration failed.");
+        }
       }
     } else {
       setTimeout(() => {
         setIsAuthSubmitting(false);
         setSignupStep(2);
-        setResendCooldown(60);
-        triggerToast("Verification email dispatched (Mock)!");
+        setVerificationCodeInput('');
+        triggerToast("Account created! Please enter the 6-digit OTP code.");
+        analytics.trackSignUp('mock', 'user-demo-id');
       }, 800);
+    }
+  };
+
+  const handleVerifyOTP = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError('');
+    
+    const otp = verificationCodeInput.trim();
+    if (!otp || otp.length !== 6) {
+      setAuthError("Please enter a valid 6-digit OTP code.");
+      return;
+    }
+
+    const emailToVerify = pendingEmail || signupForm.email;
+    if (!emailToVerify) {
+      setAuthError("No pending email address found to verify.");
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+
+    if (supabase) {
+      try {
+        // Verify the code using type: 'email' (with type: 'signup' fallback if needed)
+        let result = await supabase.auth.verifyOtp({
+          email: emailToVerify.trim().toLowerCase(),
+          token: otp.trim(),
+          type: 'email'
+        });
+
+        if (result.error) {
+          const signupResult = await supabase.auth.verifyOtp({
+            email: emailToVerify.trim().toLowerCase(),
+            token: otp.trim(),
+            type: 'signup'
+          });
+          if (!signupResult.error) {
+            result = signupResult;
+          }
+        }
+
+        const { data, error } = result;
+
+        // 4. Treat verification as successful only when ALL of these are true:
+        if (error) {
+          console.error("[OTP Verify Error] Code:", error.code, "Status:", error.status, "Message:", error.message);
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        if (!data?.user) {
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        let session = data.session;
+        if (!session) {
+          const { data: { session: freshSession } } = await supabase.auth.getSession();
+          session = freshSession;
+        }
+
+        if (!session) {
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        const authUser = data.user;
+        if (authUser.email?.trim().toLowerCase() !== emailToVerify.trim().toLowerCase()) {
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        const emailConfirmed = Boolean(authUser.email_confirmed_at || authUser.confirmed_at);
+        if (!emailConfirmed) {
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        // 5. Perform server-authenticated getUser() check:
+        const { data: userResult, error: userError } = await supabase.auth.getUser();
+        if (userError || !userResult?.user) {
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        const verifiedUser = userResult.user;
+        const verifiedUserEmailConfirmed = Boolean(verifiedUser.email_confirmed_at || verifiedUser.confirmed_at);
+        if (!verifiedUserEmailConfirmed) {
+          throw new Error("Invalid or expired verification code.");
+        }
+
+        // --- SUCCESS PATH ---
+        setIsAuthSubmitting(false);
+        setIsEmailVerified(true);
+        localStorage.setItem('opencomm_user_id', verifiedUser.id);
+
+        // Fetch / sync profile row
+        let profile = await dbService.getProfile(verifiedUser.id);
+        if (profile) {
+          // Update profile email verified status
+          await dbService.updateProfile(verifiedUser.id, {
+            email_verified_for_actions: true
+          });
+        }
+
+        setVerificationCodeInput('');
+        triggerToast("Email verified successfully!");
+
+        // Sync session and handle navigation/modal close
+        await syncUserSession(session);
+        setShowAuthModal(null);
+
+        const isOnboarded = profile?.onboarding_completed || profile?.city || profile?.bio;
+        if (isOnboarded) {
+          navigate('/');
+        } else {
+          setSignupStep(3);
+          setShowAuthModal('signup');
+          triggerToast("Email verified successfully! Now let's set up your profile.");
+        }
+
+      } catch (err: any) {
+        setIsAuthSubmitting(false);
+        // Clear only OTP input on failure (Requirement 6)
+        setVerificationCodeInput('');
+        setAuthError("Invalid or expired verification code.");
+        // Ensure we do not preserve any invalid/fake session (Requirement 6)
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutErr) {
+          // ignore
+        }
+      }
+    } else {
+      setIsAuthSubmitting(false);
+      setVerificationCodeInput('');
+      setAuthError("Invalid or expired verification code.");
+    }
+  };
+
+  const handleResendOTP = async () => {
+    if (resendCooldown > 0) return;
+    setAuthError('');
+    
+    const emailToResend = pendingEmail || signupForm.email;
+    if (!emailToResend) {
+      setAuthError("No pending email address found.");
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+
+    if (supabase) {
+      try {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: emailToResend.trim().toLowerCase()
+        });
+
+        setIsAuthSubmitting(false);
+
+        if (error) {
+          console.error("[OTP Resend Error] Code:", error.code, "Status:", error.status, "Message:", error.message);
+          setAuthError(error.message);
+          return;
+        }
+
+        setResendCooldown(60);
+        triggerToast("A new 6-digit OTP code has been sent to your email.");
+      } catch (err: any) {
+        setIsAuthSubmitting(false);
+        setAuthError(err.message || "Failed to resend OTP.");
+      }
+    } else {
+      setIsAuthSubmitting(false);
+      setAuthError("Supabase is not configured.");
     }
   };
 
@@ -439,14 +1095,21 @@ export default function App() {
           type: 'signup',
           email: signupForm.email,
           options: {
-            emailRedirectTo: window.location.origin
+            emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/onboarding`
           }
         });
 
         setIsAuthSubmitting(false);
 
         if (error) {
-          setAuthError(error.message);
+          const errMsg = error.message.toLowerCase();
+          if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+            setAuthError("Rate limit reached. Please wait a moment before trying again.");
+          } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
+            setAuthError("Network error. Please check your connection and try again.");
+          } else {
+            setAuthError(error.message);
+          }
           return;
         }
 
@@ -454,7 +1117,14 @@ export default function App() {
         triggerToast("Verification email re-dispatched!");
       } catch (err: any) {
         setIsAuthSubmitting(false);
-        setAuthError(err.message || "Failed to resend verification email.");
+        const errMsg = (err.message || "").toLowerCase();
+        if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+          setAuthError("Rate limit reached. Please wait a moment before trying again.");
+        } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
+          setAuthError("Network error. Please check your connection and try again.");
+        } else {
+          setAuthError(err.message || "Failed to resend verification email.");
+        }
       }
     } else {
       setTimeout(() => {
@@ -468,6 +1138,11 @@ export default function App() {
   const handleSignUpStep3 = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+
+    if (!onboardingForm.avatar_url) {
+      setAuthError("Please add a profile photo to continue.");
+      return;
+    }
 
     const parseResult = basicProfileSchema.safeParse({
       city: onboardingForm.city,
@@ -486,6 +1161,136 @@ export default function App() {
     setIsAuthSubmitting(true);
 
     let finalUserId = `mock-user-${Date.now()}`;
+    let finalAvatarUrl = onboardingForm.avatar_url;
+
+    if (supabase) {
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (croppedFile) {
+          if (!user || !session || !user.id) {
+            setAuthError("Your session is not ready. Please sign in again and retry the photo upload.");
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          // Force-sync session right before upload to ensure headers are updated in the storage client
+          await supabase.auth.setSession({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token
+          });
+
+          finalUserId = user.id;
+
+          const safeExtension =
+            croppedFile.type === 'image/png'
+              ? 'png'
+              : croppedFile.type === 'image/webp'
+                ? 'webp'
+                : 'jpg';
+
+          const filePath = `${user.id}/${Date.now()}-profile.${safeExtension}`;
+
+          // Development-only logs
+          console.log("--- Supabase Storage Upload ---", {
+            hasUser: Boolean(user),
+            userId: user.id,
+            hasSession: Boolean(session),
+            bucket: 'avatars',
+            filePath,
+            fileType: croppedFile.type,
+            fileSize: croppedFile.size
+          });
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(filePath, croppedFile, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: croppedFile.type
+            });
+
+          if (uploadError) {
+            console.error("Supabase storage error:", uploadError);
+            setAuthError(`Storage upload failed: ${uploadError.message || 'Check connection'}`);
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          const { data: publicUrlData } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+
+          finalAvatarUrl = publicUrlData.publicUrl;
+        } else {
+          if (user) {
+            finalUserId = user.id;
+          }
+        }
+      } catch (err: any) {
+        console.error("Auth/Storage initialization exception:", err);
+        setAuthError(`Authentication error: ${err.message || 'Check connection'}`);
+        setIsAuthSubmitting(false);
+        return;
+      }
+    }
+
+    try {
+      // Sync profile updating details with dbService
+      await dbService.updateProfile(finalUserId, {
+        id: finalUserId,
+        full_name: signupForm.name,
+        email: signupForm.email,
+        phone: signupForm.phone,
+        city: onboardingForm.city,
+        state: onboardingForm.state,
+        country: onboardingForm.country,
+        country_code: onboardingForm.country_code,
+        state_code: onboardingForm.state_code,
+        district: onboardingForm.district,
+        latitude: onboardingForm.latitude,
+        longitude: onboardingForm.longitude,
+        preferred_language: onboardingForm.preferred_language,
+        bio: onboardingForm.bio,
+        avatar_url: finalAvatarUrl,
+        profile_type: 'basic',
+        account_status: 'active',
+        email_verified_for_actions: isEmailVerified,
+        onboarding_completed: true
+      });
+
+      // Refresh the profile query to ensure DB is in sync
+      await dbService.getProfile(finalUserId);
+
+      setIsAuthSubmitting(false);
+
+      // Sync temporary states
+      setUsername(signupForm.name);
+      setUserPhoto(finalAvatarUrl);
+      setUserType('normal');
+
+      setOnboardingForm(prev => ({ ...prev, avatar_url: finalAvatarUrl }));
+      localStorage.setItem('opencomm_user_id', finalUserId);
+      localStorage.setItem('opencomm_username', signupForm.name);
+      localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
+      localStorage.setItem('opencomm_user_type', 'normal');
+
+      // Complete onboarding if already email verified, otherwise transition to Step 4
+      if (isEmailVerified) {
+        handleCompleteOnboarding(true);
+      } else {
+        setSignupStep(4);
+      }
+    } catch (dbErr: any) {
+      console.error("Database save failed:", dbErr);
+      setAuthError(`Profile save failed: ${dbErr.message || 'Check connection'}`);
+      setIsAuthSubmitting(false);
+    }
+  };
+
+  const handleCompleteOnboarding = async (isVerified: boolean) => {
+    let finalUserId = localStorage.getItem('opencomm_user_id') || `mock-user-${Date.now()}`;
     if (supabase) {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -493,41 +1298,27 @@ export default function App() {
       }
     }
 
-    // Sync profile updating details with dbService
+    // Write final verification choice back to the profile table
     await dbService.updateProfile(finalUserId, {
-      id: finalUserId,
-      full_name: signupForm.name,
-      email: signupForm.email,
-      phone: signupForm.phone,
-      city: onboardingForm.city,
-      state: onboardingForm.state,
-      country: onboardingForm.country,
-      preferred_language: onboardingForm.preferred_language,
-      bio: onboardingForm.bio,
-      avatar_url: onboardingForm.avatar_url,
-      profile_type: 'basic',
-      account_status: 'active'
+      email_verified_for_actions: isVerified,
+      onboarding_completed: true
     });
 
-    setIsAuthSubmitting(false);
-
-    // Sync application-wide logged-in states
     setIsLoggedIn(true);
-    setUsername(signupForm.name);
-    setUserPhoto(onboardingForm.avatar_url);
+    setIsEmailVerified(isVerified);
+    setUsername(signupForm.name || username);
+    setUserPhoto(onboardingForm.avatar_url || userPhoto);
     setUserType('normal');
 
     localStorage.setItem('opencomm_is_logged_in', 'true');
-    localStorage.setItem('opencomm_username', signupForm.name);
-    localStorage.setItem('opencomm_user_photo', onboardingForm.avatar_url);
+    localStorage.setItem('opencomm_username', signupForm.name || username);
+    localStorage.setItem('opencomm_user_photo', onboardingForm.avatar_url || userPhoto);
     localStorage.setItem('opencomm_user_type', 'normal');
-    localStorage.setItem('opencomm_user_id', finalUserId);
 
-    // Complete onboarding flow
     setSignupStep(1);
     setShowAuthModal(null);
     setLockedFeature(null);
-    triggerToast("Onboarding complete! Welcome to OpenComm.");
+    triggerToast(isVerified ? "Email successfully verified! Welcome aboard." : "Onboarding complete! Welcome to OpenComm.");
   };
 
   // --- ACTIONS ---
@@ -560,70 +1351,73 @@ export default function App() {
   };
 
   const handleApplyJob = (jobId: string, bidOrEvent?: any, note?: string) => {
-    let bid = '$75/hr';
-    let applicationNote = 'I would like to apply for this position and coordinate terms.';
-    if (typeof bidOrEvent === 'string') {
-      bid = bidOrEvent;
-      applicationNote = note || applicationNote;
-    } else if (bidOrEvent && bidOrEvent.stopPropagation) {
-      bidOrEvent.stopPropagation();
-    }
-
-    setJobs(prev => prev.map(j => {
-      if (j.id === jobId) {
-        if (j.applied) return j;
-        
-        // Add active Application object
-        const newApp: JobApplication = {
-          id: `app-${Date.now()}`,
-          jobId: j.id,
-          jobTitle: j.title,
-          applicantId: 'user',
-          applicantName: username,
-          applicantPhoto: userPhoto,
-          applicantTitle: 'Product Architect & Tech Lead',
-          applicantSkills: ['TypeScript', 'React', 'Tailwind CSS', 'System Design'],
-          applicantLocation: 'Austin, TX',
-          applicantRating: 4.9,
-          applicantExperience: 8,
-          applicantAvailability: 'Available Now',
-          ownerId: j.company === 'OpenComm Labs' ? 'user' : 'company-other',
-          ownerName: j.company,
-          applicationNote: applicationNote,
-          status: 'Pending',
-          createdAt: 'Just now',
-          updatedAt: 'Just now',
-          bid: bid
-        };
-        setApplications(prevApp => [newApp, ...prevApp]);
-
-        // Add activity
-        const newAct: Activity = {
-          id: `act-${Date.now()}`,
-          type: 'apply',
-          title: `Applied to ${j.title} at ${j.company}`,
-          status: 'In Review',
-          statusType: 'pending',
-          timestamp: 'Just now'
-        };
-        setActivities(prevAct => [newAct, ...prevAct]);
-
-        // Add notification
-        const newNotif: Notification = {
-          id: `notif-${Date.now()}`,
-          type: 'application',
-          title: 'Application Sent Successfully',
-          description: `Your application for "${j.title}" with bid ${bid} is now Pending.`,
-          timestamp: 'Just now',
-          read: false
-        };
-        setNotifications(prevNotif => [newNotif, ...prevNotif]);
-
-        triggerToast(`Successfully applied to "${j.title}"!`);
-        return { ...j, applied: true };
+    requireEmailVerification("Apply to Job", () => {
+      let bid = '$75/hr';
+      let applicationNote = 'I would like to apply for this position and coordinate terms.';
+      if (typeof bidOrEvent === 'string') {
+        bid = bidOrEvent;
+        applicationNote = note || applicationNote;
+      } else if (bidOrEvent && bidOrEvent.stopPropagation) {
+        bidOrEvent.stopPropagation();
       }
-      return j;
-    }));
+
+      setJobs(prev => prev.map(j => {
+        if (j.id === jobId) {
+          if (j.applied) return j;
+          
+          // Add active Application object
+          const newApp: JobApplication = {
+            id: `app-${Date.now()}`,
+            jobId: j.id,
+            jobTitle: j.title,
+            applicantId: 'user',
+            applicantName: username,
+            applicantPhoto: userPhoto,
+            applicantTitle: 'Product Architect & Tech Lead',
+            applicantSkills: ['TypeScript', 'React', 'Tailwind CSS', 'System Design'],
+            applicantLocation: 'Austin, TX',
+            applicantRating: 4.9,
+            applicantExperience: 8,
+            applicantAvailability: 'Available Now',
+            ownerId: j.company === 'OpenComm Labs' ? 'user' : 'company-other',
+            ownerName: j.company,
+            applicationNote: applicationNote,
+            status: 'Pending',
+            createdAt: 'Just now',
+            updatedAt: 'Just now',
+            bid: bid
+          };
+          setApplications(prevApp => [newApp, ...prevApp]);
+          analytics.trackJobApplied(jobId, applicationNote.length);
+
+          // Add activity
+          const newAct: Activity = {
+            id: `act-${Date.now()}`,
+            type: 'apply',
+            title: `Applied to ${j.title} at ${j.company}`,
+            status: 'In Review',
+            statusType: 'pending',
+            timestamp: 'Just now'
+          };
+          setActivities(prevAct => [newAct, ...prevAct]);
+
+          // Add notification
+          const newNotif: Notification = {
+            id: `notif-${Date.now()}`,
+            type: 'application',
+            title: 'Application Sent Successfully',
+            description: `Your application for "${j.title}" with bid ${bid} is now Pending.`,
+            timestamp: 'Just now',
+            read: false
+          };
+          setNotifications(prevNotif => [newNotif, ...prevNotif]);
+
+          triggerToast(`Successfully applied to "${j.title}"!`);
+          return { ...j, applied: true };
+        }
+        return j;
+      }));
+    });
   };
 
   const handleCreateJob = (e: React.FormEvent) => {
@@ -650,6 +1444,13 @@ export default function App() {
     };
 
     setJobs(prev => [createdJob, ...prev]);
+
+    // Track job posted in Google Analytics
+    analytics.trackJobPosted({
+      title: newJobTitle,
+      category: newJobCategory,
+      salary: newJobSalary
+    });
 
     const newAct: Activity = {
       id: `act-${Date.now()}`,
@@ -698,6 +1499,13 @@ export default function App() {
 
     setWorkers(prev => [createdWorker, ...prev]);
 
+    // Track worker profile creation in Google Analytics
+    analytics.trackWorkerProfileCreated({
+      profession: newWorkerTitle,
+      skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : ['Tailwind CSS', 'Framer Motion', 'Customer Sync'],
+      rate: Number(newWorkerRate) || 55
+    });
+
     const newAct: Activity = {
       id: `act-${Date.now()}`,
       type: 'post',
@@ -722,9 +1530,11 @@ export default function App() {
 
   const triggerHireModal = (worker: Worker, e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowHireModal(worker);
-    setHireOfferRate(worker.hourlyRate);
-    setHireProjectTitle(`Bespoke ${worker.title.split(' ')[0] || 'Consultation'}`);
+    requireEmailVerification("Send Hiring Offer", () => {
+      setShowHireModal(worker);
+      setHireOfferRate(worker.hourlyRate);
+      setHireProjectTitle(`Bespoke ${worker.title.split(' ')[0] || 'Consultation'}`);
+    });
   };
 
   const handleHireWorkerSubmit = (e: React.FormEvent) => {
@@ -758,9 +1568,12 @@ export default function App() {
   };
 
   const handleOpenDirectMessage = (contactName: string) => {
-    // Switch to messages page and auto-select contact
-    setCurrentView('messages');
-    triggerToast(`Opening direct conversation with ${contactName}...`);
+    requireEmailVerification("Direct Messaging", () => {
+      // Switch to messages page and auto-select contact
+      setCurrentView('messages');
+      triggerToast(`Opening direct conversation with ${contactName}...`);
+      analytics.trackChatOpened(contactName);
+    });
   };
 
   // --- STAT CALCULATORS ---
@@ -771,6 +1584,127 @@ export default function App() {
   const savedJobsCount = jobs.filter(j => j.bookmarked).length;
   const savedWorkersCount = workers.filter(w => (w as any).bookmarked).length;
   const profileViewsCount = 482;
+
+  if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] flex items-center justify-center p-4">
+        {/* Glowing Background Accent */}
+        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-blue-500/5 dark:bg-blue-600/5 rounded-full blur-[130px] pointer-events-none -z-10" />
+        
+        <div className="w-full max-w-md bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-3xl p-8 shadow-2xl text-center space-y-6 relative overflow-hidden">
+          {authCallbackStatus === 'processing' && (
+            <>
+              <div className="w-16 h-16 bg-blue-500/10 dark:bg-blue-600/10 rounded-full flex items-center justify-center mx-auto text-blue-600 dark:text-blue-400">
+                <RefreshCw className="w-8 h-8 animate-spin" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Verifying Your Session</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Please hold on while we securely authenticate your email address and sync your session...
+                </p>
+              </div>
+            </>
+          )}
+
+          {authCallbackStatus === 'success' && (
+            <>
+              <div className="w-16 h-16 bg-emerald-500/10 dark:bg-emerald-600/10 rounded-full flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400">
+                <Sparkles className="w-8 h-8 animate-bounce" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Email Verified Successfully</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Your session is secure. Redirecting you to onboarding...
+                </p>
+              </div>
+            </>
+          )}
+
+          {authCallbackStatus === 'error' && (
+            <>
+              <div className="w-16 h-16 bg-red-500/10 dark:bg-red-600/10 rounded-full flex items-center justify-center mx-auto text-red-600 dark:text-red-400">
+                <AlertCircle className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Verification Failed</h3>
+                <p className="text-xs text-red-600 dark:text-red-400 font-medium bg-red-500/5 dark:bg-red-500/10 p-3 rounded-xl border border-red-500/10">
+                  {authCallbackError}
+                </p>
+              </div>
+
+              {/* Resend Verification Form */}
+              <div className="pt-4 space-y-3">
+                <div className="space-y-1.5 text-left">
+                  <label className="block text-[10px] uppercase tracking-wider font-mono font-bold text-slate-500 dark:text-zinc-400">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={callbackEmail || signupForm.email}
+                    onChange={(e) => setCallbackEmail(e.target.value)}
+                    placeholder="Enter your email to resend"
+                    className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 placeholder-slate-400 font-semibold"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={resendCooldown > 0 || isAuthSubmitting || !(callbackEmail || signupForm.email)}
+                  onClick={async () => {
+                    const emailToUse = callbackEmail || signupForm.email;
+                    if (!emailToUse || resendCooldown > 0) return;
+                    setIsAuthSubmitting(true);
+                    try {
+                      const { error } = await supabase.auth.resend({
+                        type: 'signup',
+                        email: emailToUse,
+                        options: {
+                          emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/onboarding`
+                        }
+                      });
+                      setIsAuthSubmitting(false);
+                      if (error) {
+                        setAuthCallbackError(error.message);
+                      } else {
+                        setResendCooldown(60);
+                        triggerToast("A new verification email has been sent!");
+                      }
+                    } catch (err: any) {
+                      setIsAuthSubmitting(false);
+                      setAuthCallbackError(err.message || "Could not resend verification email.");
+                    }
+                  }}
+                  className="w-full h-11 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50"
+                >
+                  {isAuthSubmitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>
+                      {resendCooldown > 0 
+                        ? `Resend Email (${resendCooldown}s)` 
+                        : 'Resend Verification Email'}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.history.replaceState({}, '', '/');
+                    setShowAuthModal('signin');
+                    setCurrentView('home');
+                  }}
+                  className="w-full h-11 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-all cursor-pointer flex items-center justify-center"
+                >
+                  Back to Sign In
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] font-sans transition-colors duration-300 relative overflow-x-hidden pb-24 md:pb-8">
@@ -812,6 +1746,7 @@ export default function App() {
         onResetData={handleResetData}
         isLoggedIn={isLoggedIn}
         userType={userType}
+        isEmailVerified={isEmailVerified}
         onOpenAuth={(tab) => {
           setSignupStep(1);
           setShowAuthModal(tab);
@@ -819,13 +1754,32 @@ export default function App() {
         onLogout={handleLogout}
       />
 
+      {/* UNVERIFIED EMAIL WARNING BANNER */}
+      {isLoggedIn && !isEmailVerified && (
+        <div className="bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 border-b border-indigo-500/15 py-2.5 px-4 text-center flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 relative z-40" id="unverified-email-banner">
+          <div className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400">
+            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+            <span className="text-xs font-black uppercase tracking-wider font-sans">Email verification pending</span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+            Verify your email to unlock all interactive marketplace actions.
+          </p>
+          <button
+            onClick={() => requireEmailVerification('Verify account', () => {})}
+            className="px-3 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white text-[11px] font-black rounded-lg transition-all cursor-pointer shadow-xs active:scale-95"
+            id="btn-banner-verify-now"
+          >
+            Verify Now
+          </button>
+        </div>
+      )}
+
       {/* CORE CONTAINER */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-[calc(90px+env(safe-area-inset-bottom))]">
-        
-        <AnimatePresence mode="wait">
-          
-          {/* 1. HOME/DASHBOARD VIEW */}
-          {currentView === 'home' && (
+        <RouteTracker jobs={jobs} workers={workers} />
+        <Routes>
+          {/* Home View */}
+          <Route path="/" element={
             <motion.div
               key="home-view"
               initial={{ opacity: 0, y: 12 }}
@@ -834,39 +1788,37 @@ export default function App() {
               transition={{ duration: 0.25 }}
               className="space-y-4 sm:space-y-6 md:space-y-8"
             >
-              {/* Dynamic Welcome Hero Section */}
               <HeroSection 
                 username={isLoggedIn ? username : "Guest"}
                 searchQuery={searchQuery}
                 setSearchQuery={(q) => {
                   setSearchQuery(q);
-                  setCurrentView('jobs'); // auto-redirect search queries to Jobs list
+                  navigate('/jobs');
+                  analytics.trackSearch(q);
                 }}
                 triggerToast={triggerToast}
               />
 
-              {/* Standardized Float Search Bar */}
               <SearchBar 
                 value={searchQuery}
                 onChange={(v) => setSearchQuery(v)}
                 onClear={() => setSearchQuery('')}
                 onSubmit={(e) => {
                   e.preventDefault();
-                  setCurrentView('jobs');
+                  navigate('/jobs');
+                  analytics.trackSearch(searchQuery);
                 }}
               />
 
-              {/* 6 Card Quick Actions Hub */}
               <QuickActions 
-                onFindJobs={() => setCurrentView('jobs')}
-                onFindWorkers={() => setCurrentView('workers')}
-                onPostJob={() => requireAuth('Post Jobs', () => setShowPostJob(true))}
-                onCreateProfile={() => requireAuth('Create Worker Profile', () => setShowCreateProfile(true))}
-                onOpenMessages={() => requireAuth('Send Messages', () => setCurrentView('messages'))}
-                onOpenProfile={() => requireAuth('View Full Profile', () => setCurrentView('profile'))}
+                onFindJobs={() => navigate('/jobs')}
+                onFindWorkers={() => navigate('/workers')}
+                onPostJob={() => requireEmailVerification('Post Jobs', () => setShowPostJob(true))}
+                onCreateProfile={() => requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true))}
+                onOpenMessages={() => requireAuth('Send Messages', () => navigate('/messages'))}
+                onOpenProfile={() => requireAuth('View Full Profile', () => navigate('/profile'))}
               />
 
-              {/* Quick statistics summary widgets (only shown to logged-in users) */}
               {isLoggedIn && (
                 <DashboardSummary 
                   myPostsCount={myPostsCount}
@@ -875,11 +1827,15 @@ export default function App() {
                   savedJobsCount={savedJobsCount}
                   savedWorkersCount={savedWorkersCount}
                   profileViewsCount={profileViewsCount}
-                  onAction={(view) => setCurrentView(view)}
+                  onAction={(view) => {
+                    if (view === 'saved-jobs') navigate('/profile/saved-jobs');
+                    else if (view === 'saved-workers') navigate('/profile/saved-workers');
+                    else if (view === 'messages') navigate('/messages');
+                    else if (view === 'profile') navigate('/profile');
+                  }}
                 />
               )}
 
-              {/* Recommended Marketplace Listings */}
               <RecommendedForYou 
                 jobs={jobs}
                 workers={workers}
@@ -887,14 +1843,14 @@ export default function App() {
                 toggleWorkerBookmark={toggleWorkerBookmark}
                 handleApplyJob={handleApplyJob}
                 onOpenMessage={handleOpenDirectMessage}
-                onViewJobs={() => setCurrentView('jobs')}
-                onViewWorkers={() => setCurrentView('workers')}
+                onViewJobs={() => navigate('/jobs')}
+                onViewWorkers={() => navigate('/workers')}
               />
             </motion.div>
-          )}
+          } />
 
-          {/* 2. JOBS VIEW */}
-          {currentView === 'jobs' && (
+          {/* Jobs View */}
+          <Route path="/jobs" element={
             <motion.div
               key="jobs-view"
               initial={{ opacity: 0, y: 12 }}
@@ -918,10 +1874,31 @@ export default function App() {
                 }}
               />
             </motion.div>
-          )}
+          } />
+          <Route path="/jobs/:jobId" element={
+            <motion.div
+              key="jobs-view-detail"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+            >
+              <JobDetailPage 
+                jobs={jobs}
+                toggleBookmark={toggleBookmark}
+                handleApplyJob={handleApplyJob}
+                triggerToast={triggerToast}
+                isLoggedIn={isLoggedIn}
+                onOpenAuth={(tab) => {
+                  setSignupStep(1);
+                  setShowAuthModal(tab);
+                }}
+              />
+            </motion.div>
+          } />
 
-          {/* 3. WORKERS VIEW */}
-          {currentView === 'workers' && (
+          {/* Workers View */}
+          <Route path="/workers" element={
             <motion.div
               key="workers-view"
               initial={{ opacity: 0, y: 12 }}
@@ -946,109 +1923,400 @@ export default function App() {
                 }}
               />
             </motion.div>
-          )}
-
-          {/* 4. SAVED JOBS SHORTCUT */}
-          {currentView === 'saved-jobs' && (
+          } />
+          <Route path="/workers/:workerId" element={
             <motion.div
-              key="saved-jobs-view"
+              key="workers-view-detail"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <SavedJobsPage 
-                jobs={jobs}
-                toggleBookmark={toggleBookmark}
-                handleApplyJob={handleApplyJob}
-                onExplore={() => setCurrentView('jobs')}
-              />
-            </motion.div>
-          )}
-
-          {/* 5. SAVED WORKERS SHORTCUT */}
-          {currentView === 'saved-workers' && (
-            <motion.div
-              key="saved-workers-view"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              <SavedWorkersPage 
+              <WorkerDetailPage 
                 workers={workers}
                 toggleWorkerBookmark={toggleWorkerBookmark}
                 onOpenMessage={handleOpenDirectMessage}
                 onOpenHire={triggerHireModal}
-                onExplore={() => setCurrentView('workers')}
-              />
-            </motion.div>
-          )}
-
-          {/* 6. MESSAGES VIEW */}
-          {currentView === 'messages' && (
-            <motion.div
-              key="messages-view"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              <MessagesPage 
-                messages={messages}
-                setMessages={setMessages}
-                conversations={conversations}
-                setConversations={setConversations}
-                username={username}
-                userPhoto={userPhoto}
                 triggerToast={triggerToast}
-              />
-            </motion.div>
-          )}
-
-          {/* 7. PROFILE VIEW */}
-          {currentView === 'profile' && (
-            <motion.div
-              key="profile-view"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              <ProfilePage 
-                username={username}
-                setUsername={setUsername}
-                userPhoto={userPhoto}
-                setUserPhoto={setUserPhoto}
-                activities={activities}
-                setActivities={setActivities}
-                triggerToast={triggerToast}
-                jobs={jobs}
-                setJobs={setJobs}
-                workers={workers}
-                setWorkers={setWorkers}
-                messages={messages}
-                setMessages={setMessages}
-                conversations={conversations}
-                setConversations={setConversations}
-                applications={applications}
-                setApplications={setApplications}
-                appMessages={appMessages}
-                setAppMessages={setAppMessages}
-                setCurrentView={setCurrentView}
-                setShowPostJob={setShowPostJob}
-                setShowCreateProfile={setShowCreateProfile}
                 isLoggedIn={isLoggedIn}
-                userType={userType}
-                setUserType={setUserType}
-                onLogout={handleLogout}
+                onOpenAuth={(tab) => {
+                  setSignupStep(1);
+                  setShowAuthModal(tab);
+                }}
               />
             </motion.div>
-          )}
+          } />
 
-        </AnimatePresence>
+          {/* Messages View */}
+          <Route path="/messages" element={
+            <ProtectedRoute>
+              <motion.div
+                key="messages-view"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+              >
+                <MessagesPage 
+                  messages={messages}
+                  setMessages={setMessages}
+                  conversations={conversations}
+                  setConversations={setConversations}
+                  username={username}
+                  userPhoto={userPhoto}
+                  triggerToast={triggerToast}
+                />
+              </motion.div>
+            </ProtectedRoute>
+          } />
+          <Route path="/messages/:conversationId" element={
+            <ProtectedRoute>
+              <motion.div
+                key="messages-view-detail"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+              >
+                <MessagesPage 
+                  messages={messages}
+                  setMessages={setMessages}
+                  conversations={conversations}
+                  setConversations={setConversations}
+                  username={username}
+                  userPhoto={userPhoto}
+                  triggerToast={triggerToast}
+                />
+              </motion.div>
+            </ProtectedRoute>
+          } />
 
+          {/* Profile Pages */}
+          <Route path="/profile" element={
+            <ProtectedRoute>
+              <motion.div
+                key="profile-view"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+              >
+                <ProfilePage 
+                  username={username}
+                  setUsername={setUsername}
+                  userPhoto={userPhoto}
+                  setUserPhoto={setUserPhoto}
+                  activities={activities}
+                  setActivities={setActivities}
+                  triggerToast={triggerToast}
+                  jobs={jobs}
+                  setJobs={setJobs}
+                  workers={workers}
+                  setWorkers={setWorkers}
+                  messages={messages}
+                  setMessages={setMessages}
+                  conversations={conversations}
+                  setConversations={setConversations}
+                  applications={applications}
+                  setApplications={setApplications}
+                  appMessages={appMessages}
+                  setAppMessages={setAppMessages}
+                  setCurrentView={setCurrentView}
+                  setShowPostJob={(val) => {
+                    if (val) {
+                      requireEmailVerification('Post Jobs', () => setShowPostJob(true));
+                    } else {
+                      setShowPostJob(false);
+                    }
+                  }}
+                  setShowCreateProfile={(val) => {
+                    if (val) {
+                      requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true));
+                    } else {
+                      setShowCreateProfile(false);
+                    }
+                  }}
+                  isLoggedIn={isLoggedIn}
+                  userType={userType}
+                  setUserType={setUserType}
+                  onLogout={handleLogout}
+                  isEmailVerified={isEmailVerified}
+                  requireEmailVerification={requireEmailVerification}
+                />
+              </motion.div>
+            </ProtectedRoute>
+          } />
+
+          {/* Saved Jobs Shortcut */}
+          <Route path="/profile/saved-jobs" element={
+            <ProtectedRoute>
+              <motion.div
+                key="saved-jobs-view"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+              >
+                <SavedJobsPage 
+                  jobs={jobs}
+                  toggleBookmark={toggleBookmark}
+                  handleApplyJob={handleApplyJob}
+                  onExplore={() => navigate('/jobs')}
+                />
+              </motion.div>
+            </ProtectedRoute>
+          } />
+
+          {/* Saved Workers Shortcut */}
+          <Route path="/profile/saved-workers" element={
+            <ProtectedRoute>
+              <motion.div
+                key="saved-workers-view"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+              >
+                <SavedWorkersPage 
+                  workers={workers}
+                  toggleWorkerBookmark={toggleWorkerBookmark}
+                  onOpenMessage={handleOpenDirectMessage}
+                  onOpenHire={triggerHireModal}
+                  onExplore={() => navigate('/workers')}
+                />
+              </motion.div>
+            </ProtectedRoute>
+          } />
+
+          {/* Email Verification Center */}
+          <Route path="/verify-email" element={
+            <div className="max-w-md mx-auto py-8 sm:py-12 space-y-6 px-4">
+              <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full overflow-hidden shadow-2xl text-left relative">
+                {/* Premium Gradient Accent Line */}
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600" />
+                
+                <div className="p-6 sm:p-8 space-y-5">
+                  <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                      <ShieldAlert className="w-6 h-6 animate-pulse" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] uppercase font-mono tracking-widest font-extrabold text-indigo-600 dark:text-indigo-400 block">Security Requirement</span>
+                      <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+                        Verify your email to continue
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                        Email verification is required before you can perform gated actions. Please input the 6-digit OTP code below.
+                      </p>
+                    </div>
+                  </div>
+
+                  {isEditingPendingEmail ? (
+                    <div className="p-3.5 bg-slate-50 dark:bg-zinc-900/50 rounded-2xl border border-slate-200/50 dark:border-zinc-800/50 text-center space-y-2">
+                      <span className="text-[10px] uppercase font-mono tracking-wider font-extrabold text-slate-400 dark:text-zinc-500 block">Edit Email Address</span>
+                      <input
+                        type="email"
+                        value={editedPendingEmail}
+                        onChange={(e) => setEditedPendingEmail(e.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-xs text-center font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                        placeholder="e.g. akhil.v@opencomm.io"
+                      />
+                      <div className="flex justify-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editedPendingEmail.trim() && editedPendingEmail.includes('@')) {
+                              updatePendingEmail(editedPendingEmail.trim());
+                              setIsEditingPendingEmail(false);
+                              triggerToast("Email address updated!");
+                            } else {
+                              triggerToast("Please enter a valid email address.");
+                            }
+                          }}
+                          className="px-3 py-1 bg-indigo-600 text-white text-[10px] font-bold rounded-md hover:bg-indigo-500 cursor-pointer"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditedPendingEmail(pendingEmail);
+                            setIsEditingPendingEmail(false);
+                          }}
+                          className="px-3 py-1 bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 text-[10px] font-bold rounded-md hover:bg-slate-300 dark:hover:bg-zinc-700 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-slate-50 dark:bg-zinc-900/50 rounded-2xl border border-slate-200/50 dark:border-zinc-800/50 text-center space-y-1">
+                      <span className="text-[10px] uppercase font-mono tracking-wider font-extrabold text-slate-400 dark:text-zinc-500 block">Pending Email Address</span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-zinc-300 select-all block break-all">{pendingEmail || "No pending email found. Please sign up."}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditedPendingEmail(pendingEmail);
+                          setIsEditingPendingEmail(true);
+                        }}
+                        className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
+                      >
+                        Edit Email
+                      </button>
+                    </div>
+                  )}
+
+                  {authError && (
+                    <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/15 rounded-xl flex items-start space-x-2.5 text-red-600 dark:text-red-400 text-[11px] font-semibold leading-relaxed animate-shake">
+                      <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleVerifyOTP} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">6-Digit Verification Code</label>
+                      <input
+                        type="text"
+                        value={verificationCodeInput}
+                        onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="e.g. 123456"
+                        maxLength={6}
+                        className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-mono font-bold tracking-widest text-center focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        disabled={resendCooldown > 0 || isAuthSubmitting}
+                        onClick={handleResendOTP}
+                        className="h-11 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50 disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isAuthSubmitting && 'animate-spin'}`} />
+                        <span>{resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend OTP'}</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isAuthSubmitting || !verificationCodeInput}
+                        className="h-11 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white rounded-xl text-xs font-bold shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        {isAuthSubmitting ? "Verifying..." : "Verify & Continue"}
+                      </button>
+                    </div>
+                  </form>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate('/')}
+                    className="w-full h-11 border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50"
+                  >
+                    Go to Home
+                  </button>
+                </div>
+              </div>
+            </div>
+          } />
+
+          {/* 404 Wildcard Page */}
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
       </main>
+
+      {/* ====================================================
+          MODAL: EMAIL VERIFICATION GATEWAY
+         ==================================================== */}
+      <AnimatePresence>
+        {showVerificationModal && (
+          <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn" id="email-verification-modal-overlay">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full max-w-md overflow-hidden shadow-2xl text-left relative"
+              id="email-verification-modal-card"
+            >
+              {/* Premium Gradient Accent Line */}
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600" />
+              
+              <div className="p-6 sm:p-8 space-y-5">
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                    <ShieldAlert className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] uppercase font-mono tracking-widest font-extrabold text-indigo-600 dark:text-indigo-400 block">Security Requirement</span>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight leading-snug" id="verification-modal-title">
+                      Verify your email to continue
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium" id="verification-modal-description">
+                      Email verification is required before you can apply for jobs, post opportunities, send hiring requests, create professional profiles, or use messaging. This helps OpenComm reduce spam and fake accounts.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Success State Indicator */}
+                {emailSentSuccessfully && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start space-x-2.5 text-emerald-600 dark:text-emerald-400 text-xs font-bold animate-shake" id="verification-success-alert">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>Verification email sent. Check your inbox.</span>
+                  </div>
+                )}
+
+                {/* Friendly Error Messages */}
+                {authError && (
+                  <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/15 rounded-xl flex items-start space-x-2.5 text-red-600 dark:text-red-400 text-[11px] font-semibold leading-relaxed animate-shake" id="verification-error-alert">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={resendCooldown > 0 || isAuthSubmitting}
+                    onClick={handleResendVerificationInModal}
+                    className="w-full h-11 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white rounded-xl text-xs font-bold shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                    id="btn-send-verification-email"
+                  >
+                    {isAuthSubmitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>
+                          {resendCooldown > 0 
+                            ? `Resend email (${resendCooldown}s)` 
+                            : emailSentSuccessfully ? 'Resend Verification Email' : 'Send Verification Email'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowVerificationModal(false);
+                      setAuthError('');
+                    }}
+                    className="w-full h-11 border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50"
+                    id="btn-cancel-verification"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div className="text-center">
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    🔒 Protected by secure OpenComm verification rules
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ====================================================
           MODAL 1: POST A JOB
@@ -1103,28 +2371,27 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (e.g. $65/hr, $1500/mo)</label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="e.g. $85/hr"
-                      value={newJobSalary}
-                      onChange={(e) => setNewJobSalary(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Location</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Austin, TX (or Remote)"
-                      value={newJobLocation}
-                      onChange={(e) => setNewJobLocation(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (e.g. $65/hr, $1500/mo)</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="e.g. $85/hr"
+                    value={newJobSalary}
+                    onChange={(e) => setNewJobSalary(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Location</label>
+                  <LocationSelector
+                    value={newJobLocationData}
+                    onChange={(loc) => {
+                      setNewJobLocationData(loc);
+                      setNewJobLocation(loc.city ? `${loc.city}, ${loc.state_code || loc.state}` : '');
+                    }}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1237,28 +2504,27 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Desired Hourly Rate ($/hr)</label>
-                    <input 
-                      type="number" 
-                      required
-                      placeholder="e.g. 75"
-                      value={newWorkerRate}
-                      onChange={(e) => setNewWorkerRate(Number(e.target.value))}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Base Location</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Austin, TX (or Remote)"
-                      value={newWorkerLocation}
-                      onChange={(e) => setNewWorkerLocation(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Desired Hourly Rate ($/hr)</label>
+                  <input 
+                    type="number" 
+                    required
+                    placeholder="e.g. 75"
+                    value={newWorkerRate}
+                    onChange={(e) => setNewWorkerRate(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Base Location</label>
+                  <LocationSelector
+                    value={newWorkerLocationData}
+                    onChange={(loc) => {
+                      setNewWorkerLocationData(loc);
+                      setNewWorkerLocation(loc.city ? `${loc.city}, ${loc.state_code || loc.state}` : '');
+                    }}
+                  />
                 </div>
 
                 <div className="space-y-1">
@@ -1457,9 +2723,48 @@ export default function App() {
 
               {/* Error block */}
               {authError && (
-                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl text-xs flex items-start space-x-2.5 font-medium leading-normal animate-shake">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{authError}</span>
+                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl text-xs flex flex-col space-y-2.5 font-medium leading-normal animate-shake">
+                  <div className="flex items-start space-x-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{authError}</span>
+                  </div>
+                  {authError.toLowerCase().includes("rate limit") && (
+                    <button
+                      type="button"
+                      onClick={handleBypassToDemoMode}
+                      className="mt-1 self-start text-[10px] uppercase font-mono tracking-wider font-extrabold text-white bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
+                      id="btn-bypass-rate-limit"
+                    >
+                      Bypass Rate Limit (Use Local Emulator Mode) &rarr;
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Verify email section for unconfirmed accounts */}
+              {isEmailNotConfirmedError && (
+                <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-400 rounded-xl text-xs space-y-3 font-medium leading-normal" id="unconfirmed-email-verify-section">
+                  <div className="flex items-start space-x-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-500" />
+                    <div>
+                      <p className="font-bold">Email Verification Pending</p>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">Your email has not been confirmed yet. Please verify it using your 6-digit OTP code to unlock your account.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEmailNotConfirmedError(false);
+                      setAuthError("");
+                      setShowAuthModal(null);
+                      navigate('/verify-email');
+                    }}
+                    className="w-full h-10 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                    id="btn-unconfirmed-verify-email"
+                  >
+                    <span>Verify Email Now</span>
+                    <span>&rarr;</span>
+                  </button>
                 </div>
               )}
 
@@ -1523,10 +2828,26 @@ export default function App() {
                         setIsAuthSubmitting(false);
                         if (error) {
                           setAuthError(error.message);
+                          const isUnconfirmed = error.message.toLowerCase().includes("email not confirmed") || 
+                                                error.message.toLowerCase().includes("email_not_confirmed") || 
+                                                error.message.toLowerCase().includes("unconfirmed") || 
+                                                error.message.toLowerCase().includes("not verified");
+                          if (isUnconfirmed) {
+                            setIsEmailNotConfirmedError(true);
+                            updatePendingEmail(signinUsername);
+                            triggerToast("Email verification pending. Redirecting you to the verification page...");
+                            setTimeout(() => {
+                              setIsEmailNotConfirmedError(false);
+                              setAuthError("");
+                              setShowAuthModal(null);
+                              navigate('/verify-email');
+                            }, 2500);
+                          }
                         } else {
                           setShowAuthModal(null);
                           setLockedFeature(null);
                           triggerToast("Signed in successfully!");
+                          analytics.trackLogin('email', data.user?.id);
                         }
                       } catch (err: any) {
                         setIsAuthSubmitting(false);
@@ -1539,6 +2860,7 @@ export default function App() {
                         handleLoginSuccess(signinUsername, storedType);
                         setShowAuthModal(null);
                         setLockedFeature(null);
+                        analytics.trackLogin('mock', 'mock-user-id');
                       }, 800);
                     }
                   }}
@@ -1594,7 +2916,7 @@ export default function App() {
                             setIsAuthSubmitting(true);
                             setAuthError("");
                             const { error } = await (supabase ? supabase.auth.resetPasswordForEmail(signinUsername, {
-                              redirectTo: window.location.origin
+                              redirectTo: NEXT_PUBLIC_APP_URL
                             }) : { error: null });
                             setIsAuthSubmitting(false);
                             if (error) {
@@ -1651,16 +2973,29 @@ export default function App() {
               {showAuthModal === 'signup' && (
                 <div className="space-y-4">
                   {/* Step Header Indicator */}
-                  <div className="flex items-center justify-between px-1 mb-2">
-                    <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                      Step {signupStep} of 3
-                    </span>
-                    <div className="flex space-x-1.5">
-                      <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep >= 1 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
-                      <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep >= 2 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
-                      <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep >= 3 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
+                  {signupStep <= 3 && signupStep !== 2 && (
+                    <div className="flex items-center justify-between px-1 mb-2">
+                      <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        Step {signupStep === 3 ? 2 : 1} of 2
+                      </span>
+                      <div className="flex space-x-1.5">
+                        <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep >= 1 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
+                        <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep === 3 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {signupStep === 2 && (
+                    <div className="flex items-center justify-between px-1 mb-2">
+                      <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        Email Verification
+                      </span>
+                      <div className="flex items-center space-x-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[9px] font-mono font-bold text-emerald-600 dark:text-emerald-400">Security Check</span>
+                      </div>
+                    </div>
+                  )}
 
                   {signupStep === 1 && (
                     <form onSubmit={handleSignUpStep1} className="space-y-3.5 text-xs">
@@ -1786,49 +3121,84 @@ export default function App() {
                   )}
 
                   {signupStep === 2 && (
-                    <div className="space-y-4 text-xs text-center py-4">
-                      <div className="w-16 h-16 bg-indigo-500/10 dark:bg-indigo-600/10 rounded-full flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400">
-                        <Mail className="w-8 h-8 animate-pulse" />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Check your email</h3>
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium max-w-xs mx-auto">
-                          We have dispatched a verification link to <strong className="text-indigo-600 dark:text-indigo-400">{signupForm.email}</strong>. 
-                          Please click the link inside that email to verify your address and continue onboarding.
-                        </p>
+                    <div className="space-y-4 text-xs text-left animate-fadeIn">
+                      <div className="flex items-start space-x-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                          <ShieldCheck className="w-5 h-5 animate-pulse" />
+                        </div>
+                        <div className="space-y-1">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+                            Verify your email
+                          </h3>
+                          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                            Please enter the 6-digit OTP code we sent to <strong className="text-slate-800 dark:text-white">{signupForm.email}</strong>.
+                          </p>
+                        </div>
                       </div>
 
                       {authError && (
-                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-[11px] text-red-600 dark:text-red-400 font-medium">
-                          {authError}
+                        <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/15 rounded-xl flex items-start space-x-2.5 text-red-600 dark:text-red-400 text-[11px] font-semibold leading-relaxed animate-shake">
+                          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span>{authError}</span>
                         </div>
                       )}
 
-                      <div className="pt-4 space-y-2">
-                        <button
-                          type="button"
-                          disabled={resendCooldown > 0 || isAuthSubmitting}
-                          onClick={handleResendVerificationEmail}
-                          className="w-full h-11 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50"
-                        >
-                          {isAuthSubmitting ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <span>
-                              {resendCooldown > 0 
-                                ? `Resend email (${resendCooldown}s)` 
-                                : 'Resend verification email'}
-                            </span>
-                          )}
-                        </button>
+                      {!supabase && (
+                        <div className="p-2.5 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-1">
+                          <span className="text-[9px] uppercase font-mono tracking-wider font-bold text-indigo-600 dark:text-indigo-400 block">Sandbox Simulation</span>
+                          <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                            You are running in sandbox/offline mode. You can enter any 6-digit code (e.g. <strong>123456</strong>) to complete verification.
+                          </p>
+                        </div>
+                      )}
 
+                      <form onSubmit={handleVerifyOTP} className="space-y-3.5">
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">Enter Code</label>
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={verificationCodeInput}
+                            onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="e.g. 123456"
+                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-mono font-bold tracking-widest text-center"
+                          />
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={resendCooldown > 0 || isAuthSubmitting}
+                            onClick={handleResendOTP}
+                            className="flex-1 h-11 border border-slate-200 dark:border-zinc-800 text-slate-500 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 flex items-center justify-center text-xs"
+                          >
+                            {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend OTP"}
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isAuthSubmitting}
+                            className="flex-1 h-11 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl cursor-pointer flex items-center justify-center text-xs shadow-md"
+                          >
+                            {isAuthSubmitting ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              "Verify & Continue"
+                            )}
+                          </button>
+                        </div>
+                      </form>
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 text-center">
                         <button
                           type="button"
-                          onClick={() => setSignupStep(1)}
-                          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-white hover:underline cursor-pointer font-bold block mx-auto pt-1"
+                          onClick={() => {
+                            setSignupStep(3);
+                            setIsEmailVerified(false);
+                            setAuthError('');
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold transition-all"
                         >
-                          Back to signup details
+                          Skip & Verify Later
                         </button>
                       </div>
                     </div>
@@ -1836,93 +3206,61 @@ export default function App() {
 
                   {signupStep === 3 && (
                     <form onSubmit={handleSignUpStep3} className="space-y-3.5 text-xs">
-                      {/* Avatar Picker */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Choose your profile avatar
+                      {/* Profile Photo Upload */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 text-center">
+                          Profile Photo <span className="text-rose-500">*</span>
                         </label>
-                        <div className="flex justify-between items-center bg-slate-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-slate-200/40 dark:border-white/8">
-                          {[
-                            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&h=100&q=80',
-                            'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&h=100&q=80',
-                            'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=100&h=100&q=80',
-                            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80',
-                            'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=100&h=100&q=80'
-                          ].map((url, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => setOnboardingForm({...onboardingForm, avatar_url: url})}
-                              className={`w-11 h-11 rounded-full overflow-hidden transition-transform border-2 cursor-pointer ${
-                                onboardingForm.avatar_url === url 
-                                  ? 'border-indigo-600 scale-110 shadow-md shadow-indigo-600/10' 
-                                  : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'
-                              }`}
-                            >
-                              <img src={url} alt={`avatar-${i}`} className="w-full h-full object-cover" />
-                            </button>
-                          ))}
-                        </div>
+                        <ProfilePhotoUpload
+                          value={onboardingForm.avatar_url}
+                          onFileChange={setCroppedFile}
+                          onChange={(url) => {
+                            setOnboardingForm({ ...onboardingForm, avatar_url: url });
+                            setUserPhoto(url);
+                            if (!url.startsWith('blob:')) {
+                              localStorage.setItem('opencomm_user_photo', url);
+                            }
+                          }}
+                          userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
+                          supabase={supabase}
+                          triggerToast={triggerToast}
+                        />
                       </div>
 
-                      {/* City and State */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            City
-                          </label>
-                          <input 
-                            type="text" 
-                            required
-                            value={onboardingForm.city}
-                            onChange={(e) => setOnboardingForm({...onboardingForm, city: e.target.value})}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                            placeholder="e.g. Austin"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            District / State
-                          </label>
-                          <input 
-                            type="text" 
-                            required
-                            value={onboardingForm.state}
-                            onChange={(e) => setOnboardingForm({...onboardingForm, state: e.target.value})}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                            placeholder="e.g. Texas"
-                          />
-                        </div>
+                      {/* Location Selector */}
+                      <div className="space-y-1.5 text-left">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Primary Base Location
+                        </label>
+                        <LocationSelector
+                          value={onboardingForm}
+                          onChange={(loc) => setOnboardingForm(prev => ({
+                            ...prev,
+                            city: loc.city,
+                            state: loc.state,
+                            country: loc.country,
+                            country_code: loc.country_code,
+                            state_code: loc.state_code,
+                            district: loc.district,
+                            latitude: loc.latitude,
+                            longitude: loc.longitude
+                          }))}
+                        />
                       </div>
 
-                      {/* Country and Language */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Country
-                          </label>
-                          <input 
-                            type="text" 
-                            required
-                            value={onboardingForm.country}
-                            onChange={(e) => setOnboardingForm({...onboardingForm, country: e.target.value})}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                            placeholder="e.g. USA"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Preferred Language
-                          </label>
-                          <input 
-                            type="text" 
-                            required
-                            value={onboardingForm.preferred_language}
-                            onChange={(e) => setOnboardingForm({...onboardingForm, preferred_language: e.target.value})}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                            placeholder="e.g. English"
-                          />
-                        </div>
+                      {/* Preferred Language */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Preferred Language
+                        </label>
+                        <input 
+                          type="text" 
+                          required
+                          value={onboardingForm.preferred_language}
+                          onChange={(e) => setOnboardingForm({...onboardingForm, preferred_language: e.target.value})}
+                          className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
+                          placeholder="e.g. English"
+                        />
                       </div>
 
                       {/* Bio */}
@@ -1953,6 +3291,109 @@ export default function App() {
                         </button>
                       </div>
                     </form>
+                  )}
+
+                  {signupStep === 4 && (
+                    <div className="space-y-4 text-xs text-left animate-fadeIn">
+                      <div className="flex items-start space-x-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                          <Mail className="w-5 h-5 animate-pulse" />
+                        </div>
+                        <div className="space-y-1">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight leading-snug">
+                            Choose Email Verification Strategy
+                          </h3>
+                          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                            Verification unlocks secure milestone transactions, direct contact exchanges, and service listings.
+                          </p>
+                        </div>
+                      </div>
+
+                      {!showCodeVerificationInput ? (
+                        <div className="space-y-3 pt-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setShowCodeVerificationInput(true);
+                              try {
+                                const response = await fetch('/api/send-verification-email', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    email: signupForm.email,
+                                    userId: localStorage.getItem('opencomm_user_id') || 'temp-user-id',
+                                    redirectAction: 'onboarding'
+                                  })
+                                });
+                                const data = await response.json();
+                                if (data.url) {
+                                  setMockVerificationUrl(data.url);
+                                }
+                                triggerToast("Verification link / code dispatched successfully!");
+                              } catch (e) {
+                                console.error("Error sending verification email:", e);
+                              }
+                            }}
+                            className="w-full h-11 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center cursor-pointer"
+                          >
+                            Verify Email Now
+                          </button>
+
+                          <div className="p-3 bg-amber-500/5 rounded-2xl border border-amber-500/10 space-y-2">
+                            <p className="text-[10px] sm:text-[11px] text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
+                              ⚠️ <strong>Do It Later:</strong> Some professional actions like listing services, contract posting, and worker lookup require verification. You can continue as a basic member for now.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleCompleteOnboarding(false);
+                              }}
+                              className="w-full h-10 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800/40 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer"
+                            >
+                              Do It Later
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 pt-2">
+                          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 font-semibold mb-1">
+                            A verification link has been dispatched to <strong className="text-slate-800 dark:text-white">{signupForm.email}</strong>.
+                          </p>
+
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">Enter Code</label>
+                            <input
+                              type="text"
+                              maxLength={6}
+                              value={verificationCodeInput}
+                              onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                              placeholder="e.g. 123456"
+                              className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-mono font-bold tracking-widest text-center"
+                            />
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowCodeVerificationInput(false)}
+                              className="flex-1 h-11 border border-slate-200 dark:border-zinc-800 text-slate-500 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isAuthSubmitting}
+                              onClick={() => {
+                                handleVerifyOTP();
+                              }}
+                              className="flex-1 h-11 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl cursor-pointer disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center text-xs"
+                            >
+                              {isAuthSubmitting ? "Verifying..." : "Submit Code"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

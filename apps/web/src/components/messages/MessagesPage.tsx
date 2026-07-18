@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, MessageSquare, Check, X, ShieldAlert, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { Message, Conversation } from '../../types';
+import { analytics } from '../../lib/analytics';
 
 interface MessagesPageProps {
   messages: Message[];
@@ -22,6 +24,9 @@ export default function MessagesPage({
   userPhoto,
   triggerToast,
 }: MessagesPageProps) {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+
   // Select active conversation ID
   const [activeConversationId, setActiveConversationId] = useState<string>('');
   const [chatInput, setChatInput] = useState('');
@@ -33,12 +38,15 @@ export default function MessagesPage({
   const activeConv = conversations.find(c => c.id === activeConversationId) || conversations[0];
   const activeContact = activeConv?.memberName || 'Sarah Jenkins';
 
-  // Initialize activeConversationId to first conversation if empty
+  // Initialize and sync activeConversationId with URL route param
   useEffect(() => {
-    if (!activeConversationId && conversations.length > 0) {
+    if (conversationId) {
+      setActiveConversationId(conversationId);
+      setMobileActiveThreadOpen(true);
+    } else if (conversations.length > 0 && !activeConversationId) {
       setActiveConversationId(conversations[0].id);
     }
-  }, [conversations, activeConversationId]);
+  }, [conversationId, conversations, activeConversationId]);
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -128,8 +136,13 @@ export default function MessagesPage({
   };
 
   const selectConversation = (id: string) => {
-    setActiveConversationId(id);
-    setMobileActiveThreadOpen(true);
+    navigate(`/messages/${id}`);
+    
+    // Track chat opened
+    const selectedConv = conversations.find(c => c.id === id);
+    if (selectedConv) {
+      analytics.trackChatOpened(selectedConv.memberName);
+    }
     
     // Clear unread count
     setConversations(prev => prev.map(c => {
