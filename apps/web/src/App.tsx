@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin, 
@@ -253,6 +253,9 @@ export default function App() {
   const [isEmailNotConfirmedError, setIsEmailNotConfirmedError] = useState<boolean>(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
+    return localStorage.getItem('opencomm_onboarding_completed') === 'true';
+  });
 
   // --- AUTH CALLBACK ROUTE STATES ---
   const [authCallbackStatus, setAuthCallbackStatus] = useState<'processing' | 'success' | 'error'>('processing');
@@ -279,68 +282,92 @@ export default function App() {
   const [mockVerificationUrl, setMockVerificationUrl] = useState<string>('');
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
 
-  const isAllowedPath = (pathname: string) => {
+  const isPublicPath = (pathname: string) => {
     const p = pathname.toLowerCase();
-    return p === '/signup' || 
-           p === '/verify-email' || 
-           p === '/terms' || 
-           p === '/privacy' || 
-           p === '/login' || 
-           p === '/community-guidelines' ||
-           p === '/cookie-policy' ||
-           p === '/contact' ||
-           p === '/grievance' ||
-           p.startsWith('/auth/callback') ||
-           p.startsWith('/reset-password') ||
-           p.startsWith('/recovery');
+    if (p === '/' || 
+        p === '/jobs' || 
+        p === '/workers' || 
+        p === '/terms' || 
+        p === '/privacy' || 
+        p === '/community-guidelines' || 
+        p === '/cookie-policy' || 
+        p === '/contact' || 
+        p === '/grievance' || 
+        p === '/signup' || 
+        p === '/login' || 
+        p === '/verify-email' ||
+        p.startsWith('/auth/callback') ||
+        p.startsWith('/reset-password') ||
+        p.startsWith('/recovery')) {
+      return true;
+    }
+    if (p.startsWith('/jobs/') || p.startsWith('/workers/')) {
+      return true;
+    }
+    return false;
   };
 
   useEffect(() => {
-    if (!isAllowedPath(path)) {
-      if (!isLoggedIn) {
-        navigate('/signup');
-      } else if (!isEmailVerified) {
-        navigate('/verify-email');
+    if (isLoggedIn) {
+      if (!isEmailVerified) {
+        if (path !== '/verify-email') {
+          navigate('/verify-email');
+        }
+      } else if (!isOnboardingCompleted) {
+        if (path !== '/signup') {
+          navigate('/signup');
+        }
+        setShowAuthModal('signup');
+        setSignupStep(2);
+      } else {
+        if (path === '/signup' || path === '/login' || path === '/verify-email') {
+          navigate('/');
+        }
+      }
+    } else {
+      // Logged out
+      if (!isPublicPath(path)) {
+        navigate(`/login?redirect=${encodeURIComponent(path)}`);
       }
     }
-  }, [path, isLoggedIn, isEmailVerified]);
+  }, [isLoggedIn, isEmailVerified, isOnboardingCompleted, path]);
 
   useEffect(() => {
-    if (path === '/signup') {
-      setShowAuthModal('signup');
-      if (signupStep > 3) setSignupStep(1);
-    } else if (path === '/login') {
-      setShowAuthModal('signin');
-    } else if (path === '/verify-email') {
-      setShowAuthModal(null);
-    } else if (isAllowedPath(path)) {
-      setShowAuthModal(null);
+    if (!isLoggedIn) {
+      if (path === '/signup') {
+        setShowAuthModal('signup');
+        setSignupStep(1);
+      } else if (path === '/login') {
+        setShowAuthModal('signin');
+      } else {
+        setShowAuthModal(null);
+      }
     }
-  }, [path]);
-
-  useEffect(() => {
-    if (isLoggedIn && isEmailVerified && (path === '/signup' || path === '/login')) {
-      navigate('/');
-    }
-  }, [path, isLoggedIn, isEmailVerified]);
+  }, [path, isLoggedIn]);
 
   // Protect routes and trigger sign in if needed
   function ProtectedRoute({ children }: { children: React.ReactNode }) {
     useEffect(() => {
       if (!isLoggedIn) {
-        navigate('/login');
+        navigate(`/login?redirect=${encodeURIComponent(path)}`);
         triggerToast("Please sign in to access this page.");
       } else if (!isEmailVerified) {
         navigate('/verify-email');
         triggerToast("Please verify your email address to continue.");
+      } else if (!isOnboardingCompleted) {
+        navigate('/signup');
+        triggerToast("Please complete your profile details to continue.");
       }
-    }, [isLoggedIn, isEmailVerified]);
+    }, [isLoggedIn, isEmailVerified, isOnboardingCompleted]);
 
     if (!isLoggedIn) {
-      return <Navigate to="/login" replace />;
+      return <Navigate to={`/login?redirect=${encodeURIComponent(path)}`} replace />;
     }
     if (!isEmailVerified) {
       return <Navigate to="/verify-email" replace />;
+    }
+    if (!isOnboardingCompleted) {
+      return <Navigate to="/signup" replace />;
     }
     return <>{children}</>;
   }
@@ -549,7 +576,11 @@ export default function App() {
       // Clear URL and redirect
       setTimeout(() => {
         window.history.replaceState({}, '', '/');
-        if (profile && profile.onboarding_completed) {
+        const isOnboarded = !!(profile?.onboarding_completed || profile?.city || profile?.bio);
+        setIsOnboardingCompleted(isOnboarded);
+        localStorage.setItem('opencomm_onboarding_completed', isOnboarded ? 'true' : 'false');
+
+        if (profile && isOnboarded) {
           // Already onboarded
           setShowAuthModal(null);
           setCurrentView('home');
@@ -557,7 +588,7 @@ export default function App() {
         } else {
           // Needs onboarding
           setShowAuthModal('signup');
-          setSignupStep(3);
+          setSignupStep(2);
           setSignupForm(prev => ({
             ...prev,
             email: user.email || '',
@@ -620,9 +651,12 @@ export default function App() {
     localStorage.setItem('opencomm_user_id', userId);
 
     const isOnboarded = !!profile.onboarding_completed || !!profile.city || !!profile.bio;
+    setIsOnboardingCompleted(isOnboarded);
+    localStorage.setItem('opencomm_onboarding_completed', isOnboarded ? 'true' : 'false');
+    
     if (!isOnboarded) {
       setShowAuthModal('signup');
-      setSignupStep(3);
+      setSignupStep(2);
       setOnboardingSubStep('A');
       setWorkerForm(prev => ({
         ...prev,
@@ -639,6 +673,8 @@ export default function App() {
   };
 
   function clearSignupTempState() {
+    setIsOnboardingCompleted(false);
+    localStorage.removeItem('opencomm_onboarding_completed');
     setSignupForm({
       name: '',
       email: '',
@@ -922,6 +958,8 @@ export default function App() {
     localStorage.setItem('opencomm_user_type', uType);
     localStorage.setItem('opencomm_username', uName);
     localStorage.setItem('opencomm_user_photo', pickedPhoto);
+    localStorage.setItem('opencomm_onboarding_completed', 'true');
+    setIsOnboardingCompleted(true);
 
     if (uType === 'worker') {
       const alreadyExists = workers.some(w => w.name.toLowerCase() === uName.toLowerCase());
@@ -1347,6 +1385,8 @@ export default function App() {
       localStorage.setItem('opencomm_username', workerForm.fullName || signupForm.name);
       localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
       localStorage.setItem('opencomm_user_type', 'worker');
+      localStorage.setItem('opencomm_onboarding_completed', 'true');
+      setIsOnboardingCompleted(true);
 
       setSignupStep(1);
       setShowAuthModal(null);
@@ -1354,8 +1394,14 @@ export default function App() {
       setIsAuthSubmitting(false);
       triggerToast("Verification successful! Welcome to OpenComm.");
 
-      // Navigate to Home
-      navigate('/');
+      // Redirect back to intended destination if present
+      const queryParams = new URLSearchParams(window.location.search);
+      const redirectPath = queryParams.get('redirect');
+      if (redirectPath) {
+        navigate(redirectPath);
+      } else {
+        navigate('/');
+      }
 
     } catch (err: any) {
       setIsAuthSubmitting(false);
@@ -1880,8 +1926,8 @@ export default function App() {
         userType={userType}
         isEmailVerified={isEmailVerified}
         onOpenAuth={(tab) => {
-          setSignupStep(1);
-          setShowAuthModal(tab);
+          if (tab === 'signin') navigate('/login');
+          else if (tab === 'signup') navigate('/signup');
         }}
         onLogout={handleLogout}
       />
@@ -2001,8 +2047,8 @@ export default function App() {
                 triggerToast={triggerToast}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
-                  setSignupStep(1);
-                  setShowAuthModal(tab);
+                  if (tab === 'signin') navigate('/login');
+                  else if (tab === 'signup') navigate('/signup');
                 }}
               />
             </motion.div>
@@ -2022,8 +2068,8 @@ export default function App() {
                 triggerToast={triggerToast}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
-                  setSignupStep(1);
-                  setShowAuthModal(tab);
+                  if (tab === 'signin') navigate('/login');
+                  else if (tab === 'signup') navigate('/signup');
                 }}
               />
             </motion.div>
@@ -2050,8 +2096,8 @@ export default function App() {
                 triggerToast={triggerToast}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
-                  setSignupStep(1);
-                  setShowAuthModal(tab);
+                  if (tab === 'signin') navigate('/login');
+                  else if (tab === 'signup') navigate('/signup');
                 }}
               />
             </motion.div>
@@ -2072,8 +2118,8 @@ export default function App() {
                 triggerToast={triggerToast}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
-                  setSignupStep(1);
-                  setShowAuthModal(tab);
+                  if (tab === 'signin') navigate('/login');
+                  else if (tab === 'signup') navigate('/signup');
                 }}
               />
             </motion.div>
@@ -2218,6 +2264,20 @@ export default function App() {
                 />
               </motion.div>
             </ProtectedRoute>
+          } />
+
+          {/* Create Account route */}
+          <Route path="/signup" element={
+            <div className="min-h-[60vh] flex items-center justify-center">
+              <div className="text-slate-400 dark:text-zinc-500 font-medium">Opening Create Account...</div>
+            </div>
+          } />
+
+          {/* Sign In route */}
+          <Route path="/login" element={
+            <div className="min-h-[60vh] flex items-center justify-center">
+              <div className="text-slate-400 dark:text-zinc-500 font-medium">Opening Sign In...</div>
+            </div>
           } />
 
           {/* Email Verification Center */}
@@ -2833,6 +2893,9 @@ export default function App() {
                   setShowAuthModal(null);
                   setLockedFeature(null);
                   setAuthError('');
+                  if (path === '/signup' || path === '/login') {
+                    navigate('/');
+                  }
                 }}
                 className="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-400 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors"
                 title="Close"
@@ -2841,14 +2904,22 @@ export default function App() {
               </button>
 
               {/* Centered OpenComm Brand Logo */}
-              <div className="flex flex-col items-center mb-5 mt-2">
+              <Link 
+                to="/" 
+                onClick={() => {
+                  setShowAuthModal(null);
+                  setLockedFeature(null);
+                  setAuthError('');
+                }} 
+                className="flex flex-col items-center mb-5 mt-2 cursor-pointer outline-none"
+              >
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-md shadow-blue-500/10 mb-3.5">
                   <Compass className="w-5.5 h-5.5 text-white" />
                 </div>
                 <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent">
                   OpenComm
                 </span>
-              </div>
+              </Link>
 
               {/* Header Title Section */}
               <div className="text-center mb-6 px-2">
