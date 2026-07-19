@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -208,13 +208,14 @@ export default function App() {
 
   const validateSubStep = (step: 'A' | 'B' | 'C' | 'D' | 'E' | 'F') => {
     setAuthError('');
+    const isWorker = selectedAccountType === 'worker';
     if (step === 'A') {
       if (!workerForm.fullName.trim()) return "Full name is required.";
-      if (!workerForm.avatarUrl) return "Profile photo is required.";
+      if (isWorker && !workerForm.avatarUrl) return "Profile photo is required.";
       if (!workerForm.phone.trim()) return "Phone number is required.";
       if (!workerForm.city.trim()) return "City is required.";
       if (!workerForm.preferredLanguage.trim()) return "Preferred language is required.";
-      if (!workerForm.bio.trim()) return "Short bio is required.";
+      if (isWorker && !workerForm.bio.trim()) return "Short bio is required.";
     }
     if (step === 'B') {
       if (!workerForm.professionalTitle.trim()) return "Professional title is required.";
@@ -281,6 +282,49 @@ export default function App() {
   const [verificationSuccessCallback, setVerificationSuccessCallback] = useState<(() => void) | null>(null);
   const [mockVerificationUrl, setMockVerificationUrl] = useState<string>('');
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
+
+  const signupContainerRef = useRef<HTMLDivElement>(null);
+
+  // Automatically scroll signup container to top on step transitions
+  useEffect(() => {
+    if (signupContainerRef.current) {
+      signupContainerRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  }, [signupStep, onboardingSubStep]);
+
+  // Prepopulate worker creation/upgrade modal with basic profile details when opened
+  useEffect(() => {
+    if (showCreateProfile && isLoggedIn) {
+      const loadBasicDetailsForUpgrade = async () => {
+        const userId = localStorage.getItem('opencomm_user_id') || 'temp-user-id';
+        try {
+          const profile = await dbService.getProfile(userId);
+          if (profile) {
+            setNewWorkerName(profile.full_name || username || '');
+            setNewWorkerBio(profile.bio || '');
+            const locStr = profile.city ? `${profile.city}, ${profile.state_code || profile.state || ''}` : '';
+            setNewWorkerLocation(locStr);
+            setNewWorkerLocationData({
+              city: profile.city || '',
+              state: profile.state || '',
+              country: profile.country || '',
+              country_code: profile.country_code || '',
+              state_code: profile.state_code || '',
+              district: profile.district || '',
+              latitude: profile.latitude || 30.2672,
+              longitude: profile.longitude || -97.7431
+            });
+          }
+        } catch (err) {
+          console.error("Failed to load basic profile for upgrade:", err);
+        }
+      };
+      loadBasicDetailsForUpgrade();
+    }
+  }, [showCreateProfile, isLoggedIn, username]);
 
   const isPublicPath = (pathname: string) => {
     const p = pathname.toLowerCase();
@@ -1027,8 +1071,8 @@ export default function App() {
     if (e) e.preventDefault();
     setAuthError('');
 
-    if (selectedAccountType !== 'worker') {
-      setAuthError("Please select a Worker Account to register. Company signup is Coming Soon.");
+    if (selectedAccountType === 'company') {
+      setAuthError("Company Account registration is Coming Soon. Please choose Worker Account or continue with a Basic Account.");
       return;
     }
 
@@ -1058,7 +1102,7 @@ export default function App() {
       return;
     }
 
-    // Move directly to Stage 2 - Worker Profile Details. Do NOT call supabase.auth.signUp yet.
+    // Move directly to Stage 2 - Profile Details. Do NOT call supabase.auth.signUp yet.
     setSignupStep(2);
     setOnboardingSubStep('A');
     setWorkerForm(prev => ({
@@ -1077,7 +1121,8 @@ export default function App() {
       return;
     }
 
-    if (!workerForm.avatarUrl) {
+    const isWorker = selectedAccountType === 'worker';
+    if (isWorker && !workerForm.avatarUrl) {
       setAuthError("Please add a profile photo in Step A to continue.");
       return;
     }
@@ -1291,6 +1336,8 @@ export default function App() {
       }
 
       // Update core profile
+      const isWorker = selectedAccountType === 'worker';
+
       await dbService.updateProfile(verifiedUser.id, {
         id: verifiedUser.id,
         full_name: workerForm.fullName || signupForm.name,
@@ -1307,68 +1354,70 @@ export default function App() {
         preferred_language: workerForm.preferredLanguage,
         bio: workerForm.bio,
         avatar_url: finalAvatarUrl,
-        profile_type: 'worker',
-        account_type: 'worker',
+        profile_type: isWorker ? 'worker' : 'basic',
+        account_type: isWorker ? 'worker' : 'basic',
         account_status: 'active',
         email_verified_for_actions: true,
         onboarding_completed: true
       });
 
-      // Create worker profile
-      await dbService.createWorkerProfile({
-        id: verifiedUser.id,
-        profession: workerForm.professionalTitle,
-        professional_title: workerForm.professionalTitle,
-        primary_category: workerForm.primaryCategory,
-        skills: workerForm.skills,
-        experience_years: workerForm.yearsExperience,
-        years_experience: workerForm.yearsExperience,
-        work_location: `${workerForm.city}, ${workerForm.state}`,
-        availability: workerForm.availabilityStatus as any,
-        availability_status: workerForm.availabilityStatus,
-        bio_summary: workerForm.bio,
-        hourly_rate: workerForm.hourlyRate,
-        expected_salary: `${workerForm.expectedSalaryMin} - ${workerForm.expectedSalaryMax}`,
-        expected_salary_min: workerForm.expectedSalaryMin,
-        expected_salary_max: workerForm.expectedSalaryMax,
-        portfolio_url: workerForm.portfolioUrl,
-        linkedin_url: workerForm.linkedinUrl,
-        github_url: workerForm.githubUrl,
-        highest_qualification: workerForm.highestQualification,
-        course_specialization: workerForm.courseSpecialization,
-        institution: workerForm.institution,
-        graduation_year: workerForm.graduationYear,
-        resume_path: workerForm.resumePath,
-        worker_profile_completed: true,
-        experience: workerForm.experience,
-        certifications: workerForm.certifications
-      });
+      if (isWorker) {
+        // Create worker profile
+        await dbService.createWorkerProfile({
+          id: verifiedUser.id,
+          profession: workerForm.professionalTitle,
+          professional_title: workerForm.professionalTitle,
+          primary_category: workerForm.primaryCategory,
+          skills: workerForm.skills,
+          experience_years: workerForm.yearsExperience,
+          years_experience: workerForm.yearsExperience,
+          work_location: `${workerForm.city}, ${workerForm.state}`,
+          availability: workerForm.availabilityStatus as any,
+          availability_status: workerForm.availabilityStatus,
+          bio_summary: workerForm.bio,
+          hourly_rate: workerForm.hourlyRate,
+          expected_salary: `${workerForm.expectedSalaryMin} - ${workerForm.expectedSalaryMax}`,
+          expected_salary_min: workerForm.expectedSalaryMin,
+          expected_salary_max: workerForm.expectedSalaryMax,
+          portfolio_url: workerForm.portfolioUrl,
+          linkedin_url: workerForm.linkedinUrl,
+          github_url: workerForm.githubUrl,
+          highest_qualification: workerForm.highestQualification,
+          course_specialization: workerForm.courseSpecialization,
+          institution: workerForm.institution,
+          graduation_year: workerForm.graduationYear,
+          resume_path: workerForm.resumePath,
+          worker_profile_completed: true,
+          experience: workerForm.experience,
+          certifications: workerForm.certifications
+        });
 
-      // Mapped Worker for UI directory
-      const mappedWorker: Worker = {
-        id: verifiedUser.id,
-        name: workerForm.fullName || signupForm.name,
-        photo: finalAvatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
-        title: workerForm.professionalTitle,
-        experience: Number(workerForm.yearsExperience) || 0,
-        rating: 5.0,
-        availability: workerForm.availabilityStatus as any || 'Available Now',
-        location: `${workerForm.city}, ${workerForm.state}`,
-        bio: workerForm.bio,
-        skills: workerForm.skills,
-        completedWorks: 0,
-        hourlyRate: Number(workerForm.hourlyRate) || 0,
-        verified: true
-      };
+        // Mapped Worker for UI directory
+        const mappedWorker: Worker = {
+          id: verifiedUser.id,
+          name: workerForm.fullName || signupForm.name,
+          photo: finalAvatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+          title: workerForm.professionalTitle,
+          experience: Number(workerForm.yearsExperience) || 0,
+          rating: 5.0,
+          availability: workerForm.availabilityStatus as any || 'Available Now',
+          location: `${workerForm.city}, ${workerForm.state}`,
+          bio: workerForm.bio,
+          skills: workerForm.skills,
+          completedWorks: 0,
+          hourlyRate: Number(workerForm.hourlyRate) || 0,
+          verified: true
+        };
 
-      setWorkers(prev => [mappedWorker, ...prev]);
+        setWorkers(prev => [mappedWorker, ...prev]);
+      }
 
       // Log Terms consent record
       await dbService.logTermsConsent({
         user_id: verifiedUser.id,
         terms_version: "2026-07-19-v1",
         privacy_version: "2026-07-19-v1",
-        account_type: 'worker'
+        account_type: isWorker ? 'worker' : 'basic'
       });
 
       // Clear all temporary signup states
@@ -1379,12 +1428,12 @@ export default function App() {
       setIsEmailVerified(true);
       setUsername(workerForm.fullName || signupForm.name);
       setUserPhoto(finalAvatarUrl);
-      setUserType('worker');
+      setUserType(isWorker ? 'worker' : 'normal');
 
       localStorage.setItem('opencomm_is_logged_in', 'true');
       localStorage.setItem('opencomm_username', workerForm.fullName || signupForm.name);
       localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
-      localStorage.setItem('opencomm_user_type', 'worker');
+      localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
       localStorage.setItem('opencomm_onboarding_completed', 'true');
       setIsOnboardingCompleted(true);
 
@@ -1652,58 +1701,105 @@ export default function App() {
     setNewJobReqs('');
   };
 
-  const handleCreateWorker = (e: React.FormEvent) => {
+  const handleCreateWorker = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWorkerName || !newWorkerTitle) {
       alert("Please provide a name and professional title.");
       return;
     }
 
-    const createdWorker: Worker = {
-      id: `worker-${Date.now()}`,
-      name: newWorkerName,
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
-      title: newWorkerTitle,
-      experience: 4,
-      rating: 5.0,
-      availability: 'Available Now',
-      location: newWorkerLocation || 'Remote',
-      bio: newWorkerBio || 'Professional contractor ready to assist with local and remote briefs.',
-      skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : ['Tailwind CSS', 'Framer Motion', 'Customer Sync'],
-      completedWorks: 0,
-      hourlyRate: Number(newWorkerRate) || 55,
-      verified: true
-    };
+    const userId = localStorage.getItem('opencomm_user_id') || 'temp-user-id';
 
-    setWorkers(prev => [createdWorker, ...prev]);
+    try {
+      // 1. Update the core profile to make them a worker
+      await dbService.updateProfile(userId, {
+        id: userId,
+        full_name: newWorkerName,
+        bio: newWorkerBio,
+        city: newWorkerLocationData.city,
+        state: newWorkerLocationData.state,
+        country: newWorkerLocationData.country,
+        country_code: newWorkerLocationData.country_code,
+        state_code: newWorkerLocationData.state_code,
+        district: newWorkerLocationData.district,
+        latitude: newWorkerLocationData.latitude,
+        longitude: newWorkerLocationData.longitude,
+        profile_type: 'worker',
+        account_type: 'worker',
+        email_verified_for_actions: true,
+        onboarding_completed: true
+      });
 
-    // Track worker profile creation in Google Analytics
-    analytics.trackWorkerProfileCreated({
-      profession: newWorkerTitle,
-      skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : ['Tailwind CSS', 'Framer Motion', 'Customer Sync'],
-      rate: Number(newWorkerRate) || 55
-    });
+      // 2. Create/upsert their worker profile details
+      await dbService.createWorkerProfile({
+        id: userId,
+        profession: newWorkerTitle,
+        professional_title: newWorkerTitle,
+        skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : [],
+        hourly_rate: Number(newWorkerRate) || 75,
+        bio_summary: newWorkerBio,
+        work_location: newWorkerLocation,
+        availability: 'Available Now',
+        availability_status: 'Available Now',
+        worker_profile_completed: true
+      });
 
-    const newAct: Activity = {
-      id: `act-${Date.now()}`,
-      type: 'post',
-      title: `Created active Worker Profile: "${newWorkerTitle}"`,
-      status: 'Listed',
-      statusType: 'success',
-      timestamp: 'Just now'
-    };
-    setActivities(prev => [newAct, ...prev]);
+      // 3. Add to local state
+      const createdWorker: Worker = {
+        id: userId,
+        name: newWorkerName,
+        photo: userPhoto || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
+        title: newWorkerTitle,
+        experience: 4,
+        rating: 5.0,
+        availability: 'Available Now',
+        location: newWorkerLocation || 'Remote',
+        bio: newWorkerBio || 'Professional contractor ready to assist with local and remote briefs.',
+        skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : ['Tailwind CSS', 'Framer Motion', 'Customer Sync'],
+        completedWorks: 0,
+        hourlyRate: Number(newWorkerRate) || 75,
+        verified: true
+      };
 
-    triggerToast(`Congratulations! Professional profile listed under "${newWorkerTitle}".`);
-    setShowCreateProfile(false);
+      setWorkers(prev => [createdWorker, ...prev]);
 
-    // Reset form
-    setNewWorkerName('');
-    setNewWorkerTitle('');
-    setNewWorkerRate(65);
-    setNewWorkerLocation('');
-    setNewWorkerBio('');
-    setNewWorkerSkills('');
+      // Track worker profile creation in Google Analytics
+      analytics.trackWorkerProfileCreated({
+        profession: newWorkerTitle,
+        skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : [],
+        rate: Number(newWorkerRate) || 75
+      });
+
+      const newAct: Activity = {
+        id: `act-${Date.now()}`,
+        type: 'post',
+        title: `Created active Worker Profile: "${newWorkerTitle}"`,
+        status: 'Listed',
+        statusType: 'success',
+        timestamp: 'Just now'
+      };
+      setActivities(prev => [newAct, ...prev]);
+
+      triggerToast(`Congratulations! Professional profile listed under "${newWorkerTitle}".`);
+      
+      // Update global states
+      setUserType('worker');
+      localStorage.setItem('opencomm_user_type', 'worker');
+
+      setShowCreateProfile(false);
+
+      // Reset form fields
+      setNewWorkerName('');
+      setNewWorkerTitle('');
+      setNewWorkerRate(75);
+      setNewWorkerLocation('');
+      setNewWorkerLocationData({ city: '', state: '', country: '', country_code: '', state_code: '', district: '', latitude: 30.2672, longitude: -97.7431 });
+      setNewWorkerSkills('');
+      setNewWorkerBio('');
+
+    } catch (err: any) {
+      alert("Failed to save worker profile in database: " + err.message);
+    }
   };
 
   const triggerHireModal = (worker: Worker, e: React.MouseEvent) => {
@@ -2880,12 +2976,21 @@ export default function App() {
          ==================================================== */}
       <AnimatePresence>
         {showAuthModal && (
-          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-[#f7f8fa] bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_38%)] dark:bg-[#0b0d12] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.16),transparent_38%)] backdrop-blur-lg overflow-y-auto">
+          <div 
+            ref={signupContainerRef}
+            className="fixed inset-0 z-50 flex flex-col items-center justify-start overflow-y-auto bg-[#f7f8fa] bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_38%)] dark:bg-[#0b0d12] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.16),transparent_38%)] backdrop-blur-lg scroll-smooth min-h-screen min-h-[100dvh] h-auto"
+            style={{
+              paddingTop: 'calc(2rem + env(safe-area-inset-top, 0px))',
+              paddingBottom: 'calc(2.5rem + env(safe-area-inset-bottom, 0px))',
+              paddingLeft: '1rem',
+              paddingRight: '1rem'
+            }}
+          >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-[440px] p-6 rounded-[24px] bg-white/92 dark:bg-zinc-900/92 border border-slate-900/8 dark:border-white/8 shadow-2xl dark:shadow-[0_24px_70px_rgba(0,0,0,0.32)] backdrop-blur-[20px] transition-all relative flex flex-col h-auto my-auto text-left"
+              className="w-full max-w-[440px] p-6 rounded-[24px] bg-white/92 dark:bg-zinc-900/92 border border-slate-900/8 dark:border-white/8 shadow-2xl dark:shadow-[0_24px_70px_rgba(0,0,0,0.32)] backdrop-blur-[20px] transition-all relative flex flex-col h-auto text-left"
             >
               {/* Close Button */}
               <button
@@ -3317,15 +3422,15 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Choose Account Type Card Layout */}
+                      {/* Optional Worker Account / Company Coming Soon */}
                       <div className="space-y-2 mb-4 pt-1">
                         <label className="block text-xs font-black text-slate-700 dark:text-zinc-300 uppercase tracking-wider text-left">
-                          Choose your account type <span className="text-rose-500">*</span>
+                          Want to offer your skills and receive work opportunities? <span className="text-slate-400 dark:text-zinc-500 font-normal lowercase">(optional)</span>
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-left">
                           {/* Worker Card */}
                           <div
-                            onClick={() => setSelectedAccountType('worker')}
+                            onClick={() => setSelectedAccountType(prev => prev === 'worker' ? null : 'worker')}
                             className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                               selectedAccountType === 'worker'
                                 ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10'
@@ -3338,30 +3443,29 @@ export default function App() {
                                   Worker Account
                                 </h4>
                                 <input
-                                  type="radio"
-                                  name="account_type"
+                                  type="checkbox"
                                   checked={selectedAccountType === 'worker'}
-                                  onChange={() => setSelectedAccountType('worker')}
-                                  className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500"
+                                  onChange={() => {}} // toggles on click of card
+                                  className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500 rounded"
                                 />
                               </div>
                               <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-                                Create a professional profile, showcase your skills, receive opportunities, apply for jobs, and connect with clients.
+                                Create a professional profile, showcase your skills and experience, receive job opportunities, and connect with clients.
                               </p>
                             </div>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedAccountType('worker');
+                                setSelectedAccountType(prev => prev === 'worker' ? null : 'worker');
                               }}
                               className={`w-full mt-3 h-8 rounded-lg text-[10px] font-bold transition-all ${
                                 selectedAccountType === 'worker'
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300'
+                                  ? 'bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/20 text-rose-600 dark:text-rose-400'
+                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
                               }`}
                             >
-                              Choose Worker
+                              {selectedAccountType === 'worker' ? 'Remove Worker Account' : 'Create Worker Account'}
                             </button>
                           </div>
 
@@ -3376,7 +3480,7 @@ export default function App() {
                                     Company Account
                                   </h4>
                                   <span className="px-1.5 py-0.5 rounded-full text-[8px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                    Soon
+                                    Coming Soon
                                   </span>
                                 </div>
                               </div>
@@ -3507,21 +3611,31 @@ export default function App() {
                       {/* Step Header Indicator */}
                       <div className="mb-4">
                         <div className="flex justify-between items-center text-[9px] font-mono font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">
-                          <span className="text-indigo-600 dark:text-indigo-400">Step {onboardingSubStep} of G</span>
-                          <span>{Math.round((['A','B','C','D','E','F','G'].indexOf(onboardingSubStep) + 1) / 7 * 100)}% Complete</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">
+                            {selectedAccountType === 'worker' ? `Step ${onboardingSubStep} of G` : `Step 1 of 1`}
+                          </span>
+                          <span>
+                            {selectedAccountType === 'worker' 
+                              ? `${Math.round((['A','B','C','D','E','F','G'].indexOf(onboardingSubStep) + 1) / 7 * 100)}% Complete` 
+                              : `100% Complete`}
+                          </span>
                         </div>
                         <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-850 rounded-full overflow-hidden flex">
-                          {['A','B','C','D','E','F','G'].map((step, idx) => {
-                            const isActive = ['A','B','C','D','E','F','G'].indexOf(onboardingSubStep) >= idx;
-                            return (
-                              <div
-                                key={step}
-                                className={`h-full flex-1 border-r border-white dark:border-zinc-950 last:border-0 transition-all duration-300 ${
-                                  isActive ? 'bg-gradient-to-r from-purple-500 to-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'
-                                }`}
-                              />
-                            );
-                          })}
+                          {selectedAccountType === 'worker' ? (
+                            ['A','B','C','D','E','F','G'].map((step, idx) => {
+                              const isActive = ['A','B','C','D','E','F','G'].indexOf(onboardingSubStep) >= idx;
+                              return (
+                                <div
+                                  key={step}
+                                  className={`h-full flex-1 border-r border-white dark:border-zinc-950 last:border-0 transition-all duration-300 ${
+                                    isActive ? 'bg-gradient-to-r from-purple-500 to-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'
+                                  }`}
+                                />
+                              );
+                            })
+                          ) : (
+                            <div className="h-full w-full bg-gradient-to-r from-purple-500 to-indigo-600" />
+                          )}
                         </div>
                       </div>
 
@@ -3539,7 +3653,7 @@ export default function App() {
                           
                           <div className="space-y-1">
                             <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 text-center">
-                              Profile Photo <span className="text-rose-500">*</span>
+                              Profile Photo {selectedAccountType === 'worker' && <span className="text-rose-500">*</span>}
                             </label>
                             <ProfilePhotoUpload
                               value={workerForm.avatarUrl}
@@ -3615,7 +3729,7 @@ export default function App() {
                           </div>
 
                           <div className="space-y-1">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Short Bio <span className="text-rose-500">*</span></label>
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Short Bio {selectedAccountType === 'worker' && <span className="text-rose-500">*</span>}</label>
                             <textarea
                               rows={2.5}
                               value={workerForm.bio}
@@ -3633,12 +3747,16 @@ export default function App() {
                                 if (err) {
                                   setAuthError(err);
                                 } else {
-                                  setOnboardingSubStep('B');
+                                  if (selectedAccountType === 'worker') {
+                                    setOnboardingSubStep('B');
+                                  } else {
+                                    handleSignUpStep2Submit();
+                                  }
                                 }
                               }}
                               className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
                             >
-                              <span>Next: Professional Details</span>
+                              <span>{selectedAccountType === 'worker' ? "Next: Professional Details" : "Finish & Join OpenComm"}</span>
                               <ChevronRight className="w-4 h-4" />
                             </button>
                           </div>

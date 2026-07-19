@@ -229,7 +229,7 @@ export default function ProfilePage({
   useEffect(() => {
     loadProfileData();
     analytics.trackProfileViewed('own', loggedInId, username || 'Own User');
-  }, [isLoggedIn, loggedInId]);
+  }, [isLoggedIn, loggedInId, userType]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -582,7 +582,7 @@ export default function ProfilePage({
                   <span className="text-lg">🛠️</span>
                   <span className="text-[9px] font-mono text-slate-400 font-semibold uppercase">Worker</span>
                 </div>
-                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">Worker Profile</h4>
+                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">Become a Worker</h4>
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed font-medium">
                   Register as a worker to receive job matches and submit proposals to clients.
                 </p>
@@ -597,7 +597,7 @@ export default function ProfilePage({
                 }}
                 className="w-full py-2 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/20 text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-bold cursor-pointer transition-all text-center"
               >
-                Create Worker Profile
+                Become a Worker
               </button>
             </div>
 
