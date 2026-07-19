@@ -55,6 +55,48 @@ async function ensureAvatarsBucket() {
 }
 ensureAvatarsBucket();
 
+// Ensure the 'resumes' storage bucket is created (private bucket)
+async function ensureResumesBucket() {
+  if (!supabaseAdmin) {
+    console.log("Supabase Admin client not configured. Skipping resumes bucket creation.");
+    return;
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.log("Using anonymous key fallback for server-side client. Skipping resumes bucket creation via SDK.");
+    return;
+  }
+  try {
+    const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+    if (listError) {
+      console.error("Error listing Supabase storage buckets:", listError.message);
+      return;
+    }
+    const bucketExists = buckets?.some(b => b.id === 'resumes');
+    if (!bucketExists) {
+      console.log("Bucket 'resumes' not found. Creating...");
+      const { error: createError } = await supabaseAdmin.storage.createBucket('resumes', {
+        public: false,
+        allowedMimeTypes: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ],
+        fileSizeLimit: 5242880 // 5MB
+      });
+      if (createError) {
+        console.warn("Failed to create bucket 'resumes' via SDK:", createError.message);
+      } else {
+        console.log("Successfully created private storage bucket: 'resumes'.");
+      }
+    } else {
+      console.log("Bucket 'resumes' already exists.");
+    }
+  } catch (err: any) {
+    console.warn("Exception checking/creating resumes bucket:", err);
+  }
+}
+ensureResumesBucket();
+
 // Initialize Resend Client
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -62,9 +104,9 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // Expose Supabase configuration securely (only public keys)
 app.get("/api/config", (req, res) => {
   res.json({
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-    appUrl: process.env.NEXT_PUBLIC_APP_URL || ""
+    supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "",
+    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "",
+    appUrl: process.env.VITE_APP_URL || process.env.APP_URL || ""
   });
 });
 
@@ -347,6 +389,81 @@ function renderErrorHtml(message: string) {
     </html>
   `;
 }
+
+// 2.5 Get Resume Signed URL Endpoint (Secure & Private access)
+app.post("/api/get-resume-url", async (req, res) => {
+  const { resumePath, workerId, requesterId } = req.body;
+
+  if (!resumePath || !workerId || !requesterId) {
+    return res.status(400).json({ error: "resumePath, workerId, and requesterId are required." });
+  }
+
+  if (!supabaseAdmin) {
+    // Emulator / sandbox mode: return a sandbox mock signed URL
+    return res.json({ signedUrl: `/mock-resumes/${resumePath}?token=mock-sandbox-token` });
+  }
+
+  try {
+    let isAuthorized = requesterId === workerId;
+
+    if (!isAuthorized) {
+      // Check if there is an active job application by workerId to a job posted by requesterId
+      const { data: apps, error: appErr } = await supabaseAdmin
+        .from('job_applications')
+        .select('id, jobs(posted_by)')
+        .eq('applicant_id', workerId);
+
+      if (!appErr && apps) {
+        const isEmployer = apps.some((app: any) => app.jobs && app.jobs.posted_by === requesterId);
+        if (isEmployer) isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      // Check if there is a contact request between workerId and requesterId
+      const { data: contactReqs, error: contactErr } = await supabaseAdmin
+        .from('contact_requests')
+        .select('id')
+        .or(`requester_id.eq.${requesterId},receiver_id.eq.${requesterId}`)
+        .or(`requester_id.eq.${workerId},receiver_id.eq.${workerId}`);
+
+      if (!contactErr && contactReqs && contactReqs.length > 0) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      // Check if there is a hiring request between workerId and requesterId
+      const { data: hireReqs, error: hireErr } = await supabaseAdmin
+        .from('hiring_requests')
+        .select('id')
+        .or(`client_id.eq.${requesterId},worker_id.eq.${requesterId}`)
+        .or(`client_id.eq.${workerId},worker_id.eq.${workerId}`);
+
+      if (!hireErr && hireReqs && hireReqs.length > 0) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      return res.status(403).json({ error: "Unauthorized access to resume file." });
+    }
+
+    // Generate signed URL (expires in 1 hour / 3600 seconds)
+    const { data, error } = await supabaseAdmin.storage
+      .from('resumes')
+      .createSignedUrl(resumePath, 3600);
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    return res.json({ signedUrl: data.signedUrl });
+  } catch (err: any) {
+    console.error("Error generating resume signed URL:", err);
+    return res.status(500).json({ error: err.message || "Failed to generate resume URL." });
+  }
+});
 
 // 3. Send Verification Email Endpoint
 app.post("/api/send-verification-email", async (req, res) => {

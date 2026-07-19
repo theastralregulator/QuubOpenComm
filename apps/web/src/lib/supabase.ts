@@ -2,10 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
 
 // Retrieve public environment variables
-const SUPABASE_URL = (import.meta as any).env?.VITE_NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
-export let NEXT_PUBLIC_APP_URL = (import.meta as any).env?.VITE_NEXT_PUBLIC_APP_URL || '';
+export let NEXT_PUBLIC_APP_URL = (import.meta as any).env?.VITE_APP_URL || '';
 
 // Fallback to current browser origin if undefined
 if (!NEXT_PUBLIC_APP_URL && typeof window !== 'undefined') {
@@ -41,7 +41,7 @@ export async function initializeRuntimeSupabase() {
       }
     }
   } catch (err) {
-    console.warn('Could not load dynamic configuration from /api/config. Using offline mode.');
+    console.warn('Could not load dynamic configuration from /api/config.');
   }
   return supabase;
 }
@@ -87,11 +87,43 @@ export interface LocalProfile {
   preferred_language: string;
   account_status: 'active' | 'disabled';
   profile_type: 'basic' | 'worker' | 'company';
+  account_type?: 'basic' | 'worker' | 'company';
   created_at: string;
   updated_at: string;
   email_verified_for_actions?: boolean;
   onboarding_completed?: boolean;
   banner_id?: string;
+}
+
+export interface LocalWorkerExperience {
+  id?: string;
+  worker_id?: string;
+  employer: string;
+  role: string;
+  start_date?: string;
+  end_date?: string;
+  currently_working?: boolean;
+  description?: string;
+  achievements?: string;
+}
+
+export interface LocalWorkerCertification {
+  id?: string;
+  worker_id?: string;
+  name: string;
+  institution?: string;
+  graduation_year?: number;
+  licence_number?: string;
+  training_program?: string;
+}
+
+export interface LocalWorkerJobPreferences {
+  job_categories?: string[];
+  employment_types?: string[];
+  preferred_locations?: string[];
+  expected_pay_min?: number;
+  expected_pay_max?: number;
+  notice_period?: string;
 }
 
 export interface LocalWorkerProfile {
@@ -107,6 +139,33 @@ export interface LocalWorkerProfile {
   portfolio_url?: string;
   certificates?: string[];
   languages?: string[];
+
+  // New fields
+  professional_title?: string;
+  primary_category?: string;
+  years_experience?: number;
+  experience_level?: string;
+  expected_salary_min?: number;
+  expected_salary_max?: number;
+  currency?: string;
+  work_preference?: string;
+  availability_status?: string;
+  willing_to_relocate?: boolean;
+  service_radius?: number;
+  current_employer?: string;
+  linkedin_url?: string;
+  github_url?: string;
+  highest_qualification?: string;
+  course_specialization?: string;
+  institution?: string;
+  graduation_year?: number;
+  resume_path?: string;
+  worker_profile_completed?: boolean;
+
+  // Normalized relations
+  experience?: LocalWorkerExperience[];
+  certifications?: LocalWorkerCertification[];
+  job_preferences?: LocalWorkerJobPreferences;
 }
 
 export interface LocalCompanyProfile {
@@ -367,15 +426,36 @@ export const dbService = {
       try {
         await supabase.from('worker_profiles').upsert({
           id: worker.id,
-          profession: worker.profession,
+          user_id: worker.id,
+          profession: worker.professional_title || worker.profession,
+          professional_title: worker.professional_title || worker.profession,
+          primary_category: worker.primary_category || '',
           skills: worker.skills,
-          experience_years: worker.experience_years,
+          experience_years: worker.years_experience ?? worker.experience_years,
+          years_experience: worker.years_experience ?? worker.experience_years,
+          experience_level: worker.experience_level || 'Entry',
           work_location: worker.work_location || '',
-          availability: worker.availability,
+          availability: worker.availability_status || worker.availability,
+          availability_status: worker.availability_status || worker.availability,
           bio_summary: worker.bio_summary || '',
           hourly_rate: worker.hourly_rate || 0,
           expected_salary: worker.expected_salary || '',
+          expected_salary_min: worker.expected_salary_min || null,
+          expected_salary_max: worker.expected_salary_max || null,
+          currency: worker.currency || 'USD',
+          work_preference: worker.work_preference || 'Remote',
+          willing_to_relocate: worker.willing_to_relocate || false,
+          service_radius: worker.service_radius || null,
+          current_employer: worker.current_employer || '',
+          linkedin_url: worker.linkedin_url || '',
+          github_url: worker.github_url || '',
           portfolio_url: worker.portfolio_url || '',
+          highest_qualification: worker.highest_qualification || '',
+          course_specialization: worker.course_specialization || '',
+          institution: worker.institution || '',
+          graduation_year: worker.graduation_year || null,
+          resume_path: worker.resume_path || '',
+          worker_profile_completed: worker.worker_profile_completed || false,
           certificates: worker.certificates || [],
           languages: worker.languages || []
         });
@@ -383,12 +463,73 @@ export const dbService = {
         // Also sync old workers_directory table for complete safety
         await supabase.from('workers_directory').upsert({
           id: worker.id,
-          title: worker.profession,
+          title: worker.professional_title || worker.profession,
           hourly_rate: worker.hourly_rate || 0,
-          experience_years: worker.experience_years,
+          experience_years: worker.years_experience ?? worker.experience_years,
           skills: worker.skills,
-          availability_status: worker.availability === 'Available Now' ? 'available' : 'busy'
+          availability_status: (worker.availability_status || worker.availability) === 'Available Now' ? 'available' : 'busy'
         });
+
+        // Sync worker_skills
+        if (worker.skills && worker.skills.length > 0) {
+          await supabase.from('worker_skills').delete().eq('worker_id', worker.id);
+          const skillsToInsert = worker.skills.map(s => ({ worker_id: worker.id, skill: s }));
+          await supabase.from('worker_skills').insert(skillsToInsert);
+        }
+
+        // Sync worker_experience
+        if (worker.experience) {
+          await supabase.from('worker_experience').delete().eq('worker_id', worker.id);
+          if (worker.experience.length > 0) {
+            const expToInsert = worker.experience.map(e => ({
+              worker_id: worker.id,
+              employer: e.employer,
+              role: e.role,
+              start_date: e.start_date || null,
+              end_date: e.end_date || null,
+              currently_working: e.currently_working || false,
+              description: e.description || '',
+              achievements: e.achievements || ''
+            }));
+            await supabase.from('worker_experience').insert(expToInsert);
+          }
+        }
+
+        // Sync worker_certifications
+        if (worker.certifications) {
+          await supabase.from('worker_certifications').delete().eq('worker_id', worker.id);
+          if (worker.certifications.length > 0) {
+            const certsToInsert = worker.certifications.map(c => ({
+              worker_id: worker.id,
+              name: c.name,
+              institution: c.institution || '',
+              graduation_year: c.graduation_year || null,
+              licence_number: c.licence_number || '',
+              training_program: c.training_program || ''
+            }));
+            await supabase.from('worker_certifications').insert(certsToInsert);
+          }
+        }
+
+        // Sync worker_languages
+        if (worker.languages && worker.languages.length > 0) {
+          await supabase.from('worker_languages').delete().eq('worker_id', worker.id);
+          const langsToInsert = worker.languages.map(l => ({ worker_id: worker.id, language: l }));
+          await supabase.from('worker_languages').insert(langsToInsert);
+        }
+
+        // Sync worker_job_preferences
+        if (worker.job_preferences) {
+          await supabase.from('worker_job_preferences').upsert({
+            worker_id: worker.id,
+            job_categories: worker.job_preferences.job_categories || [],
+            employment_types: worker.job_preferences.employment_types || [],
+            preferred_locations: worker.job_preferences.preferred_locations || [],
+            expected_pay_min: worker.job_preferences.expected_pay_min || null,
+            expected_pay_max: worker.job_preferences.expected_pay_max || null,
+            notice_period: worker.job_preferences.notice_period || ''
+          });
+        }
       } catch (err) {
         console.error('createWorkerProfile Supabase error:', err);
       }
@@ -399,12 +540,26 @@ export const dbService = {
     else workers.push(worker);
     openCommDb.saveWorkerProfiles(workers);
 
+    // Sync emulator arrays
+    if (worker.experience) {
+      const allExp = getLocalData('oc_worker_experience', []).filter((e: any) => e.worker_id !== worker.id);
+      const mapped = worker.experience.map(e => ({ ...e, id: e.id || Math.random().toString(36).substr(2, 9), worker_id: worker.id }));
+      allExp.push(...mapped);
+      saveLocalData('oc_worker_experience', allExp);
+    }
+    if (worker.certifications) {
+      const allCerts = getLocalData('oc_worker_certifications', []).filter((c: any) => c.worker_id !== worker.id);
+      const mapped = worker.certifications.map(c => ({ ...c, id: c.id || Math.random().toString(36).substr(2, 9), worker_id: worker.id }));
+      allCerts.push(...mapped);
+      saveLocalData('oc_worker_certifications', allCerts);
+    }
+
     // Sync user profile type
-    await this.updateProfile(worker.id, { profile_type: 'worker' });
+    await this.updateProfile(worker.id, { profile_type: 'worker', account_type: 'worker' });
     
     // Track worker profile creation in Google Analytics
     analytics.trackWorkerProfileCreated({
-      profession: worker.profession,
+      profession: worker.professional_title || worker.profession,
       skills: worker.skills,
       rate: worker.hourly_rate
     });
@@ -417,26 +572,116 @@ export const dbService = {
       try {
         const { data, error } = await supabase.from('worker_profiles').select('*').eq('id', userId).single();
         if (!error && data) {
+          // Fetch normalized tables
+          const { data: skillsData } = await supabase.from('worker_skills').select('skill').eq('worker_id', userId);
+          const { data: expData } = await supabase.from('worker_experience').select('*').eq('worker_id', userId);
+          const { data: certData } = await supabase.from('worker_certifications').select('*').eq('worker_id', userId);
+          const { data: langData } = await supabase.from('worker_languages').select('language').eq('worker_id', userId);
+          const { data: prefData } = await supabase.from('worker_job_preferences').select('*').eq('worker_id', userId).maybeSingle();
+
           return {
             id: data.id,
-            profession: data.profession,
-            skills: data.skills,
-            experience_years: data.experience_years,
-            work_location: data.work_location,
-            availability: data.availability as any || 'Available Now',
-            bio_summary: data.bio_summary,
-            hourly_rate: Number(data.hourly_rate),
-            expected_salary: data.expected_salary,
-            portfolio_url: data.portfolio_url,
-            certificates: data.certificates,
-            languages: data.languages
+            profession: data.professional_title || data.profession,
+            professional_title: data.professional_title || data.profession,
+            primary_category: data.primary_category || '',
+            skills: skillsData && skillsData.length > 0 ? skillsData.map((s: any) => s.skill) : (data.skills || []),
+            experience_years: data.years_experience ?? data.experience_years ?? 0,
+            years_experience: data.years_experience ?? data.experience_years ?? 0,
+            experience_level: data.experience_level || 'Entry',
+            work_location: data.work_location || '',
+            availability: (data.availability_status || data.availability) as any || 'Available Now',
+            availability_status: (data.availability_status || data.availability) as any || 'Available Now',
+            bio_summary: data.bio_summary || '',
+            hourly_rate: Number(data.hourly_rate) || 0,
+            expected_salary: data.expected_salary || '',
+            expected_salary_min: data.expected_salary_min ? Number(data.expected_salary_min) : undefined,
+            expected_salary_max: data.expected_salary_max ? Number(data.expected_salary_max) : undefined,
+            currency: data.currency || 'USD',
+            work_preference: data.work_preference || 'Remote',
+            willing_to_relocate: data.willing_to_relocate || false,
+            service_radius: data.service_radius ? Number(data.service_radius) : undefined,
+            current_employer: data.current_employer || '',
+            linkedin_url: data.linkedin_url || '',
+            github_url: data.github_url || '',
+            portfolio_url: data.portfolio_url || '',
+            highest_qualification: data.highest_qualification || '',
+            course_specialization: data.course_specialization || '',
+            institution: data.institution || '',
+            graduation_year: data.graduation_year || undefined,
+            resume_path: data.resume_path || '',
+            worker_profile_completed: data.worker_profile_completed || false,
+            certificates: data.certificates || [],
+            languages: langData && langData.length > 0 ? langData.map((l: any) => l.language) : (data.languages || []),
+            experience: expData || [],
+            certifications: certData || [],
+            job_preferences: prefData ? {
+              job_categories: prefData.job_categories || [],
+              employment_types: prefData.employment_types || [],
+              preferred_locations: prefData.preferred_locations || [],
+              expected_pay_min: prefData.expected_pay_min ? Number(prefData.expected_pay_min) : undefined,
+              expected_pay_max: prefData.expected_pay_max ? Number(prefData.expected_pay_max) : undefined,
+              notice_period: prefData.notice_period || ''
+            } : undefined
           };
         }
       } catch (err) {
         console.error('getWorkerProfile Supabase error:', err);
       }
     }
-    return openCommDb.getWorkerProfiles().find(w => w.id === userId) || null;
+    const worker = openCommDb.getWorkerProfiles().find(w => w.id === userId) || null;
+    if (worker) {
+      const mockExp = getLocalData('oc_worker_experience', []).filter((e: any) => e.worker_id === userId);
+      const mockCert = getLocalData('oc_worker_certifications', []).filter((c: any) => c.worker_id === userId);
+      return {
+        ...worker,
+        experience: mockExp,
+        certifications: mockCert
+      };
+    }
+    return null;
+  },
+
+  async logTermsConsent(consent: { user_id: string; terms_version: string; privacy_version: string; account_type: string; }): Promise<void> {
+    if (supabase) {
+      try {
+        await supabase.from('terms_consent_logs').insert({
+          user_id: consent.user_id,
+          terms_version: consent.terms_version,
+          privacy_version: consent.privacy_version,
+          account_type: consent.account_type,
+          user_agent: navigator.userAgent
+        });
+      } catch (err) {
+        console.error('logTermsConsent Supabase error:', err);
+      }
+    }
+    const logs = getLocalData('oc_terms_consent_logs', []);
+    logs.push({
+      id: Math.random().toString(36).substr(2, 9),
+      user_id: consent.user_id,
+      terms_version: consent.terms_version,
+      privacy_version: consent.privacy_version,
+      accepted_at: new Date().toISOString(),
+      user_agent: navigator.userAgent,
+      account_type: consent.account_type
+    });
+    saveLocalData('oc_terms_consent_logs', logs);
+  },
+
+  async getResumeSignedUrl(workerId: string, resumePath: string, requesterId: string): Promise<string> {
+    try {
+      const response = await fetch('/api/get-resume-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerId, resumePath, requesterId })
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      return data.signedUrl;
+    } catch (err: any) {
+      console.error("Failed to fetch resume signed URL:", err);
+      return `/mock-resumes/${resumePath}`;
+    }
   },
 
   async createCompanyProfile(company: LocalCompanyProfile): Promise<LocalCompanyProfile> {

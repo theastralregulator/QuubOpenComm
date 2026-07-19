@@ -42,6 +42,15 @@ import LocationSelector from './components/common/LocationSelector';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
 
+// Import our new legal pages and footer
+import TermsPage from './components/legal/TermsPage';
+import PrivacyPage from './components/legal/PrivacyPage';
+import CommunityGuidelinesPage from './components/legal/CommunityGuidelinesPage';
+import CookiePolicyPage from './components/legal/CookiePolicyPage';
+import GrievancePage from './components/legal/GrievancePage';
+import Footer from './components/navigation/Footer';
+
+
 export default function App() {
   // --- CORE SYSTEM STATES ---
   const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
@@ -74,6 +83,8 @@ export default function App() {
   else if (path === '/profile/saved-jobs') currentView = 'saved-jobs';
   else if (path === '/profile/saved-workers') currentView = 'saved-workers';
   else if (path === '/verify-email') currentView = 'verify-email';
+  else if (path === '/signup') currentView = 'signup';
+  else if (path === '/login') currentView = 'login';
 
   // Navigate function replacing original currentView state setter
   const setCurrentView = (viewId: string) => {
@@ -85,6 +96,8 @@ export default function App() {
     else if (viewId === 'saved-jobs') navigate('/profile/saved-jobs');
     else if (viewId === 'saved-workers') navigate('/profile/saved-workers');
     else if (viewId === 'verify-email') navigate('/verify-email');
+    else if (viewId === 'signup') navigate('/signup');
+    else if (viewId === 'login') navigate('/login');
   };
   
   // Dynamic User Profile
@@ -108,15 +121,72 @@ export default function App() {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   
   // Auth Modal States
-  const [showAuthModal, setShowAuthModal] = useState<'signin' | 'signup' | 'locked' | null>(null);
+  const [showAuthModal, _setShowAuthModal] = useState<'signin' | 'signup' | 'locked' | null>(null);
+  const setShowAuthModal = (tab: 'signin' | 'signup' | 'locked' | null) => {
+    setAuthError('');
+    if (tab === 'signup') {
+      clearSignupTempState();
+      setSignupStep(1);
+    }
+    _setShowAuthModal(tab);
+  };
   const [lockedFeature, setLockedFeature] = useState<string | null>(null);
   const [signupStep, setSignupStep] = useState<1 | 2 | 3 | 4>(1);
   const [signupType, setSignupType] = useState<'normal' | 'worker' | 'company'>('normal');
   const [acceptTerms, setAcceptTerms] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [showCodeVerificationInput, setShowCodeVerificationInput] = useState(false);
-  const [verificationCodeInput, setVerificationCodeInput] = useState('');
-  const [croppedFile, setCroppedFile] = useState<File | null>(null);
+  const [acceptPrivacy, setAcceptPrivacy] = useState(false);
+  const [selectedAccountType, setSelectedAccountType] = useState<'worker' | 'company' | null>(null);
+  const [onboardingSubStep, setOnboardingSubStep] = useState<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'>('A');
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumeUploadError, setResumeUploadError] = useState('');
+  
+  // Temp inputs for certificates & experience
+  const [tempCert, setTempCert] = useState({ name: '', institution: '', graduationYear: new Date().getFullYear(), licenceNumber: '', trainingProgram: '' });
+  const [tempExp, setTempExp] = useState({ employer: '', role: '', start_date: '', end_date: '', currently_working: false, description: '', achievements: '' });
+
+  const [workerForm, setWorkerForm] = useState({
+    fullName: '',
+    phone: '',
+    country: 'United States',
+    state: 'Texas',
+    district: 'Travis County',
+    city: 'Austin',
+    country_code: 'US',
+    state_code: 'TX',
+    latitude: 30.2672,
+    longitude: -97.7431,
+    preferredLanguage: 'English',
+    bio: '',
+    avatarUrl: '',
+    professionalTitle: '',
+    primaryCategory: 'Software Development',
+    skills: [] as string[],
+    experienceLevel: 'Entry',
+    availabilityStatus: 'Available Now',
+    yearsExperience: 0,
+    currentEmployer: '',
+    hourlyRate: 75,
+    expectedSalaryMin: 0,
+    expectedSalaryMax: 0,
+    currency: 'USD',
+    workPreference: 'Remote',
+    willingToRelocate: false,
+    serviceRadius: 25,
+    portfolioUrl: '',
+    linkedinUrl: '',
+    githubUrl: '',
+    highestQualification: '',
+    courseSpecialization: '',
+    institution: '',
+    graduationYear: new Date().getFullYear(),
+    certifications: [] as Array<{ name: string; institution?: string; graduationYear?: number; licenceNumber?: string; trainingProgram?: string; }>,
+    experience: [] as Array<{ employer: string; role: string; start_date?: string; end_date?: string; currently_working?: boolean; description?: string; achievements?: string; }>,
+    resumePath: '',
+    portfolioFiles: [] as string[],
+    jobCategories: [] as string[],
+    employmentTypes: [] as string[]
+  });
+
   const [onboardingForm, setOnboardingForm] = useState({
     city: 'Austin',
     state: 'Texas',
@@ -130,6 +200,35 @@ export default function App() {
     bio: 'Local professional specialized in high-fidelity craftsmanship.',
     avatar_url: ''
   });
+
+  const [verificationCode, setVerificationCode] = useState('');
+  const [showCodeVerificationInput, setShowCodeVerificationInput] = useState(false);
+  const [verificationCodeInput, setVerificationCodeInput] = useState('');
+  const [croppedFile, setCroppedFile] = useState<File | null>(null);
+
+  const validateSubStep = (step: 'A' | 'B' | 'C' | 'D' | 'E' | 'F') => {
+    setAuthError('');
+    if (step === 'A') {
+      if (!workerForm.fullName.trim()) return "Full name is required.";
+      if (!workerForm.avatarUrl) return "Profile photo is required.";
+      if (!workerForm.phone.trim()) return "Phone number is required.";
+      if (!workerForm.city.trim()) return "City is required.";
+      if (!workerForm.preferredLanguage.trim()) return "Preferred language is required.";
+      if (!workerForm.bio.trim()) return "Short bio is required.";
+    }
+    if (step === 'B') {
+      if (!workerForm.professionalTitle.trim()) return "Professional title is required.";
+      if (!workerForm.primaryCategory) return "Primary category is required.";
+      if (workerForm.skills.length === 0) return "At least one skill is required.";
+      if (!workerForm.experienceLevel) return "Experience level is required.";
+      if (!workerForm.availabilityStatus) return "Work availability status is required.";
+    }
+    if (step === 'F') {
+      if (workerForm.jobCategories.length === 0) return "Select at least one job category of interest.";
+      if (workerForm.employmentTypes.length === 0) return "Select at least one employment preference.";
+    }
+    return '';
+  };
   const [signupForm, setSignupForm] = useState({
     name: '',
     email: '',
@@ -143,12 +242,13 @@ export default function App() {
   });
 
   // Redesigned authentication fields & controls state
-  const [signinUsername, setSigninUsername] = useState('Akhil Varma');
-  const [signinPassword, setSigninPassword] = useState('password123');
+  const [signinUsername, setSigninUsername] = useState('');
+  const [signinPassword, setSigninPassword] = useState('');
   const [showSigninPassword, setShowSigninPassword] = useState(false);
   const [signupPassword, setSignupPassword] = useState('');
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showSignupConfirmPassword, setShowSignupConfirmPassword] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isEmailNotConfirmedError, setIsEmailNotConfirmedError] = useState<boolean>(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -179,18 +279,68 @@ export default function App() {
   const [mockVerificationUrl, setMockVerificationUrl] = useState<string>('');
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
 
+  const isAllowedPath = (pathname: string) => {
+    const p = pathname.toLowerCase();
+    return p === '/signup' || 
+           p === '/verify-email' || 
+           p === '/terms' || 
+           p === '/privacy' || 
+           p === '/login' || 
+           p === '/community-guidelines' ||
+           p === '/cookie-policy' ||
+           p === '/contact' ||
+           p === '/grievance' ||
+           p.startsWith('/auth/callback') ||
+           p.startsWith('/reset-password') ||
+           p.startsWith('/recovery');
+  };
+
+  useEffect(() => {
+    if (!isAllowedPath(path)) {
+      if (!isLoggedIn) {
+        navigate('/signup');
+      } else if (!isEmailVerified) {
+        navigate('/verify-email');
+      }
+    }
+  }, [path, isLoggedIn, isEmailVerified]);
+
+  useEffect(() => {
+    if (path === '/signup') {
+      setShowAuthModal('signup');
+      if (signupStep > 3) setSignupStep(1);
+    } else if (path === '/login') {
+      setShowAuthModal('signin');
+    } else if (path === '/verify-email') {
+      setShowAuthModal(null);
+    } else if (isAllowedPath(path)) {
+      setShowAuthModal(null);
+    }
+  }, [path]);
+
+  useEffect(() => {
+    if (isLoggedIn && isEmailVerified && (path === '/signup' || path === '/login')) {
+      navigate('/');
+    }
+  }, [path, isLoggedIn, isEmailVerified]);
+
   // Protect routes and trigger sign in if needed
   function ProtectedRoute({ children }: { children: React.ReactNode }) {
     useEffect(() => {
       if (!isLoggedIn) {
-        setSignupStep(1);
-        setShowAuthModal('signin');
+        navigate('/login');
         triggerToast("Please sign in to access this page.");
+      } else if (!isEmailVerified) {
+        navigate('/verify-email');
+        triggerToast("Please verify your email address to continue.");
       }
-    }, [isLoggedIn]);
+    }, [isLoggedIn, isEmailVerified]);
 
     if (!isLoggedIn) {
-      return <Navigate to="/" replace />;
+      return <Navigate to="/login" replace />;
+    }
+    if (!isEmailVerified) {
+      return <Navigate to="/verify-email" replace />;
     }
     return <>{children}</>;
   }
@@ -473,11 +623,12 @@ export default function App() {
     if (!isOnboarded) {
       setShowAuthModal('signup');
       setSignupStep(3);
-      setSignupForm(prev => ({
+      setOnboardingSubStep('A');
+      setWorkerForm(prev => ({
         ...prev,
-        name: profile?.full_name || user.user_metadata?.full_name || userEmail.split('@')[0],
-        email: userEmail,
-        phone: profile?.phone || user.user_metadata?.phone || ''
+        fullName: profile?.full_name || user.user_metadata?.full_name || userEmail.split('@')[0],
+        phone: profile?.phone || user.user_metadata?.phone || '',
+        avatarUrl: profile?.avatar_url || ''
       }));
     } else {
       if (!profile.onboarding_completed) {
@@ -485,6 +636,74 @@ export default function App() {
         profile.onboarding_completed = true;
       }
     }
+  };
+
+  function clearSignupTempState() {
+    setSignupForm({
+      name: '',
+      email: '',
+      phone: '',
+      location: 'Austin, TX',
+      profession: '',
+      hourlyRate: 75,
+      bio: '',
+      companyName: '',
+      industry: ''
+    });
+    setSignupPassword('');
+    setSignupConfirmPassword('');
+    setSigninPassword('');
+    setSelectedAccountType(null);
+    setAcceptTerms(false);
+    setAcceptPrivacy(false);
+    setVerificationCodeInput('');
+    setPendingEmail('');
+    localStorage.removeItem('opencomm_pending_email');
+    setCroppedFile(null);
+    setResumeFile(null);
+    setResumeUploadError('');
+    setWorkerForm({
+      fullName: '',
+      phone: '',
+      country: 'United States',
+      state: 'Texas',
+      district: 'Travis County',
+      city: 'Austin',
+      country_code: 'US',
+      state_code: 'TX',
+      latitude: 30.2672,
+      longitude: -97.7431,
+      preferredLanguage: 'English',
+      bio: '',
+      avatarUrl: '',
+      professionalTitle: '',
+      primaryCategory: 'Software Development',
+      skills: [] as string[],
+      experienceLevel: 'Entry',
+      availabilityStatus: 'Available Now',
+      yearsExperience: 0,
+      currentEmployer: '',
+      hourlyRate: 75,
+      expectedSalaryMin: 0,
+      expectedSalaryMax: 0,
+      currency: 'USD',
+      workPreference: 'Remote',
+      willingToRelocate: false,
+      serviceRadius: 25,
+      portfolioUrl: '',
+      linkedinUrl: '',
+      githubUrl: '',
+      highestQualification: '',
+      courseSpecialization: '',
+      institution: '',
+      graduationYear: new Date().getFullYear(),
+      certifications: [] as Array<{ name: string; institution?: string; graduationYear?: number; licenceNumber?: string; trainingProgram?: string; }>,
+      experience: [] as Array<{ employer: string; role: string; start_date?: string; end_date?: string; currently_working?: boolean; description?: string; achievements?: string; }>,
+      resumePath: '',
+      portfolioFiles: [] as string[],
+      jobCategories: [] as string[],
+      employmentTypes: [] as string[]
+    });
   };
 
   const handleLogoutCleanState = () => {
@@ -499,6 +718,8 @@ export default function App() {
     localStorage.removeItem('opencomm_user_photo');
     localStorage.removeItem('opencomm_user_type');
     localStorage.removeItem('opencomm_user_id');
+
+    clearSignupTempState();
   };
 
   // --- TOAST HELPER ---
@@ -624,24 +845,28 @@ export default function App() {
     setAuthError('');
     if (resendCooldown > 0) return;
     
+    if (!supabase) {
+      setAuthError("Supabase is not configured.");
+      return;
+    }
+
     try {
       setIsAuthSubmitting(true);
       
-      let emailToResend = signupForm.email || 'akhil@opencomm.org';
-      let userId = localStorage.getItem('opencomm_user_id') || 'user-demo-id';
+      let emailToResend = '';
+      let userId = '';
       let accessToken = '';
 
-      if (supabase) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          emailToResend = session.user.email || emailToResend;
-          userId = session.user.id;
-          accessToken = session.access_token;
-        }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        emailToResend = session.user.email || '';
+        userId = session.user.id;
+        accessToken = session.access_token;
       }
 
       if (!emailToResend) {
         setAuthError("No email address found to dispatch verification.");
+        setIsAuthSubmitting(false);
         return;
       }
 
@@ -666,14 +891,7 @@ export default function App() {
 
       setResendCooldown(60);
       setEmailSentSuccessfully(true);
-      
-      if (data.mock) {
-        triggerToast("Verification link generated (Console Fallback)!");
-        console.log("Mock verification URL:", data.url);
-        setMockVerificationUrl(data.url);
-      } else {
-        triggerToast("Verification email dispatched successfully!");
-      }
+      triggerToast("Verification email dispatched successfully!");
     } catch (err: any) {
       const errMsg = (err.message || "").toLowerCase();
       if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
@@ -766,42 +984,21 @@ export default function App() {
   };
 
   // --- MULTI-STEP SIGNUP FLOW HANDLERS ---
-  const handleBypassToDemoMode = () => {
-    setAuthError('');
-    setIsAuthSubmitting(true);
-    triggerToast("Switching to Local Emulator Mode...");
-    
-    setTimeout(() => {
-      setIsAuthSubmitting(false);
-      setSignupStep(3);
-      triggerToast("Account created locally! Let's set up your profile.");
-      
-      // Dispatch mock verification in local sandbox environment
-      fetch('/api/send-verification-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          email: signupForm.email || 'developer@opencomm.io',
-          userId: 'user-demo-id',
-          redirectAction: 'onboarding'
-        })
-      }).then(res => res.json())
-        .then(data => {
-          if (data.url) {
-            console.log("Onboarding Background Mock Verification Link (Bypassed):", data.url);
-            setMockVerificationUrl(data.url);
-          }
-        })
-        .catch(err => console.error("Failed to send mock onboarding verification email:", err));
-    }, 800);
-  };
 
   const handleSignUpStep1 = async (e: React.FormEvent) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setAuthError('');
-    
+
+    if (selectedAccountType !== 'worker') {
+      setAuthError("Please select a Worker Account to register. Company signup is Coming Soon.");
+      return;
+    }
+
+    if (!acceptTerms || !acceptPrivacy) {
+      setAuthError("You must read and agree to both the Terms of Service and Privacy Policy.");
+      return;
+    }
+
     // Validate Step 1 form fields using our Zod signUpSchema
     const parseResult = signUpSchema.safeParse({
       full_name: signupForm.name,
@@ -809,7 +1006,7 @@ export default function App() {
       phone: signupForm.phone,
       password: signupPassword,
       confirm_password: signupConfirmPassword,
-      accept_terms: acceptTerms
+      accept_terms: acceptTerms && acceptPrivacy
     });
 
     if (!parseResult.success) {
@@ -818,99 +1015,105 @@ export default function App() {
       return;
     }
 
+    if (!supabase) {
+      setAuthError("Supabase is not configured. Please supply VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+
+    // Move directly to Stage 2 - Worker Profile Details. Do NOT call supabase.auth.signUp yet.
+    setSignupStep(2);
+    setOnboardingSubStep('A');
+    setWorkerForm(prev => ({
+      ...prev,
+      fullName: signupForm.name,
+      phone: signupForm.phone,
+    }));
+  };
+
+  const handleSignUpStep2Submit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError('');
+
+    if (!supabase) {
+      setAuthError("Supabase is not configured. Please supply VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+
+    if (!workerForm.avatarUrl) {
+      setAuthError("Please add a profile photo in Step A to continue.");
+      return;
+    }
+
     setIsAuthSubmitting(true);
 
-    if (supabase) {
-      try {
-        // Check if account already exists
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('email', signupForm.email)
-          .maybeSingle();
+    try {
+      // Check if email already exists
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', signupForm.email)
+        .maybeSingle();
 
-        if (existingProfile) {
-          setIsAuthSubmitting(false);
+      if (existingProfile) {
+        setIsAuthSubmitting(false);
+        setAuthError("This email address is already registered. Please sign in instead.");
+        return;
+      }
+
+      // Submit the actual signup request to Supabase
+      const { data, error } = await supabase.auth.signUp({
+        email: signupForm.email.trim().toLowerCase(),
+        password: signupPassword,
+        options: {
+          emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/onboarding`,
+          data: {
+            full_name: workerForm.fullName || signupForm.name,
+            phone: workerForm.phone || signupForm.phone
+          }
+        }
+      });
+
+      setIsAuthSubmitting(false);
+
+      if (error) {
+        const errMsg = error.message.toLowerCase();
+        if (errMsg.includes('already registered') || errMsg.includes('already exists')) {
           setAuthError("This email address is already registered. Please sign in instead.");
-          return;
-        }
-
-        // Standard signup flow
-        const { data, error } = await supabase.auth.signUp({
-          email: signupForm.email,
-          password: signupPassword,
-          options: {
-            emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/onboarding`,
-            data: {
-              full_name: signupForm.name,
-              phone: signupForm.phone
-            }
-          }
-        });
-
-        setIsAuthSubmitting(false);
-
-        if (error) {
-          const errMsg = error.message.toLowerCase();
-          if (errMsg.includes('already registered') || errMsg.includes('already exists')) {
-            setAuthError("This email address is already registered. Please sign in instead.");
-          } else if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
-            setAuthError("Rate limit reached. Please wait a moment before trying again.");
-          } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
-            setAuthError("Network error. Please check your connection and try again.");
-          } else {
-            setAuthError(error.message);
-          }
-          return;
-        }
-
-        const user = data?.user;
-        const session = data?.session;
-        if (!user) {
-          setAuthError("An unexpected error occurred during account creation. Please try again.");
-          return;
-        }
-
-        // 10. Signup flow:
-        // if email confirmation is required, store only pendingEmail and navigate to /verify-email
-        // do not treat the user as verified
-        // do not require a session before OTP confirmation if Supabase returns session: null
-        updatePendingEmail(signupForm.email);
-
-        const emailConfirmed = Boolean(user.email_confirmed_at || user.confirmed_at);
-        if (session && emailConfirmed) {
-          setIsEmailVerified(true);
-          setSignupStep(3);
-          triggerToast("Account created! Let's set up your basic profile.");
-        } else {
-          setIsEmailVerified(false);
-          setSignupStep(1); // reset modal signup steps
-          setShowAuthModal(null); // close the modal
-          setVerificationCodeInput('');
-          triggerToast("Account created! Please verify your email using the OTP.");
-          navigate('/verify-email');
-        }
-        analytics.trackSignUp('email', user.id);
-
-      } catch (err: any) {
-        setIsAuthSubmitting(false);
-        const errMsg = (err.message || "").toLowerCase();
-        if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+        } else if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
           setAuthError("Rate limit reached. Please wait a moment before trying again.");
         } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
           setAuthError("Network error. Please check your connection and try again.");
         } else {
-          setAuthError(err.message || "Registration failed.");
+          setAuthError(error.message);
         }
+        return;
       }
-    } else {
-      setTimeout(() => {
-        setIsAuthSubmitting(false);
-        setSignupStep(2);
-        setVerificationCodeInput('');
-        triggerToast("Account created! Please enter the 6-digit OTP code.");
-        analytics.trackSignUp('mock', 'user-demo-id');
-      }, 800);
+
+      const user = data?.user;
+      if (!user) {
+        setAuthError("An unexpected error occurred during account creation. Please try again.");
+        return;
+      }
+
+      // Store the pending email
+      updatePendingEmail(signupForm.email);
+      setVerificationCodeInput('');
+      
+      // Move to Stage 3: Email OTP Verification
+      setSignupStep(3);
+      triggerToast("Account registered! A 6-digit verification code has been sent to your email.");
+      analytics.trackSignUp('email', user.id);
+
+    } catch (err: any) {
+      setIsAuthSubmitting(false);
+      const errMsg = (err.message || "").toLowerCase();
+      if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
+        setAuthError("Rate limit reached. Please wait a moment before trying again.");
+      } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
+        setAuthError("Network error. Please check your connection and try again.");
+      } else {
+        setAuthError(err.message || "Registration failed.");
+      }
     }
   };
 
@@ -930,118 +1133,237 @@ export default function App() {
       return;
     }
 
+    if (!supabase) {
+      setAuthError("Supabase is not configured.");
+      return;
+    }
+
     setIsAuthSubmitting(true);
 
-    if (supabase) {
-      try {
-        // Verify the code using type: 'email' (with type: 'signup' fallback if needed)
-        let result = await supabase.auth.verifyOtp({
+    try {
+      // Verify using 'email' or fallback 'signup'
+      let result = await supabase.auth.verifyOtp({
+        email: emailToVerify.trim().toLowerCase(),
+        token: otp,
+        type: 'email'
+      });
+
+      if (result.error) {
+        const signupResult = await supabase.auth.verifyOtp({
           email: emailToVerify.trim().toLowerCase(),
-          token: otp.trim(),
-          type: 'email'
+          token: otp,
+          type: 'signup'
         });
-
-        if (result.error) {
-          const signupResult = await supabase.auth.verifyOtp({
-            email: emailToVerify.trim().toLowerCase(),
-            token: otp.trim(),
-            type: 'signup'
-          });
-          if (!signupResult.error) {
-            result = signupResult;
-          }
-        }
-
-        const { data, error } = result;
-
-        // 4. Treat verification as successful only when ALL of these are true:
-        if (error) {
-          console.error("[OTP Verify Error] Code:", error.code, "Status:", error.status, "Message:", error.message);
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        if (!data?.user) {
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        let session = data.session;
-        if (!session) {
-          const { data: { session: freshSession } } = await supabase.auth.getSession();
-          session = freshSession;
-        }
-
-        if (!session) {
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        const authUser = data.user;
-        if (authUser.email?.trim().toLowerCase() !== emailToVerify.trim().toLowerCase()) {
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        const emailConfirmed = Boolean(authUser.email_confirmed_at || authUser.confirmed_at);
-        if (!emailConfirmed) {
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        // 5. Perform server-authenticated getUser() check:
-        const { data: userResult, error: userError } = await supabase.auth.getUser();
-        if (userError || !userResult?.user) {
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        const verifiedUser = userResult.user;
-        const verifiedUserEmailConfirmed = Boolean(verifiedUser.email_confirmed_at || verifiedUser.confirmed_at);
-        if (!verifiedUserEmailConfirmed) {
-          throw new Error("Invalid or expired verification code.");
-        }
-
-        // --- SUCCESS PATH ---
-        setIsAuthSubmitting(false);
-        setIsEmailVerified(true);
-        localStorage.setItem('opencomm_user_id', verifiedUser.id);
-
-        // Fetch / sync profile row
-        let profile = await dbService.getProfile(verifiedUser.id);
-        if (profile) {
-          // Update profile email verified status
-          await dbService.updateProfile(verifiedUser.id, {
-            email_verified_for_actions: true
-          });
-        }
-
-        setVerificationCodeInput('');
-        triggerToast("Email verified successfully!");
-
-        // Sync session and handle navigation/modal close
-        await syncUserSession(session);
-        setShowAuthModal(null);
-
-        const isOnboarded = profile?.onboarding_completed || profile?.city || profile?.bio;
-        if (isOnboarded) {
-          navigate('/');
-        } else {
-          setSignupStep(3);
-          setShowAuthModal('signup');
-          triggerToast("Email verified successfully! Now let's set up your profile.");
-        }
-
-      } catch (err: any) {
-        setIsAuthSubmitting(false);
-        // Clear only OTP input on failure (Requirement 6)
-        setVerificationCodeInput('');
-        setAuthError("Invalid or expired verification code.");
-        // Ensure we do not preserve any invalid/fake session (Requirement 6)
-        try {
-          await supabase.auth.signOut();
-        } catch (signOutErr) {
-          // ignore
+        if (!signupResult.error) {
+          result = signupResult;
         }
       }
-    } else {
+
+      const { data, error } = result;
+
+      if (error) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      if (!data?.user) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      let session = data.session;
+      if (!session) {
+        const { data: { session: freshSession } } = await supabase.auth.getSession();
+        session = freshSession;
+      }
+
+      if (!session) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      const authUser = data.user;
+      if (authUser.email?.trim().toLowerCase() !== emailToVerify.trim().toLowerCase()) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      const emailConfirmed = Boolean(authUser.email_confirmed_at || authUser.confirmed_at);
+      if (!emailConfirmed) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      // Check getUser()
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+      if (userError || !userResult?.user) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      const verifiedUser = userResult.user;
+      const verifiedUserEmailConfirmed = Boolean(verifiedUser.email_confirmed_at || verifiedUser.confirmed_at);
+      if (!verifiedUserEmailConfirmed) {
+        throw new Error("Invalid or expired verification code.");
+      }
+
+      // --- VERIFICATION SUCCEEDED ---
+      // Upload cropped avatar file
+      let finalAvatarUrl = workerForm.avatarUrl;
+
+      if (croppedFile) {
+        await supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token
+        });
+
+        const safeExtension =
+          croppedFile.type === 'image/png'
+            ? 'png'
+            : croppedFile.type === 'image/webp'
+              ? 'webp'
+              : 'jpg';
+
+        const filePath = `${verifiedUser.id}/${Date.now()}-profile.${safeExtension}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, croppedFile, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: croppedFile.type
+          });
+
+        if (!uploadError) {
+          const { data: publicUrlData } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+          finalAvatarUrl = publicUrlData.publicUrl;
+        }
+      }
+
+      // Upload resume file if present
+      if (resumeFile) {
+        const resumeExt = resumeFile.name.split('.').pop()?.toLowerCase();
+        const resumePath = `${verifiedUser.id}/${Date.now()}-resume.${resumeExt}`;
+        const { error: uploadResErr } = await supabase.storage
+          .from('resumes')
+          .upload(resumePath, resumeFile, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: resumeFile.type
+          });
+        if (!uploadResErr) {
+          workerForm.resumePath = resumePath;
+        }
+      }
+
+      // Update core profile
+      await dbService.updateProfile(verifiedUser.id, {
+        id: verifiedUser.id,
+        full_name: workerForm.fullName || signupForm.name,
+        email: emailToVerify,
+        phone: workerForm.phone || signupForm.phone,
+        city: workerForm.city,
+        state: workerForm.state,
+        country: workerForm.country,
+        country_code: workerForm.country_code,
+        state_code: workerForm.state_code,
+        district: workerForm.district,
+        latitude: workerForm.latitude,
+        longitude: workerForm.longitude,
+        preferred_language: workerForm.preferredLanguage,
+        bio: workerForm.bio,
+        avatar_url: finalAvatarUrl,
+        profile_type: 'worker',
+        account_type: 'worker',
+        account_status: 'active',
+        email_verified_for_actions: true,
+        onboarding_completed: true
+      });
+
+      // Create worker profile
+      await dbService.createWorkerProfile({
+        id: verifiedUser.id,
+        profession: workerForm.professionalTitle,
+        professional_title: workerForm.professionalTitle,
+        primary_category: workerForm.primaryCategory,
+        skills: workerForm.skills,
+        experience_years: workerForm.yearsExperience,
+        years_experience: workerForm.yearsExperience,
+        work_location: `${workerForm.city}, ${workerForm.state}`,
+        availability: workerForm.availabilityStatus as any,
+        availability_status: workerForm.availabilityStatus,
+        bio_summary: workerForm.bio,
+        hourly_rate: workerForm.hourlyRate,
+        expected_salary: `${workerForm.expectedSalaryMin} - ${workerForm.expectedSalaryMax}`,
+        expected_salary_min: workerForm.expectedSalaryMin,
+        expected_salary_max: workerForm.expectedSalaryMax,
+        portfolio_url: workerForm.portfolioUrl,
+        linkedin_url: workerForm.linkedinUrl,
+        github_url: workerForm.githubUrl,
+        highest_qualification: workerForm.highestQualification,
+        course_specialization: workerForm.courseSpecialization,
+        institution: workerForm.institution,
+        graduation_year: workerForm.graduationYear,
+        resume_path: workerForm.resumePath,
+        worker_profile_completed: true,
+        experience: workerForm.experience,
+        certifications: workerForm.certifications
+      });
+
+      // Mapped Worker for UI directory
+      const mappedWorker: Worker = {
+        id: verifiedUser.id,
+        name: workerForm.fullName || signupForm.name,
+        photo: finalAvatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+        title: workerForm.professionalTitle,
+        experience: Number(workerForm.yearsExperience) || 0,
+        rating: 5.0,
+        availability: workerForm.availabilityStatus as any || 'Available Now',
+        location: `${workerForm.city}, ${workerForm.state}`,
+        bio: workerForm.bio,
+        skills: workerForm.skills,
+        completedWorks: 0,
+        hourlyRate: Number(workerForm.hourlyRate) || 0,
+        verified: true
+      };
+
+      setWorkers(prev => [mappedWorker, ...prev]);
+
+      // Log Terms consent record
+      await dbService.logTermsConsent({
+        user_id: verifiedUser.id,
+        terms_version: "2026-07-19-v1",
+        privacy_version: "2026-07-19-v1",
+        account_type: 'worker'
+      });
+
+      // Clear all temporary signup states
+      clearSignupTempState();
+
+      // Log the user in
+      setIsLoggedIn(true);
+      setIsEmailVerified(true);
+      setUsername(workerForm.fullName || signupForm.name);
+      setUserPhoto(finalAvatarUrl);
+      setUserType('worker');
+
+      localStorage.setItem('opencomm_is_logged_in', 'true');
+      localStorage.setItem('opencomm_username', workerForm.fullName || signupForm.name);
+      localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
+      localStorage.setItem('opencomm_user_type', 'worker');
+
+      setSignupStep(1);
+      setShowAuthModal(null);
+      setLockedFeature(null);
+      setIsAuthSubmitting(false);
+      triggerToast("Verification successful! Welcome to OpenComm.");
+
+      // Navigate to Home
+      navigate('/');
+
+    } catch (err: any) {
       setIsAuthSubmitting(false);
       setVerificationCodeInput('');
-      setAuthError("Invalid or expired verification code.");
+      setAuthError(err.message || "Invalid or expired verification code.");
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {}
     }
   };
 
@@ -1055,32 +1377,31 @@ export default function App() {
       return;
     }
 
+    if (!supabase) {
+      setAuthError("Supabase is not configured.");
+      return;
+    }
+
     setIsAuthSubmitting(true);
 
-    if (supabase) {
-      try {
-        const { error } = await supabase.auth.resend({
-          type: 'signup',
-          email: emailToResend.trim().toLowerCase()
-        });
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: emailToResend.trim().toLowerCase()
+      });
 
-        setIsAuthSubmitting(false);
-
-        if (error) {
-          console.error("[OTP Resend Error] Code:", error.code, "Status:", error.status, "Message:", error.message);
-          setAuthError(error.message);
-          return;
-        }
-
-        setResendCooldown(60);
-        triggerToast("A new 6-digit OTP code has been sent to your email.");
-      } catch (err: any) {
-        setIsAuthSubmitting(false);
-        setAuthError(err.message || "Failed to resend OTP.");
-      }
-    } else {
       setIsAuthSubmitting(false);
-      setAuthError("Supabase is not configured.");
+
+      if (error) {
+        setAuthError(error.message);
+        return;
+      }
+
+      setResendCooldown(60);
+      triggerToast("A new 6-digit OTP code has been sent to your email.");
+    } catch (err: any) {
+      setIsAuthSubmitting(false);
+      setAuthError(err.message || "Failed to resend OTP.");
     }
   };
 
@@ -1127,198 +1448,9 @@ export default function App() {
         }
       }
     } else {
-      setTimeout(() => {
-        setIsAuthSubmitting(false);
-        setResendCooldown(60);
-        triggerToast("Verification email re-dispatched (Mock)!");
-      }, 800);
-    }
-  };
-
-  const handleSignUpStep3 = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-
-    if (!onboardingForm.avatar_url) {
-      setAuthError("Please add a profile photo to continue.");
-      return;
-    }
-
-    const parseResult = basicProfileSchema.safeParse({
-      city: onboardingForm.city,
-      state: onboardingForm.state,
-      country: onboardingForm.country,
-      preferred_language: onboardingForm.preferred_language,
-      bio: onboardingForm.bio
-    });
-
-    if (!parseResult.success) {
-      const firstError = parseResult.error.issues[0]?.message || 'Invalid profile details';
-      setAuthError(firstError);
-      return;
-    }
-
-    setIsAuthSubmitting(true);
-
-    let finalUserId = `mock-user-${Date.now()}`;
-    let finalAvatarUrl = onboardingForm.avatar_url;
-
-    if (supabase) {
-      try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (croppedFile) {
-          if (!user || !session || !user.id) {
-            setAuthError("Your session is not ready. Please sign in again and retry the photo upload.");
-            setIsAuthSubmitting(false);
-            return;
-          }
-
-          // Force-sync session right before upload to ensure headers are updated in the storage client
-          await supabase.auth.setSession({
-            access_token: session.access_token,
-            refresh_token: session.refresh_token
-          });
-
-          finalUserId = user.id;
-
-          const safeExtension =
-            croppedFile.type === 'image/png'
-              ? 'png'
-              : croppedFile.type === 'image/webp'
-                ? 'webp'
-                : 'jpg';
-
-          const filePath = `${user.id}/${Date.now()}-profile.${safeExtension}`;
-
-          // Development-only logs
-          console.log("--- Supabase Storage Upload ---", {
-            hasUser: Boolean(user),
-            userId: user.id,
-            hasSession: Boolean(session),
-            bucket: 'avatars',
-            filePath,
-            fileType: croppedFile.type,
-            fileSize: croppedFile.size
-          });
-
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(filePath, croppedFile, {
-              cacheControl: '3600',
-              upsert: false,
-              contentType: croppedFile.type
-            });
-
-          if (uploadError) {
-            console.error("Supabase storage error:", uploadError);
-            setAuthError(`Storage upload failed: ${uploadError.message || 'Check connection'}`);
-            setIsAuthSubmitting(false);
-            return;
-          }
-
-          const { data: publicUrlData } = supabase.storage
-            .from('avatars')
-            .getPublicUrl(filePath);
-
-          finalAvatarUrl = publicUrlData.publicUrl;
-        } else {
-          if (user) {
-            finalUserId = user.id;
-          }
-        }
-      } catch (err: any) {
-        console.error("Auth/Storage initialization exception:", err);
-        setAuthError(`Authentication error: ${err.message || 'Check connection'}`);
-        setIsAuthSubmitting(false);
-        return;
-      }
-    }
-
-    try {
-      // Sync profile updating details with dbService
-      await dbService.updateProfile(finalUserId, {
-        id: finalUserId,
-        full_name: signupForm.name,
-        email: signupForm.email,
-        phone: signupForm.phone,
-        city: onboardingForm.city,
-        state: onboardingForm.state,
-        country: onboardingForm.country,
-        country_code: onboardingForm.country_code,
-        state_code: onboardingForm.state_code,
-        district: onboardingForm.district,
-        latitude: onboardingForm.latitude,
-        longitude: onboardingForm.longitude,
-        preferred_language: onboardingForm.preferred_language,
-        bio: onboardingForm.bio,
-        avatar_url: finalAvatarUrl,
-        profile_type: 'basic',
-        account_status: 'active',
-        email_verified_for_actions: isEmailVerified,
-        onboarding_completed: true
-      });
-
-      // Refresh the profile query to ensure DB is in sync
-      await dbService.getProfile(finalUserId);
-
       setIsAuthSubmitting(false);
-
-      // Sync temporary states
-      setUsername(signupForm.name);
-      setUserPhoto(finalAvatarUrl);
-      setUserType('normal');
-
-      setOnboardingForm(prev => ({ ...prev, avatar_url: finalAvatarUrl }));
-      localStorage.setItem('opencomm_user_id', finalUserId);
-      localStorage.setItem('opencomm_username', signupForm.name);
-      localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
-      localStorage.setItem('opencomm_user_type', 'normal');
-
-      // Complete onboarding if already email verified, otherwise transition to Step 4
-      if (isEmailVerified) {
-        handleCompleteOnboarding(true);
-      } else {
-        setSignupStep(4);
-      }
-    } catch (dbErr: any) {
-      console.error("Database save failed:", dbErr);
-      setAuthError(`Profile save failed: ${dbErr.message || 'Check connection'}`);
-      setIsAuthSubmitting(false);
+      setAuthError("Supabase is not configured.");
     }
-  };
-
-  const handleCompleteOnboarding = async (isVerified: boolean) => {
-    let finalUserId = localStorage.getItem('opencomm_user_id') || `mock-user-${Date.now()}`;
-    if (supabase) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        finalUserId = session.user.id;
-      }
-    }
-
-    // Write final verification choice back to the profile table
-    await dbService.updateProfile(finalUserId, {
-      email_verified_for_actions: isVerified,
-      onboarding_completed: true
-    });
-
-    setIsLoggedIn(true);
-    setIsEmailVerified(isVerified);
-    setUsername(signupForm.name || username);
-    setUserPhoto(onboardingForm.avatar_url || userPhoto);
-    setUserType('normal');
-
-    localStorage.setItem('opencomm_is_logged_in', 'true');
-    localStorage.setItem('opencomm_username', signupForm.name || username);
-    localStorage.setItem('opencomm_user_photo', onboardingForm.avatar_url || userPhoto);
-    localStorage.setItem('opencomm_user_type', 'normal');
-
-    setSignupStep(1);
-    setShowAuthModal(null);
-    setLockedFeature(null);
-    triggerToast(isVerified ? "Email successfully verified! Welcome aboard." : "Onboarding complete! Welcome to OpenComm.");
   };
 
   // --- ACTIONS ---
@@ -2219,10 +2351,21 @@ export default function App() {
             </div>
           } />
 
+          {/* Legal routes */}
+          <Route path="/terms" element={<TermsPage navigate={navigate} />} />
+          <Route path="/privacy" element={<PrivacyPage navigate={navigate} />} />
+          <Route path="/community-guidelines" element={<CommunityGuidelinesPage navigate={navigate} />} />
+          <Route path="/cookie-policy" element={<CookiePolicyPage navigate={navigate} />} />
+          <Route path="/contact" element={<GrievancePage navigate={navigate} triggerToast={triggerToast} />} />
+          <Route path="/grievance" element={<GrievancePage navigate={navigate} triggerToast={triggerToast} />} />
+
           {/* 404 Wildcard Page */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
+
+      {/* FOOTER NAVIGATION */}
+      <Footer navigate={navigate} />
 
       {/* ====================================================
           MODAL: EMAIL VERIFICATION GATEWAY
@@ -2728,16 +2871,7 @@ export default function App() {
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>{authError}</span>
                   </div>
-                  {authError.toLowerCase().includes("rate limit") && (
-                    <button
-                      type="button"
-                      onClick={handleBypassToDemoMode}
-                      className="mt-1 self-start text-[10px] uppercase font-mono tracking-wider font-extrabold text-white bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
-                      id="btn-bypass-rate-limit"
-                    >
-                      Bypass Rate Limit (Use Local Emulator Mode) &rarr;
-                    </button>
-                  )}
+
                 </div>
               )}
 
@@ -2868,12 +3002,13 @@ export default function App() {
                 >
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                      Email address or Username
+                      Email address
                     </label>
                     <input 
-                      type="text" 
-                      name="username"
+                      type="email" 
+                      name="email"
                       required
+                      autoComplete="email"
                       value={signinUsername}
                       onChange={(e) => setSigninUsername(e.target.value)}
                       className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold transition-all"
@@ -2890,6 +3025,7 @@ export default function App() {
                         type={showSigninPassword ? "text" : "password"} 
                         name="password"
                         required
+                        autoComplete="current-password"
                         value={signinPassword}
                         onChange={(e) => setSigninPassword(e.target.value)}
                         className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-[#94A3B8] font-semibold transition-all"
@@ -2899,6 +3035,8 @@ export default function App() {
                         type="button"
                         onClick={() => setShowSigninPassword(!showSigninPassword)}
                         className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                        aria-label={showSigninPassword ? "Hide password" : "Show password"}
+                        title={showSigninPassword ? "Hide password" : "Show password"}
                       >
                         {showSigninPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -2973,14 +3111,15 @@ export default function App() {
               {showAuthModal === 'signup' && (
                 <div className="space-y-4">
                   {/* Step Header Indicator */}
-                  {signupStep <= 3 && signupStep !== 2 && (
+                  {signupStep === 1 && (
                     <div className="flex items-center justify-between px-1 mb-2">
                       <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        Step {signupStep === 3 ? 2 : 1} of 2
+                        Step 1 of 3: Account Details
                       </span>
                       <div className="flex space-x-1.5">
-                        <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep >= 1 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
-                        <span className={`w-2.5 h-1.5 rounded-full transition-all ${signupStep === 3 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'}`} />
+                        <span className="w-5 h-1.5 rounded-full transition-all bg-indigo-600" />
+                        <span className="w-2.5 h-1.5 rounded-full transition-all bg-slate-200 dark:bg-zinc-800" />
+                        <span className="w-2.5 h-1.5 rounded-full transition-all bg-slate-200 dark:bg-zinc-800" />
                       </div>
                     </div>
                   )}
@@ -2988,11 +3127,25 @@ export default function App() {
                   {signupStep === 2 && (
                     <div className="flex items-center justify-between px-1 mb-2">
                       <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        Email Verification
+                        Step 2 of 3: Worker Profile Details
                       </span>
-                      <div className="flex items-center space-x-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[9px] font-mono font-bold text-emerald-600 dark:text-emerald-400">Security Check</span>
+                      <div className="flex space-x-1.5">
+                        <span className="w-2.5 h-1.5 rounded-full transition-all bg-indigo-600" />
+                        <span className="w-5 h-1.5 rounded-full transition-all bg-indigo-600" />
+                        <span className="w-2.5 h-1.5 rounded-full transition-all bg-slate-200 dark:bg-zinc-800" />
+                      </div>
+                    </div>
+                  )}
+
+                  {signupStep === 3 && (
+                    <div className="flex items-center justify-between px-1 mb-2">
+                      <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        Step 3 of 3: Email Verification
+                      </span>
+                      <div className="flex space-x-1.5">
+                        <span className="w-2.5 h-1.5 rounded-full transition-all bg-indigo-600" />
+                        <span className="w-2.5 h-1.5 rounded-full transition-all bg-indigo-600" />
+                        <span className="w-5 h-1.5 rounded-full transition-all bg-indigo-600" />
                       </div>
                     </div>
                   )}
@@ -3049,6 +3202,7 @@ export default function App() {
                           <input 
                             type={showSignupPassword ? "text" : "password"} 
                             required
+                            autoComplete="new-password"
                             value={signupPassword}
                             onChange={(e) => setSignupPassword(e.target.value)}
                             className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
@@ -3058,6 +3212,8 @@ export default function App() {
                             type="button"
                             onClick={() => setShowSignupPassword(!showSignupPassword)}
                             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                            aria-label={showSignupPassword ? "Hide password" : "Show password"}
+                            title={showSignupPassword ? "Hide password" : "Show password"}
                           >
                             {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
@@ -3068,27 +3224,121 @@ export default function App() {
                         <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                           Confirm Password
                         </label>
-                        <input 
-                          type={showSignupPassword ? "text" : "password"} 
-                          required
-                          value={signupConfirmPassword}
-                          onChange={(e) => setSignupConfirmPassword(e.target.value)}
-                          className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
-                          placeholder="Confirm password"
-                        />
+                        <div className="relative">
+                          <input 
+                            type={showSignupConfirmPassword ? "text" : "password"} 
+                            required
+                            autoComplete="new-password"
+                            value={signupConfirmPassword}
+                            onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                            className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
+                            placeholder="Confirm password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                            aria-label={showSignupConfirmPassword ? "Hide password" : "Show password"}
+                            title={showSignupConfirmPassword ? "Hide password" : "Show password"}
+                          >
+                            {showSignupConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="flex items-start space-x-2.5 pt-1">
+                      {/* Choose Account Type Card Layout */}
+                      <div className="space-y-2 mb-4 pt-1">
+                        <label className="block text-xs font-black text-slate-700 dark:text-zinc-300 uppercase tracking-wider text-left">
+                          Choose your account type <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-left">
+                          {/* Worker Card */}
+                          <div
+                            onClick={() => setSelectedAccountType('worker')}
+                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                              selectedAccountType === 'worker'
+                                ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10'
+                                : 'border-slate-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-950/50 hover:border-slate-300 dark:hover:border-zinc-700'
+                            }`}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                                  Worker Account
+                                </h4>
+                                <input
+                                  type="radio"
+                                  name="account_type"
+                                  checked={selectedAccountType === 'worker'}
+                                  onChange={() => setSelectedAccountType('worker')}
+                                  className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500"
+                                />
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                                Create a professional profile, showcase your skills, receive opportunities, apply for jobs, and connect with clients.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedAccountType('worker');
+                              }}
+                              className={`w-full mt-3 h-8 rounded-lg text-[10px] font-bold transition-all ${
+                                selectedAccountType === 'worker'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300'
+                              }`}
+                            >
+                              Choose Worker
+                            </button>
+                          </div>
+
+                          {/* Company Card (Coming Soon) */}
+                          <div
+                            className="p-3.5 rounded-2xl border border-slate-200/50 dark:border-zinc-850 bg-slate-50/50 dark:bg-zinc-950/20 opacity-60 cursor-not-allowed flex flex-col justify-between"
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center space-x-1.5">
+                                  <h4 className="text-xs font-bold text-slate-400 dark:text-zinc-500">
+                                    Company Account
+                                  </h4>
+                                  <span className="px-1.5 py-0.5 rounded-full text-[8px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                    Soon
+                                  </span>
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-slate-400 dark:text-zinc-500 leading-relaxed font-medium">
+                                Hire professionals, publish jobs, manage applicants, and build your company presence.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled
+                              className="w-full mt-3 h-8 rounded-lg text-[10px] font-bold bg-slate-200/50 dark:bg-zinc-900/50 text-slate-400 dark:text-zinc-600 cursor-not-allowed"
+                            >
+                              Notify Me
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Consent Checkboxes */}
+                      <div className="flex items-start space-x-2.5 pt-1 text-left">
                         <input 
                           type="checkbox"
-                          id="accept-terms"
+                          id="accept-terms-privacy"
                           required
-                          checked={acceptTerms}
-                          onChange={(e) => setAcceptTerms(e.target.checked)}
+                          checked={acceptTerms && acceptPrivacy}
+                          onChange={(e) => {
+                            setAcceptTerms(e.target.checked);
+                            setAcceptPrivacy(e.target.checked);
+                          }}
                           className="mt-1 w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
                         />
-                        <label htmlFor="accept-terms" className="text-[11px] text-slate-500 dark:text-zinc-400 leading-normal font-medium cursor-pointer">
-                          I accept the <span className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Terms of Service</span> and <span className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Privacy Policy</span>.
+                        <label htmlFor="accept-terms-privacy" className="text-[11px] text-slate-500 dark:text-zinc-400 leading-normal font-medium cursor-pointer">
+                          I have read and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Privacy Policy</a>.
                         </label>
                       </div>
 
@@ -3120,7 +3370,7 @@ export default function App() {
                     </form>
                   )}
 
-                  {signupStep === 2 && (
+                  {signupStep === 3 && (
                     <div className="space-y-4 text-xs text-left animate-fadeIn">
                       <div className="flex items-start space-x-3.5">
                         <div className="w-10 h-10 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
@@ -3140,15 +3390,6 @@ export default function App() {
                         <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/15 rounded-xl flex items-start space-x-2.5 text-red-600 dark:text-red-400 text-[11px] font-semibold leading-relaxed animate-shake">
                           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                           <span>{authError}</span>
-                        </div>
-                      )}
-
-                      {!supabase && (
-                        <div className="p-2.5 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-1">
-                          <span className="text-[9px] uppercase font-mono tracking-wider font-bold text-indigo-600 dark:text-indigo-400 block">Sandbox Simulation</span>
-                          <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-                            You are running in sandbox/offline mode. You can enter any 6-digit code (e.g. <strong>123456</strong>) to complete verification.
-                          </p>
                         </div>
                       )}
 
@@ -3187,214 +3428,868 @@ export default function App() {
                           </button>
                         </div>
                       </form>
-
-                      <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 text-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSignupStep(3);
-                            setIsEmailVerified(false);
-                            setAuthError('');
-                          }}
-                          className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold transition-all"
-                        >
-                          Skip & Verify Later
-                        </button>
-                      </div>
                     </div>
                   )}
 
-                  {signupStep === 3 && (
-                    <form onSubmit={handleSignUpStep3} className="space-y-3.5 text-xs">
-                      {/* Profile Photo Upload */}
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 text-center">
-                          Profile Photo <span className="text-rose-500">*</span>
-                        </label>
-                        <ProfilePhotoUpload
-                          value={onboardingForm.avatar_url}
-                          onFileChange={setCroppedFile}
-                          onChange={(url) => {
-                            setOnboardingForm({ ...onboardingForm, avatar_url: url });
-                            setUserPhoto(url);
-                            if (!url.startsWith('blob:')) {
-                              localStorage.setItem('opencomm_user_photo', url);
-                            }
-                          }}
-                          userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
-                          supabase={supabase}
-                          triggerToast={triggerToast}
-                        />
-                      </div>
-
-                      {/* Location Selector */}
-                      <div className="space-y-1.5 text-left">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Primary Base Location
-                        </label>
-                        <LocationSelector
-                          value={onboardingForm}
-                          onChange={(loc) => setOnboardingForm(prev => ({
-                            ...prev,
-                            city: loc.city,
-                            state: loc.state,
-                            country: loc.country,
-                            country_code: loc.country_code,
-                            state_code: loc.state_code,
-                            district: loc.district,
-                            latitude: loc.latitude,
-                            longitude: loc.longitude
-                          }))}
-                        />
-                      </div>
-
-                      {/* Preferred Language */}
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Preferred Language
-                        </label>
-                        <input 
-                          type="text" 
-                          required
-                          value={onboardingForm.preferred_language}
-                          onChange={(e) => setOnboardingForm({...onboardingForm, preferred_language: e.target.value})}
-                          className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                          placeholder="e.g. English"
-                        />
-                      </div>
-
-                      {/* Bio */}
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Short Bio
-                        </label>
-                        <textarea 
-                          rows={2.5}
-                          value={onboardingForm.bio}
-                          onChange={(e) => setOnboardingForm({...onboardingForm, bio: e.target.value})}
-                          className="w-full p-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-medium leading-relaxed resize-none"
-                          placeholder="Tell the community about your expertise..."
-                        />
-                      </div>
-
-                      <div className="pt-2">
-                        <button
-                          type="submit"
-                          disabled={isAuthSubmitting}
-                          className="w-full h-11 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50"
-                        >
-                          {isAuthSubmitting ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <span>Finish & Join OpenComm</span>
-                          )}
-                        </button>
-                      </div>
-                    </form>
-                  )}
-
-                  {signupStep === 4 && (
+                  {signupStep === 2 && (
                     <div className="space-y-4 text-xs text-left animate-fadeIn">
-                      <div className="flex items-start space-x-3.5">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
-                          <Mail className="w-5 h-5 animate-pulse" />
+                      {/* Step Header Indicator */}
+                      <div className="mb-4">
+                        <div className="flex justify-between items-center text-[9px] font-mono font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">
+                          <span className="text-indigo-600 dark:text-indigo-400">Step {onboardingSubStep} of G</span>
+                          <span>{Math.round((['A','B','C','D','E','F','G'].indexOf(onboardingSubStep) + 1) / 7 * 100)}% Complete</span>
                         </div>
-                        <div className="space-y-1">
-                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight leading-snug">
-                            Choose Email Verification Strategy
-                          </h3>
-                          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-                            Verification unlocks secure milestone transactions, direct contact exchanges, and service listings.
-                          </p>
+                        <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-850 rounded-full overflow-hidden flex">
+                          {['A','B','C','D','E','F','G'].map((step, idx) => {
+                            const isActive = ['A','B','C','D','E','F','G'].indexOf(onboardingSubStep) >= idx;
+                            return (
+                              <div
+                                key={step}
+                                className={`h-full flex-1 border-r border-white dark:border-zinc-950 last:border-0 transition-all duration-300 ${
+                                  isActive ? 'bg-gradient-to-r from-purple-500 to-indigo-600' : 'bg-slate-200 dark:bg-zinc-800'
+                                }`}
+                              />
+                            );
+                          })}
                         </div>
                       </div>
 
-                      {!showCodeVerificationInput ? (
-                        <div className="space-y-3 pt-2">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setShowCodeVerificationInput(true);
-                              try {
-                                const response = await fetch('/api/send-verification-email', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    email: signupForm.email,
-                                    userId: localStorage.getItem('opencomm_user_id') || 'temp-user-id',
-                                    redirectAction: 'onboarding'
-                                  })
-                                });
-                                const data = await response.json();
-                                if (data.url) {
-                                  setMockVerificationUrl(data.url);
-                                }
-                                triggerToast("Verification link / code dispatched successfully!");
-                              } catch (e) {
-                                console.error("Error sending verification email:", e);
-                              }
-                            }}
-                            className="w-full h-11 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center cursor-pointer"
-                          >
-                            Verify Email Now
-                          </button>
-
-                          <div className="p-3 bg-amber-500/5 rounded-2xl border border-amber-500/10 space-y-2">
-                            <p className="text-[10px] sm:text-[11px] text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
-                              ⚠️ <strong>Do It Later:</strong> Some professional actions like listing services, contract posting, and worker lookup require verification. You can continue as a basic member for now.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleCompleteOnboarding(false);
-                              }}
-                              className="w-full h-10 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800/40 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer"
-                            >
-                              Do It Later
-                            </button>
-                          </div>
+                      {authError && (
+                        <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/15 rounded-xl flex items-start space-x-2.5 text-red-600 dark:text-red-400 text-[11px] font-semibold leading-relaxed animate-shake">
+                          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span>{authError}</span>
                         </div>
-                      ) : (
-                        <div className="space-y-3 pt-2">
-                          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 font-semibold mb-1">
-                            A verification link has been dispatched to <strong className="text-slate-800 dark:text-white">{signupForm.email}</strong>.
-                          </p>
+                      )}
 
+                      {/* --- SUBSTEP A: Basic Details --- */}
+                      {onboardingSubStep === 'A' && (
+                        <div className="space-y-3.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step A — Basic Details</h3>
+                          
                           <div className="space-y-1">
-                            <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">Enter Code</label>
-                            <input
-                              type="text"
-                              maxLength={6}
-                              value={verificationCodeInput}
-                              onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                              placeholder="e.g. 123456"
-                              className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-mono font-bold tracking-widest text-center"
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 text-center">
+                              Profile Photo <span className="text-rose-500">*</span>
+                            </label>
+                            <ProfilePhotoUpload
+                              value={workerForm.avatarUrl}
+                              onFileChange={setCroppedFile}
+                              onChange={(url) => {
+                                setWorkerForm({ ...workerForm, avatarUrl: url });
+                                setUserPhoto(url);
+                              }}
+                              userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
+                              supabase={supabase}
+                              triggerToast={triggerToast}
                             />
                           </div>
 
-                          <div className="flex gap-2">
+                          <div className="space-y-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Full Name <span className="text-rose-500">*</span></label>
+                            <input
+                              type="text"
+                              value={workerForm.fullName}
+                              onChange={(e) => setWorkerForm({ ...workerForm, fullName: e.target.value })}
+                              placeholder="e.g. Akhil Varma"
+                              className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Phone Number <span className="text-rose-500">*</span></label>
+                            <input
+                              type="text"
+                              value={workerForm.phone}
+                              onChange={(e) => setWorkerForm({ ...workerForm, phone: e.target.value })}
+                              placeholder="e.g. +919876543210"
+                              className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5 text-left">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Primary Base Location <span className="text-rose-500">*</span></label>
+                            <LocationSelector
+                              value={{
+                                city: workerForm.city,
+                                state: workerForm.state,
+                                country: workerForm.country,
+                                country_code: workerForm.country_code,
+                                state_code: workerForm.state_code,
+                                district: workerForm.district,
+                                latitude: workerForm.latitude,
+                                longitude: workerForm.longitude
+                              } as any}
+                              onChange={(loc) => setWorkerForm(prev => ({
+                                ...prev,
+                                city: loc.city,
+                                state: loc.state,
+                                country: loc.country,
+                                country_code: loc.country_code,
+                                state_code: loc.state_code,
+                                district: loc.district,
+                                latitude: loc.latitude || 30.2672,
+                                longitude: loc.longitude || -97.7431
+                              }))}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Preferred Language <span className="text-rose-500">*</span></label>
+                            <input
+                              type="text"
+                              value={workerForm.preferredLanguage}
+                              onChange={(e) => setWorkerForm({ ...workerForm, preferredLanguage: e.target.value })}
+                              placeholder="e.g. English"
+                              className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Short Bio <span className="text-rose-500">*</span></label>
+                            <textarea
+                              rows={2.5}
+                              value={workerForm.bio}
+                              onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })}
+                              placeholder="Describe your primary professional expertise..."
+                              className="w-full p-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-medium resize-none focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+
+                          <div className="pt-2 flex justify-end">
                             <button
                               type="button"
-                              onClick={() => setShowCodeVerificationInput(false)}
-                              className="flex-1 h-11 border border-slate-200 dark:border-zinc-800 text-slate-500 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer"
+                              onClick={() => {
+                                const err = validateSubStep('A');
+                                if (err) {
+                                  setAuthError(err);
+                                } else {
+                                  setOnboardingSubStep('B');
+                                }
+                              }}
+                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
+                            >
+                              <span>Next: Professional Details</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- SUBSTEP B: Professional Details --- */}
+                      {onboardingSubStep === 'B' && (
+                        <div className="space-y-3.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step B — Professional Details</h3>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Professional Title <span className="text-rose-500">*</span></label>
+                              <input
+                                type="text"
+                                value={workerForm.professionalTitle}
+                                onChange={(e) => setWorkerForm({ ...workerForm, professionalTitle: e.target.value })}
+                                placeholder="e.g. Senior Flutter Developer"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Primary Category <span className="text-rose-500">*</span></label>
+                              <select
+                                value={workerForm.primaryCategory}
+                                onChange={(e) => setWorkerForm({ ...workerForm, primaryCategory: e.target.value })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              >
+                                {INITIAL_CATEGORIES.map(cat => (
+                                  <option key={cat.name} value={cat.name}>{cat.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Skills (Comma separated, at least one) <span className="text-rose-500">*</span></label>
+                            <input
+                              type="text"
+                              value={workerForm.skills.join(', ')}
+                              onChange={(e) => setWorkerForm({ ...workerForm, skills: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                              placeholder="e.g. Flutter, Dart, Supabase, Git"
+                              className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Experience Level <span className="text-rose-500">*</span></label>
+                              <select
+                                value={workerForm.experienceLevel}
+                                onChange={(e) => setWorkerForm({ ...workerForm, experienceLevel: e.target.value })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              >
+                                <option value="Entry">Entry Level</option>
+                                <option value="Intermediate">Intermediate</option>
+                                <option value="Senior">Senior</option>
+                                <option value="Expert">Expert</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Work Availability <span className="text-rose-500">*</span></label>
+                              <select
+                                value={workerForm.availabilityStatus}
+                                onChange={(e) => setWorkerForm({ ...workerForm, availabilityStatus: e.target.value })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              >
+                                <option value="Available Now">Available Now</option>
+                                <option value="Part-time">Part-time</option>
+                                <option value="Full-time">Full-time</option>
+                                <option value="Busy">Busy</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Years of Experience</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={workerForm.yearsExperience}
+                                onChange={(e) => setWorkerForm({ ...workerForm, yearsExperience: Number(e.target.value) })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Hourly Rate ($)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={workerForm.hourlyRate}
+                                onChange={(e) => setWorkerForm({ ...workerForm, hourlyRate: Number(e.target.value) })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Expected Salary Min ($)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={workerForm.expectedSalaryMin}
+                                onChange={(e) => setWorkerForm({ ...workerForm, expectedSalaryMin: Number(e.target.value) })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Expected Salary Max ($)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={workerForm.expectedSalaryMax}
+                                onChange={(e) => setWorkerForm({ ...workerForm, expectedSalaryMax: Number(e.target.value) })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Work Preference</label>
+                              <select
+                                value={workerForm.workPreference}
+                                onChange={(e) => setWorkerForm({ ...workerForm, workPreference: e.target.value })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              >
+                                <option value="Remote">Remote</option>
+                                <option value="On-site">On-site</option>
+                                <option value="Hybrid">Hybrid</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Service Radius (miles)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={workerForm.serviceRadius}
+                                onChange={(e) => setWorkerForm({ ...workerForm, serviceRadius: Number(e.target.value) })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1 pt-6 flex items-center">
+                              <label className="flex items-center space-x-2 font-semibold text-slate-700 dark:text-zinc-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={workerForm.willingToRelocate}
+                                  onChange={(e) => setWorkerForm({ ...workerForm, willingToRelocate: e.target.checked })}
+                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span>Willing to relocate?</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Portfolio URL</label>
+                              <input
+                                type="url"
+                                value={workerForm.portfolioUrl}
+                                onChange={(e) => setWorkerForm({ ...workerForm, portfolioUrl: e.target.value })}
+                                placeholder="https://mywork.com"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">LinkedIn Profile URL</label>
+                              <input
+                                type="url"
+                                value={workerForm.linkedinUrl}
+                                onChange={(e) => setWorkerForm({ ...workerForm, linkedinUrl: e.target.value })}
+                                placeholder="https://linkedin.com/in/username"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">GitHub Profile URL</label>
+                              <input
+                                type="url"
+                                value={workerForm.githubUrl}
+                                onChange={(e) => setWorkerForm({ ...workerForm, githubUrl: e.target.value })}
+                                placeholder="https://github.com/username"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="pt-2 flex justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('A')}
+                              className="px-6 h-11 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all cursor-pointer"
                             >
                               Back
                             </button>
                             <button
                               type="button"
-                              disabled={isAuthSubmitting}
                               onClick={() => {
-                                handleVerifyOTP();
+                                const err = validateSubStep('B');
+                                if (err) {
+                                  setAuthError(err);
+                                } else {
+                                  setOnboardingSubStep('C');
+                                }
                               }}
-                              className="flex-1 h-11 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl cursor-pointer disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center text-xs"
+                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
                             >
-                              {isAuthSubmitting ? "Verifying..." : "Submit Code"}
+                              <span>Next: Qualifications</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- SUBSTEP C: Education and Qualifications --- */}
+                      {onboardingSubStep === 'C' && (
+                        <div className="space-y-3.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step C — Education & Qualifications</h3>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Highest Qualification</label>
+                              <input
+                                type="text"
+                                value={workerForm.highestQualification}
+                                onChange={(e) => setWorkerForm({ ...workerForm, highestQualification: e.target.value })}
+                                placeholder="e.g. Bachelor of Technology"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Course / Specialization</label>
+                              <input
+                                type="text"
+                                value={workerForm.courseSpecialization}
+                                onChange={(e) => setWorkerForm({ ...workerForm, courseSpecialization: e.target.value })}
+                                placeholder="e.g. Computer Science"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Institution</label>
+                              <input
+                                type="text"
+                                value={workerForm.institution}
+                                onChange={(e) => setWorkerForm({ ...workerForm, institution: e.target.value })}
+                                placeholder="e.g. Stanford University"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Graduation Year</label>
+                              <input
+                                type="number"
+                                value={workerForm.graduationYear}
+                                onChange={(e) => setWorkerForm({ ...workerForm, graduationYear: Number(e.target.value) })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Add Multiple Certifications Section */}
+                          <div className="border border-slate-200/60 dark:border-zinc-800 p-4 rounded-2xl bg-slate-50/50 dark:bg-zinc-950/20 space-y-3.5">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono block">Add Certifications (Optional)</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <input
+                                type="text"
+                                placeholder="Cert / License Name"
+                                value={tempCert.name}
+                                onChange={(e) => setTempCert({ ...tempCert, name: e.target.value })}
+                                className="h-9 px-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Institution / Publisher"
+                                value={tempCert.institution}
+                                onChange={(e) => setTempCert({ ...tempCert, institution: e.target.value })}
+                                className="h-9 px-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (tempCert.name.trim()) {
+                                  setWorkerForm(prev => ({
+                                    ...prev,
+                                    certifications: [...prev.certifications, tempCert]
+                                  }));
+                                  setTempCert({ name: '', institution: '', graduationYear: new Date().getFullYear(), licenceNumber: '', trainingProgram: '' });
+                                  triggerToast("Certification added!");
+                                }
+                              }}
+                              className="px-3.5 py-1.5 bg-indigo-600 hover:opacity-90 text-white rounded-lg font-bold"
+                            >
+                              Add to List
+                            </button>
+
+                            {workerForm.certifications.length > 0 && (
+                              <div className="mt-3 space-y-2 border-t border-slate-200/50 dark:border-zinc-800/50 pt-3">
+                                {workerForm.certifications.map((c, i) => (
+                                  <div key={i} className="flex justify-between items-center bg-white dark:bg-zinc-900/60 p-2.5 rounded-xl border border-slate-200/40 dark:border-zinc-800/40 animate-fadeIn">
+                                    <div>
+                                      <p className="font-bold text-slate-900 dark:text-white">{c.name}</p>
+                                      {c.institution && <p className="text-[10px] text-slate-400 dark:text-zinc-500">{c.institution}</p>}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setWorkerForm(prev => ({
+                                          ...prev,
+                                          certifications: prev.certifications.filter((_, idx) => idx !== i)
+                                        }));
+                                      }}
+                                      className="text-red-500 hover:text-red-650 font-bold"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-2 flex justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('B')}
+                              className="px-6 h-11 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('D')}
+                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
+                            >
+                              <span>Next: Work Experience</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- SUBSTEP D: Work Experience --- */}
+                      {onboardingSubStep === 'D' && (
+                        <div className="space-y-3.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step D — Work Experience</h3>
+
+                          {/* Work Experience Builder */}
+                          <div className="border border-slate-200/60 dark:border-zinc-800 p-4 rounded-2xl bg-slate-50/50 dark:bg-zinc-950/20 space-y-3.5">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono block">Add Work Entry (Optional)</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <input
+                                type="text"
+                                placeholder="Employer / Client"
+                                value={tempExp.employer}
+                                onChange={(e) => setTempExp({ ...tempExp, employer: e.target.value })}
+                                className="h-9 px-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Role / Position"
+                                value={tempExp.role}
+                                onChange={(e) => setTempExp({ ...tempExp, role: e.target.value })}
+                                className="h-9 px-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs"
+                              />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <input
+                                type="text"
+                                placeholder="Start Date (e.g. Jan 2024)"
+                                value={tempExp.start_date}
+                                onChange={(e) => setTempExp({ ...tempExp, start_date: e.target.value })}
+                                className="h-9 px-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs"
+                              />
+                              <input
+                                type="text"
+                                placeholder="End Date (e.g. Present)"
+                                value={tempExp.end_date}
+                                onChange={(e) => setTempExp({ ...tempExp, end_date: e.target.value })}
+                                className="h-9 px-3 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs"
+                              />
+                            </div>
+                            <textarea
+                              rows={2.5}
+                              placeholder="Description & Achievements"
+                              value={tempExp.description}
+                              onChange={(e) => setTempExp({ ...tempExp, description: e.target.value })}
+                              className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs resize-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (tempExp.employer.trim() && tempExp.role.trim()) {
+                                  setWorkerForm(prev => ({
+                                    ...prev,
+                                    experience: [...prev.experience, tempExp]
+                                  }));
+                                  setTempExp({ employer: '', role: '', start_date: '', end_date: '', currently_working: false, description: '', achievements: '' });
+                                  triggerToast("Work experience added!");
+                                } else {
+                                  triggerToast("Employer and Role fields are required.");
+                                }
+                              }}
+                              className="px-3.5 py-1.5 bg-indigo-600 hover:opacity-90 text-white rounded-lg font-bold"
+                            >
+                              Add Entry
+                            </button>
+
+                            {workerForm.experience.length > 0 && (
+                              <div className="mt-3 space-y-2 border-t border-slate-200/50 dark:border-zinc-800/50 pt-3">
+                                {workerForm.experience.map((e, idx) => (
+                                  <div key={idx} className="flex justify-between items-center bg-white dark:bg-zinc-900/60 p-2.5 rounded-xl border border-slate-200/40 dark:border-zinc-800/40 animate-fadeIn">
+                                    <div>
+                                      <p className="font-bold text-slate-900 dark:text-white">{e.role} at {e.employer}</p>
+                                      <p className="text-[10px] text-slate-400 dark:text-zinc-500">{e.start_date} - {e.end_date || 'Present'}</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setWorkerForm(prev => ({
+                                          ...prev,
+                                          experience: prev.experience.filter((_, idx2) => idx2 !== idx)
+                                        }));
+                                      }}
+                                      className="text-red-500 hover:text-red-650 font-bold"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-2 flex justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('C')}
+                              className="px-6 h-11 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('E')}
+                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
+                            >
+                              <span>Next: Resume & Portfolio</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- SUBSTEP E: Resume and Portfolio --- */}
+                      {onboardingSubStep === 'E' && (
+                        <div className="space-y-3.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step E — Resume & Portfolio</h3>
+
+                          <div className="p-4 border border-dashed border-slate-350 dark:border-zinc-700 rounded-2xl bg-slate-50/50 dark:bg-zinc-950/20 text-center space-y-2">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 cursor-pointer">
+                              Upload Resume (PDF, DOC, DOCX - Max 5MB)
+                            </label>
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const ext = file.name.split('.').pop()?.toLowerCase();
+                                  const allowedExts = ['pdf', 'doc', 'docx'];
+                                  const allowedMime = [
+                                    'application/pdf',
+                                    'application/msword',
+                                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                                  ];
+                                  if (!allowedExts.includes(ext || '') || !allowedMime.includes(file.type)) {
+                                    setResumeUploadError("Only PDF and DOC/DOCX files are accepted.");
+                                    setResumeFile(null);
+                                    return;
+                                  }
+                                  if (file.size > 5 * 1024 * 1024) {
+                                    setResumeUploadError("File size must be under 5 MB.");
+                                    setResumeFile(null);
+                                    return;
+                                  }
+                                  setResumeFile(file);
+                                  setResumeUploadError('');
+                                  triggerToast("Resume attached!");
+                                }
+                              }}
+                              className="w-full text-xs text-slate-500 cursor-pointer"
+                            />
+                            {resumeFile && (
+                              <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                Attached: {resumeFile.name} ({(resumeFile.size / 1024 / 1024).toFixed(2)} MB)
+                              </p>
+                            )}
+                            {resumeUploadError && (
+                              <p className="text-[10px] text-rose-500 font-bold">
+                                {resumeUploadError}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="pt-2 flex justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('D')}
+                              className="px-6 h-11 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('F')}
+                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
+                            >
+                              <span>Next: Preferences</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- SUBSTEP F: Preferences --- */}
+                      {onboardingSubStep === 'F' && (
+                        <div className="space-y-3.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step F — Job Preferences</h3>
+
+                          {/* Categories of interest */}
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Job Categories of Interest (Select at least one) <span className="text-rose-500">*</span></label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {INITIAL_CATEGORIES.map(cat => {
+                                const isChecked = workerForm.jobCategories.includes(cat.name);
+                                return (
+                                  <label key={cat.name} className="flex items-center space-x-2 bg-slate-50 dark:bg-zinc-950/40 p-2.5 rounded-xl border border-slate-200/55 dark:border-zinc-800/50 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        setWorkerForm(prev => ({
+                                          ...prev,
+                                          jobCategories: isChecked
+                                            ? prev.jobCategories.filter(c => c !== cat.name)
+                                            : [...prev.jobCategories, cat.name]
+                                        }));
+                                      }}
+                                      className="w-4 h-4 rounded text-indigo-600"
+                                    />
+                                    <span className="font-semibold text-slate-700 dark:text-zinc-300">{cat.name}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Employment Preferences */}
+                          <div className="space-y-1.5 pt-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Employment Type Preferences (Select at least one) <span className="text-rose-500">*</span></label>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'].map(type => {
+                                const isChecked = workerForm.employmentTypes.includes(type);
+                                return (
+                                  <label key={type} className="flex items-center space-x-2 bg-slate-50 dark:bg-zinc-950/40 p-2.5 rounded-xl border border-slate-200/55 dark:border-zinc-800/50 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        setWorkerForm(prev => ({
+                                          ...prev,
+                                          employmentTypes: isChecked
+                                            ? prev.employmentTypes.filter(t => t !== type)
+                                            : [...prev.employmentTypes, type]
+                                        }));
+                                      }}
+                                      className="w-4 h-4 rounded text-indigo-600"
+                                    />
+                                    <span className="font-semibold text-slate-700 dark:text-zinc-300">{type}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="pt-2 flex justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('E')}
+                              className="px-6 h-11 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const err = validateSubStep('F');
+                                if (err) {
+                                  setAuthError(err);
+                                } else {
+                                  setOnboardingSubStep('G');
+                                }
+                              }}
+                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
+                            >
+                              <span>Next: Review & Submit</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- SUBSTEP G: Review & Submit --- */}
+                      {onboardingSubStep === 'G' && (
+                        <div className="space-y-4">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Step G — Review & Submit</h3>
+
+                          <div className="bg-slate-50 dark:bg-zinc-950/30 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-zinc-850 space-y-4 text-xs font-semibold leading-relaxed text-slate-700 dark:text-zinc-300 max-h-[300px] overflow-y-auto">
+                            {/* Basic Section */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center border-b border-slate-200/50 dark:border-zinc-800 pb-1">
+                                <span className="text-[10px] uppercase font-mono font-bold text-indigo-600 dark:text-indigo-400">Basic Details</span>
+                                <button type="button" onClick={() => setOnboardingSubStep('A')} className="text-indigo-600 dark:text-indigo-400 text-[10px] hover:underline font-bold">Edit</button>
+                              </div>
+                              <p><strong>Name:</strong> {workerForm.fullName}</p>
+                              <p><strong>Phone:</strong> {workerForm.phone}</p>
+                              <p><strong>Base Location:</strong> {workerForm.city}, {workerForm.state}, {workerForm.country}</p>
+                              <p><strong>Language:</strong> {workerForm.preferredLanguage}</p>
+                              <p><strong>Short Bio:</strong> {workerForm.bio}</p>
+                            </div>
+
+                            {/* Professional Section */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center border-b border-slate-200/50 dark:border-zinc-800 pb-1">
+                                <span className="text-[10px] uppercase font-mono font-bold text-indigo-600 dark:text-indigo-400">Professional Details</span>
+                                <button type="button" onClick={() => setOnboardingSubStep('B')} className="text-indigo-600 dark:text-indigo-400 text-[10px] hover:underline font-bold">Edit</button>
+                              </div>
+                              <p><strong>Title:</strong> {workerForm.professionalTitle}</p>
+                              <p><strong>Category:</strong> {workerForm.primaryCategory}</p>
+                              <p><strong>Skills:</strong> {workerForm.skills.join(', ')}</p>
+                              <p><strong>Experience:</strong> {workerForm.experienceLevel} ({workerForm.yearsExperience} yrs)</p>
+                              <p><strong>Work Preferences:</strong> {workerForm.workPreference} | {workerForm.availabilityStatus} | Rate: ${workerForm.hourlyRate}/hr</p>
+                              {workerForm.portfolioUrl && <p><strong>Portfolio Link:</strong> {workerForm.portfolioUrl}</p>}
+                            </div>
+
+                            {/* Education and Experience count */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center border-b border-slate-200/50 dark:border-zinc-800 pb-1">
+                                <span className="text-[10px] uppercase font-mono font-bold text-indigo-600 dark:text-indigo-400">Education & Work History</span>
+                                <button type="button" onClick={() => setOnboardingSubStep('C')} className="text-indigo-600 dark:text-indigo-400 text-[10px] hover:underline font-bold">Edit</button>
+                              </div>
+                              {workerForm.highestQualification && <p><strong>Education:</strong> {workerForm.highestQualification} at {workerForm.institution}</p>}
+                              <p><strong>Added Certifications:</strong> {workerForm.certifications.length}</p>
+                              <p><strong>Added Work Experience Entries:</strong> {workerForm.experience.length}</p>
+                            </div>
+
+                            {/* Resume Attached */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center border-b border-slate-200/50 dark:border-zinc-800 pb-1">
+                                <span className="text-[10px] uppercase font-mono font-bold text-indigo-600 dark:text-indigo-400">Resume</span>
+                                <button type="button" onClick={() => setOnboardingSubStep('E')} className="text-indigo-600 dark:text-indigo-400 text-[10px] hover:underline font-bold">Edit</button>
+                              </div>
+                              <p><strong>Resume Attached:</strong> {resumeFile ? resumeFile.name : 'No file uploaded (Optional)'}</p>
+                            </div>
+
+                            {/* Job Preferences */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center border-b border-slate-200/50 dark:border-zinc-800 pb-1">
+                                <span className="text-[10px] uppercase font-mono font-bold text-indigo-600 dark:text-indigo-400">Match Preferences</span>
+                                <button type="button" onClick={() => setOnboardingSubStep('F')} className="text-indigo-600 dark:text-indigo-400 text-[10px] hover:underline font-bold">Edit</button>
+                              </div>
+                              <p><strong>Interests:</strong> {workerForm.jobCategories.join(', ')}</p>
+                              <p><strong>Job Types:</strong> {workerForm.employmentTypes.join(', ')}</p>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 flex justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setOnboardingSubStep('F')}
+                              className="px-6 h-11 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSignUpStep2Submit}
+                              disabled={isAuthSubmitting}
+                              className="px-8 h-11 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 shadow-md flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                            >
+                              {isAuthSubmitting ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <span>Finish & Join OpenComm</span>
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </>
+                              )}
                             </button>
                           </div>
                         </div>
                       )}
                     </div>
                   )}
+
                 </div>
               )}
             </motion.div>
