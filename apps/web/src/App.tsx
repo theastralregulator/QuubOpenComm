@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-r
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin, 
-  ChevronRight, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
+  ChevronRight, ChevronLeft, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
   Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
 } from 'lucide-react';
 import { Job, Worker, Category, Activity, Notification, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
@@ -25,6 +25,7 @@ import {
 // Import our highly polished subcomponents
 import Navbar from './components/navigation/Navbar';
 import HeroSection from './components/home/HeroSection';
+import OpenCommLogo from './components/common/OpenCommLogo';
 import SearchBar from './components/common/SearchBar';
 import QuickActions from './components/home/QuickActions';
 import DashboardSummary from './components/home/DashboardSummary';
@@ -127,6 +128,8 @@ export default function App() {
     if (tab === 'signup') {
       clearSignupTempState();
       setSignupStep(1);
+    } else if (tab === null) {
+      clearSignupTempState();
     }
     _setShowAuthModal(tab);
   };
@@ -379,15 +382,50 @@ export default function App() {
   useEffect(() => {
     if (!isLoggedIn) {
       if (path === '/signup') {
-        setShowAuthModal('signup');
-        setSignupStep(1);
+        _setShowAuthModal('signup');
       } else if (path === '/login') {
-        setShowAuthModal('signin');
+        _setShowAuthModal('signin');
       } else {
-        setShowAuthModal(null);
+        _setShowAuthModal(null);
+        clearSignupTempState();
       }
     }
   }, [path, isLoggedIn]);
+
+  // Handle browser Back button and history state for signup/signin flow
+  useEffect(() => {
+    const handlePopState = () => {
+      if (showAuthModal === 'signup' || showAuthModal === 'signin') {
+        _setShowAuthModal(null);
+        clearSignupTempState();
+        setAuthError('');
+        setLockedFeature(null);
+        if (window.location.pathname === '/signup' || window.location.pathname === '/login') {
+          navigate('/', { replace: true });
+        }
+      }
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        const isUserLoggedIn = localStorage.getItem('opencomm_is_logged_in') === 'true';
+        const isOnboarded = localStorage.getItem('opencomm_onboarding_completed') === 'true';
+        if (isUserLoggedIn && isOnboarded) {
+          _setShowAuthModal(null);
+          if (window.location.pathname === '/signup' || window.location.pathname === '/login') {
+            navigate('/', { replace: true });
+          }
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, [showAuthModal, navigate]);
 
   // Protect routes and trigger sign in if needed
   function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -717,6 +755,8 @@ export default function App() {
   };
 
   function clearSignupTempState() {
+    setSignupStep(1);
+    setOnboardingSubStep('A');
     setIsOnboardingCompleted(false);
     localStorage.removeItem('opencomm_onboarding_completed');
     setSignupForm({
@@ -1062,6 +1102,7 @@ export default function App() {
     }
     handleLogoutCleanState();
     setCurrentView('home');
+    navigate('/', { replace: true });
     triggerToast("Signed out. Browse view initialized.");
   };
 
@@ -1447,9 +1488,9 @@ export default function App() {
       const queryParams = new URLSearchParams(window.location.search);
       const redirectPath = queryParams.get('redirect');
       if (redirectPath) {
-        navigate(redirectPath);
+        navigate(redirectPath, { replace: true });
       } else {
-        navigate('/');
+        navigate('/', { replace: true });
       }
 
     } catch (err: any) {
@@ -1736,6 +1777,7 @@ export default function App() {
         profession: newWorkerTitle,
         professional_title: newWorkerTitle,
         skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : [],
+        experience_years: 0,
         hourly_rate: Number(newWorkerRate) || 75,
         bio_summary: newWorkerBio,
         work_location: newWorkerLocation,
@@ -2064,13 +2106,13 @@ export default function App() {
             >
               <HeroSection 
                 username={isLoggedIn ? username : "Guest"}
-                searchQuery={searchQuery}
-                setSearchQuery={(q) => {
-                  setSearchQuery(q);
-                  navigate('/jobs');
-                  analytics.trackSearch(q);
+                isLoggedIn={isLoggedIn}
+                onExploreJobs={() => navigate('/jobs')}
+                onFindProfessionals={() => navigate('/workers')}
+                onCreateAccount={() => {
+                  setShowAuthModal('signup');
+                  setSignupStep(1);
                 }}
-                triggerToast={triggerToast}
               />
 
               <SearchBar 
@@ -2607,8 +2649,9 @@ export default function App() {
                 </div>
 
                 <div className="text-center">
-                  <p className="text-[10px] text-slate-400 font-medium">
-                    🔒 Protected by secure OpenComm verification rules
+                  <p className="text-[10px] text-slate-400 font-medium inline-flex items-center">
+                    <Lock className="w-3 h-3 mr-1 text-slate-400" />
+                    Protected by secure OpenComm verification rules
                   </p>
                 </div>
               </div>
@@ -2899,8 +2942,9 @@ export default function App() {
               <form onSubmit={handleHireWorkerSubmit} className="p-6 space-y-4 text-xs">
                 
                 {/* Micro safety escrow alert */}
-                <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-[11px] text-indigo-600 dark:text-indigo-400 leading-relaxed font-medium">
-                  🔒 <strong>OpenComm Shield Protection:</strong> Funds will be locked in standard safe escrow milestones and only released as deliverables are checked.
+                <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-[11px] text-indigo-600 dark:text-indigo-400 leading-relaxed font-medium flex items-start space-x-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                  <span><strong>OpenComm Shield Protection:</strong> Funds will be locked in standard safe escrow milestones and only released as deliverables are checked.</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3009,22 +3053,16 @@ export default function App() {
               </button>
 
               {/* Centered OpenComm Brand Logo */}
-              <Link 
-                to="/" 
-                onClick={() => {
-                  setShowAuthModal(null);
-                  setLockedFeature(null);
-                  setAuthError('');
-                }} 
-                className="flex flex-col items-center mb-5 mt-2 cursor-pointer outline-none"
-              >
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-md shadow-blue-500/10 mb-3.5">
-                  <Compass className="w-5.5 h-5.5 text-white" />
-                </div>
-                <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent">
-                  OpenComm
-                </span>
-              </Link>
+              <div className="flex justify-center mb-5 mt-2">
+                <OpenCommLogo 
+                  variant="auth" 
+                  onClick={() => {
+                    setShowAuthModal(null);
+                    setLockedFeature(null);
+                    setAuthError('');
+                  }}
+                />
+              </div>
 
               {/* Header Title Section */}
               <div className="text-center mb-6 px-2">
@@ -3082,7 +3120,7 @@ export default function App() {
               {showAuthModal === 'locked' && (
                 <div className="space-y-4">
                   <div className="p-3.5 bg-blue-500/5 dark:bg-blue-600/5 border border-blue-500/10 dark:border-blue-500/15 rounded-xl flex items-start space-x-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-                    <span className="text-base mt-0.5">🔒</span>
+                    <Lock className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                     <div>
                       <strong className="text-blue-600 dark:text-blue-400 block mb-0.5">Gateway Protection</strong>
                       Direct milestone escrow bids, verified contractors, and secure platform messaging require a basic member account.
@@ -3158,6 +3196,9 @@ export default function App() {
                           setLockedFeature(null);
                           triggerToast("Signed in successfully!");
                           analytics.trackLogin('email', data.user?.id);
+                          const queryParams = new URLSearchParams(window.location.search);
+                          const redirectPath = queryParams.get('redirect');
+                          navigate(redirectPath || '/', { replace: true });
                         }
                       } catch (err: any) {
                         setIsAuthSubmitting(false);
@@ -3171,6 +3212,9 @@ export default function App() {
                         setShowAuthModal(null);
                         setLockedFeature(null);
                         analytics.trackLogin('mock', 'mock-user-id');
+                        const queryParams = new URLSearchParams(window.location.search);
+                        const redirectPath = queryParams.get('redirect');
+                        navigate(redirectPath || '/', { replace: true });
                       }, 800);
                     }
                   }}
@@ -3302,9 +3346,33 @@ export default function App() {
 
                   {signupStep === 2 && (
                     <div className="flex items-center justify-between px-1 mb-2">
-                      <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        Step 2 of 3: Worker Profile Details
-                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthError('');
+                            if (onboardingSubStep === 'A') {
+                              setSignupStep(1);
+                            } else {
+                              const substeps: ('A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G')[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+                              const currentIndex = substeps.indexOf(onboardingSubStep);
+                              if (currentIndex > 0) {
+                                setOnboardingSubStep(substeps[currentIndex - 1]);
+                              } else {
+                                setSignupStep(1);
+                              }
+                            }
+                          }}
+                          className="px-2 py-1 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors flex items-center text-xs font-bold cursor-pointer"
+                          title="Back"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-0.5" />
+                          <span>Back</span>
+                        </button>
+                        <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          Step 2 of 3: Worker Profile Details
+                        </span>
+                      </div>
                       <div className="flex space-x-1.5">
                         <span className="w-2.5 h-1.5 rounded-full transition-all bg-indigo-600" />
                         <span className="w-5 h-1.5 rounded-full transition-all bg-indigo-600" />
@@ -3315,9 +3383,23 @@ export default function App() {
 
                   {signupStep === 3 && (
                     <div className="flex items-center justify-between px-1 mb-2">
-                      <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        Step 3 of 3: Email Verification
-                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthError('');
+                            setSignupStep(2);
+                          }}
+                          className="px-2 py-1 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors flex items-center text-xs font-bold cursor-pointer"
+                          title="Back"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-0.5" />
+                          <span>Back</span>
+                        </button>
+                        <span className="text-[10px] uppercase tracking-widest font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          Step 3 of 3: Email Verification
+                        </span>
+                      </div>
                       <div className="flex space-x-1.5">
                         <span className="w-2.5 h-1.5 rounded-full transition-all bg-indigo-600" />
                         <span className="w-2.5 h-1.5 rounded-full transition-all bg-indigo-600" />
@@ -3584,6 +3666,17 @@ export default function App() {
                         <div className="flex gap-2">
                           <button
                             type="button"
+                            onClick={() => {
+                              setAuthError('');
+                              setSignupStep(2);
+                            }}
+                            className="h-11 px-4 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 rounded-xl font-bold hover:bg-slate-100 dark:hover:bg-zinc-800 transition-all cursor-pointer flex items-center justify-center text-xs"
+                          >
+                            <ChevronLeft className="w-4 h-4 mr-1" />
+                            <span>Back</span>
+                          </button>
+                          <button
+                            type="button"
                             disabled={resendCooldown > 0 || isAuthSubmitting}
                             onClick={handleResendOTP}
                             className="flex-1 h-11 border border-slate-200 dark:border-zinc-800 text-slate-500 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 flex items-center justify-center text-xs"
@@ -3739,7 +3832,18 @@ export default function App() {
                             />
                           </div>
 
-                          <div className="pt-2 flex justify-end">
+                          <div className="pt-2 flex items-center justify-between gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAuthError('');
+                                setSignupStep(1);
+                              }}
+                              className="px-5 h-11 rounded-xl text-xs font-bold border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                              <span>Back</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => {
@@ -3754,7 +3858,7 @@ export default function App() {
                                   }
                                 }
                               }}
-                              className="px-6 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5"
+                              className="flex-1 h-11 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:opacity-95 cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                             >
                               <span>{selectedAccountType === 'worker' ? "Next: Professional Details" : "Finish & Join OpenComm"}</span>
                               <ChevronRight className="w-4 h-4" />

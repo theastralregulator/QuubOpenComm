@@ -12,8 +12,8 @@ export default function RouteTracker({ jobs, workers }: RouteTrackerProps) {
   const params = useParams();
 
   useEffect(() => {
-    let title = 'OpenComm';
-    let metaDescription = 'OpenComm: Secure, decentralized escrow-backed contracting marketplace for workers and companies.';
+    let title = 'OpenComm — Jobs, Professionals and Work Opportunities';
+    let metaDescription = 'Discover jobs, skilled professionals, and trusted work opportunities on OpenComm.';
     const path = location.pathname;
 
     const jobMatch = path.match(/^\/jobs\/([^/]+)/);
@@ -23,7 +23,7 @@ export default function RouteTracker({ jobs, workers }: RouteTrackerProps) {
     const resolvedWorkerId = params.workerId || (workerMatch ? workerMatch[1] : null);
 
     if (path === '/') {
-      title = 'OpenComm';
+      title = 'OpenComm — Jobs, Professionals and Work Opportunities';
     } else if (path === '/jobs') {
       title = 'Jobs | OpenComm';
       metaDescription = 'Explore high-paying developer, designer, carpenter, electrician, and specialist job opportunities on OpenComm.';

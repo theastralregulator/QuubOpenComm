@@ -135,12 +135,17 @@ export default function JobsPage({
     <div className="w-full text-left space-y-6 pb-[calc(110px+env(safe-area-inset-bottom))]" id="jobs-page-container">
       
       {/* 1. Page Title & Subtitle */}
-      <div className="space-y-1">
-        <h1 className="text-2xl sm:text-[28px] md:text-[34px] font-sans font-bold text-slate-900 dark:text-white flex items-center tracking-tight gap-1">
-          ✨ Discover Opportunities
+      <div className="space-y-1.5">
+        <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
+          <Briefcase className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">JOB MARKETPLACE</span>
+        </div>
+        <h1 className="text-2xl sm:text-[28px] md:text-[34px] font-sans font-bold text-slate-900 dark:text-white flex items-center tracking-tight gap-2">
+          <Briefcase className="w-7 h-7 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span>Discover Opportunities</span>
         </h1>
         <p className="text-[15px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-          Browse verified opportunities and connect with trusted employers.
+          Explore verified jobs and projects from trusted employers.
         </p>
       </div>
 

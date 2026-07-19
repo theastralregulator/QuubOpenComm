@@ -5,7 +5,7 @@ import {
   Search, SlidersHorizontal, MapPin, Star, Bookmark, MessageSquare, 
   CheckCircle, ChevronDown, Sparkles, X, UserCheck, Eye, Calendar,
   Briefcase, Award, CheckCircle2, ThumbsUp, Heart, Filter, ArrowLeft, 
-  BadgeCheck, MessageCircle, Clock, ShieldCheck, Globe, StarHalf
+  BadgeCheck, MessageCircle, Clock, ShieldCheck, Globe, StarHalf, Users, DollarSign
 } from 'lucide-react';
 import { Worker } from '../../types';
 import WorkerCard from '../cards/WorkerCard';
@@ -207,13 +207,17 @@ export default function WorkersPage({
     <div className="w-full text-left font-sans max-w-7xl mx-auto px-1 sm:px-2 pb-[calc(110px+env(safe-area-inset-bottom))]" id="workers-discovery-container">
       
       {/* 1. Page Title & Subtitle */}
-      {/* 1. Page Title & Subtitle */}
-      <div className="space-y-1 mt-2">
-        <h1 className="text-2xl sm:text-[28px] md:text-[34px] font-sans font-bold text-slate-900 dark:text-white flex items-center tracking-tight gap-1">
-          ✨ Discover Professionals
+      <div className="space-y-1.5 mt-2">
+        <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
+          <Users className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">TALENT NETWORK</span>
+        </div>
+        <h1 className="text-2xl sm:text-[28px] md:text-[34px] font-sans font-bold text-slate-900 dark:text-white flex items-center tracking-tight gap-2">
+          <Users className="w-7 h-7 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span>Discover Professionals</span>
         </h1>
         <p className="text-[15px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-          Browse verified professionals and connect with trusted experts.
+          Browse skilled professionals and connect with trusted talent.
         </p>
       </div>
 
@@ -358,43 +362,43 @@ export default function WorkersPage({
         <div className="flex flex-wrap items-center gap-1.5 mt-3 text-xs text-slate-500 dark:text-slate-400">
           {locationFilter && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>📍 {locationFilter}</span>
+              <span className="inline-flex items-center"><MapPin className="w-3 h-3 text-indigo-500 mr-1" />{locationFilter}</span>
               <button onClick={() => setLocationFilter('')} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {availabilityFilter !== 'All' && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>⏱️ {availabilityFilter}</span>
+              <span className="inline-flex items-center"><Clock className="w-3 h-3 text-indigo-500 mr-1" />{availabilityFilter}</span>
               <button onClick={() => setAvailabilityFilter('All')} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {minExperience > 0 && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>🏆 {minExperience}+ Yrs</span>
+              <span className="inline-flex items-center"><Award className="w-3 h-3 text-indigo-500 mr-1" />{minExperience}+ Yrs</span>
               <button onClick={() => setMinExperience(0)} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {verifiedOnly && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>🛡️ Verified</span>
+              <span className="inline-flex items-center"><ShieldCheck className="w-3 h-3 text-indigo-500 mr-1" />Verified</span>
               <button onClick={() => setVerifiedOnly(false)} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {remoteFilter !== 'All' && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>🌐 {remoteFilter}</span>
+              <span className="inline-flex items-center"><Globe className="w-3 h-3 text-indigo-500 mr-1" />{remoteFilter}</span>
               <button onClick={() => setRemoteFilter('All')} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {maxHourlyRate < 150 && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>💵 Max ${maxHourlyRate}/hr</span>
+              <span className="inline-flex items-center"><DollarSign className="w-3 h-3 text-indigo-500 mr-1" />Max ${maxHourlyRate}/hr</span>
               <button onClick={() => setMaxHourlyRate(150)} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {ratingFilter !== 'All' && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span>⭐ {ratingFilter}+ Rating</span>
+              <span className="inline-flex items-center"><Star className="w-3 h-3 text-amber-500 fill-amber-400 mr-1" />{ratingFilter}+ Rating</span>
               <button onClick={() => setRatingFilter('All')} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
@@ -556,7 +560,7 @@ export default function WorkersPage({
                             : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
                         }`}
                       >
-                        {val === 'All' ? 'All' : `${val} ⭐`}
+                        {val === 'All' ? 'All' : `${val}+ Stars`}
                       </button>
                     ))}
                   </div>

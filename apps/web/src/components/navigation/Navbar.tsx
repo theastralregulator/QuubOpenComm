@@ -7,6 +7,7 @@ import {
   CheckCircle2, Info, Star, ChevronRight, Bookmark, Heart, LogOut
 } from 'lucide-react';
 import { Notification } from '../../types';
+import OpenCommLogo from '../common/OpenCommLogo';
 
 interface NavbarProps {
   currentView: string;
@@ -94,19 +95,11 @@ export default function Navbar({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-13 md:h-16 flex items-center justify-between">
           
           {/* Logo Brand Section */}
-          <Link 
-            to="/"
-            onClick={() => handleNavClick('home')}
-            className="flex items-center space-x-2 cursor-pointer shrink-0" 
-            id="brand-logo"
-          >
-            <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-tr from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-md shadow-blue-500/20">
-              <Compass className="w-4.5 h-4.5 md:w-5 md:h-5 text-white animate-spin-slow" />
-            </div>
-            <span className="text-base md:text-lg font-bold tracking-tight font-display bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent">
-              OpenComm
-            </span>
-          </Link>
+          <OpenCommLogo 
+            variant="navbar" 
+            themeMode={themeMode}
+            onClick={() => handleNavClick('home')} 
+          />
 
           {/* Center Navigation Links (Hidden on mobile) */}
           <nav className="hidden lg:flex items-center space-x-1 bg-slate-100/60 dark:bg-slate-900/40 p-1 rounded-full border border-slate-200/10 dark:border-slate-800/10" id="desktop-nav">
@@ -332,7 +325,7 @@ export default function Navbar({
                               className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-blue-500/10 hover:text-[#2563EB] dark:hover:text-[#60A5FA] flex items-center justify-between cursor-pointer group transition-all"
                             >
                               <span className="flex items-center font-semibold">
-                                <span className="text-base mr-2.5">👤</span>
+                                <User className="w-4 h-4 mr-2.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-500" />
                                 View Full Profile
                               </span>
                               <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
@@ -346,7 +339,7 @@ export default function Navbar({
                               className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-blue-500/10 hover:text-[#2563EB] dark:hover:text-[#60A5FA] flex items-center justify-between cursor-pointer group transition-all"
                             >
                               <span className="flex items-center font-semibold">
-                                <span className="text-base mr-2.5">🔖</span>
+                                <Bookmark className="w-4 h-4 mr-2.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-500" />
                                 Saved Jobs
                               </span>
                               <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
@@ -360,7 +353,7 @@ export default function Navbar({
                               className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-purple-500/10 hover:text-[#7C3AED] dark:hover:text-[#C084FC] flex items-center justify-between cursor-pointer group transition-all"
                             >
                               <span className="flex items-center font-semibold">
-                                <span className="text-base mr-2.5">❤️</span>
+                                <Heart className="w-4 h-4 mr-2.5 text-slate-500 dark:text-slate-400 group-hover:text-purple-500" />
                                 Saved Workers
                               </span>
                               <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
@@ -372,7 +365,7 @@ export default function Navbar({
                               className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-blue-500/10 hover:text-[#2563EB] dark:hover:text-[#60A5FA] flex items-center justify-between cursor-pointer group transition-all"
                             >
                               <span className="flex items-center font-semibold">
-                                <span className="text-base mr-2.5">⚙️</span>
+                                <Settings className="w-4 h-4 mr-2.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-500" />
                                 Settings
                               </span>
                               <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showSettingsSub ? 'rotate-90' : 'group-hover:translate-x-0.5'}`} />
@@ -446,8 +439,8 @@ export default function Navbar({
                               }}
                               className="w-full text-left px-4 py-2.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center justify-between cursor-pointer font-semibold transition-all"
                             >
-                              <span className="flex items-center">
-                                <span className="text-base mr-2.5">🚪</span>
+                              <span className="flex items-center font-semibold">
+                                <LogOut className="w-4 h-4 mr-2.5 text-rose-500" />
                                 Logout
                               </span>
                             </button>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShieldCheck, Mail, HelpCircle, FileText, Lock, Globe } from 'lucide-react';
+import OpenCommLogo from '../common/OpenCommLogo';
 
 interface FooterProps {
   navigate?: (path: string) => void;
@@ -20,14 +21,9 @@ export default function Footer({ navigate }: FooterProps) {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Logo & Description */}
           <div className="space-y-3.5 md:col-span-2">
-            <div className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400">
-              <ShieldCheck className="w-6 h-6" />
-              <span className="font-display font-black text-sm tracking-tight text-slate-900 dark:text-white">
-                OpenComm
-              </span>
-            </div>
+            <OpenCommLogo variant="footer" onClick={(e?: any) => handleLinkClick('/', e)} />
             <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed max-w-sm">
-              OpenComm is a premium professional networking platform and local job marketplace connecting verified professionals with quality opportunities.
+              OpenComm helps people discover trusted professionals, meaningful work, and better opportunities.
             </p>
             <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">
               &copy; {new Date().getFullYear()} OpenComm. All rights reserved.
