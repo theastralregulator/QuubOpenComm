@@ -2136,6 +2136,9 @@ export default function App() {
                 userFullName={isLoggedIn ? (username || 'Member') : undefined}
                 isLoggedIn={isLoggedIn}
                 onAboutClick={() => navigate('/about')}
+                jobs={jobs}
+                workers={workers}
+                unreadMessagesCount={unreadMessagesCount}
               />
 
               <SearchBar 
