@@ -5,11 +5,12 @@ import {
   Search, SlidersHorizontal, MapPin, Star, Bookmark, MessageSquare, 
   CheckCircle, ChevronDown, Sparkles, X, UserCheck, Eye, Calendar,
   Briefcase, Award, CheckCircle2, ThumbsUp, Heart, Filter, ArrowLeft, 
-  BadgeCheck, MessageCircle, Clock, ShieldCheck, Globe, StarHalf, Users, DollarSign
+  BadgeCheck, MessageCircle, Clock, ShieldCheck, Globe, StarHalf, Users, IndianRupee 
 } from 'lucide-react';
 import { Worker } from '../../types';
 import WorkerCard from '../cards/WorkerCard';
 import { analytics } from '../../lib/analytics';
+import { formatINR } from '../../lib/currency';
 
 interface WorkersPageProps {
   workers: Worker[];
@@ -47,7 +48,7 @@ export default function WorkersPage({
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [sortBy, setSortBy] = useState('rating'); // rating, rate, experience
   const [remoteFilter, setRemoteFilter] = useState('All'); // All, Remote, On-site
-  const [maxHourlyRate, setMaxHourlyRate] = useState(150); // up to $150
+  const [maxHourlyRate, setMaxHourlyRate] = useState(3000); // up to ₹3,000
   const [ratingFilter, setRatingFilter] = useState('All'); // All, 4.5+, 4.8+, 5.0
   
   // --- UI TOGGLES ---
@@ -390,10 +391,10 @@ export default function WorkersPage({
               <button onClick={() => setRemoteFilter('All')} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
-          {maxHourlyRate < 150 && (
+          {maxHourlyRate < 3000 && (
             <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
-              <span className="inline-flex items-center"><DollarSign className="w-3 h-3 text-indigo-500 mr-1" />Max ${maxHourlyRate}/hr</span>
-              <button onClick={() => setMaxHourlyRate(150)} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
+              <span className="inline-flex items-center"><IndianRupee className="w-3 h-3 text-indigo-500 mr-1" />Max {formatINR(maxHourlyRate)}/hr</span>
+              <button onClick={() => setMaxHourlyRate(3000)} className="hover:text-red-500 ml-1"><X className="w-3 h-3" /></button>
             </span>
           )}
           {ratingFilter !== 'All' && (
@@ -490,24 +491,24 @@ export default function WorkersPage({
 
               {/* Drawer Scrollable Content */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6 text-left">
-                {/* Max Hourly Rate slider */}
+                {/* Hourly rate slider */}
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Max Hourly Rate</label>
-                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 font-mono">${maxHourlyRate}/hr</span>
+                  <div className="flex justify-between items-center text-xs">
+                    <label className="font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[10px]">Max Hourly Rate</label>
+                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{formatINR(maxHourlyRate)}/hr</span>
                   </div>
                   <input 
                     type="range"
-                    min="20"
-                    max="150"
-                    step="5"
+                    min="200"
+                    max="3000"
+                    step="50"
                     value={maxHourlyRate}
                     onChange={(e) => setMaxHourlyRate(parseInt(e.target.value))}
                     className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                   />
                   <div className="flex justify-between text-[9px] text-slate-400 font-mono">
-                    <span>$20/hr</span>
-                    <span>$150/hr</span>
+                    <span>₹200/hr</span>
+                    <span>₹3,000/hr</span>
                   </div>
                 </div>
 

@@ -99,6 +99,7 @@ export default function RecommendedForYou({
                     category={job.category}
                     saved={job.bookmarked}
                     applied={job.applied}
+                    applicationDeadline={job.applicationDeadline}
                     onSave={toggleBookmark}
                     onViewDetails={onViewJobs}
                     onApply={(id, e) => handleApplyJob(id, e)}

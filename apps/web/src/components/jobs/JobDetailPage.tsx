@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  ArrowLeft, MapPin, DollarSign, Calendar, Briefcase, 
+  ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
   ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, MessageSquare 
 } from 'lucide-react';
 import { Job } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
+import { formatSalaryRange } from '../../lib/currency';
+import { getDeadlineInfo } from '../../lib/deadline';
 
 interface JobDetailPageProps {
   jobs: Job[];
@@ -296,21 +298,36 @@ export default function JobDetailPage({
 
           <div className="flex items-center space-x-2 text-left">
             <div className="p-2 bg-emerald-500/10 dark:bg-emerald-500/5 rounded-xl text-emerald-600 dark:text-emerald-400">
-              <DollarSign className="w-4 h-4" />
+              <IndianRupee className="w-4 h-4" />
             </div>
             <div>
               <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Salary Offer</span>
-              <span className="text-xs font-extrabold text-slate-900 dark:text-white">{job.salary}</span>
+              <span className="text-xs font-extrabold text-slate-900 dark:text-white">{formatSalaryRange(undefined, undefined, job.salary)}</span>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 text-left col-span-2 sm:col-span-1">
+          <div className="flex items-center space-x-2 text-left">
             <div className="p-2 bg-purple-500/10 dark:bg-purple-500/5 rounded-xl text-purple-600 dark:text-purple-400">
               <Calendar className="w-4 h-4" />
             </div>
             <div>
               <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Posted Date</span>
               <span className="text-xs font-bold text-[#475569] dark:text-slate-200">{job.datePosted}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 text-left">
+            <div className="p-2 bg-indigo-500/10 dark:bg-indigo-500/5 rounded-xl text-indigo-600 dark:text-indigo-400">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Application Deadline</span>
+              <div className="flex items-center space-x-1.5 mt-0.5">
+                <span className="text-xs font-bold text-slate-900 dark:text-white">{getDeadlineInfo(job.applicationDeadline).formattedDate}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getDeadlineInfo(job.applicationDeadline).badgeColorClass}`}>
+                  {getDeadlineInfo(job.applicationDeadline).label}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -347,23 +364,34 @@ export default function JobDetailPage({
         {/* Apply Call to Action */}
         <div className="mt-10 pt-6 border-t border-slate-100 dark:border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-left">
-            <span className="text-xs font-bold text-[#475569] dark:text-slate-400 block">Ready to propose?</span>
-            <span className="text-xs text-slate-400 dark:text-slate-500">Submit your bid and cover note directly to this company.</span>
+            <span className="text-xs font-bold text-[#475569] dark:text-slate-400 block">
+              {getDeadlineInfo(job.applicationDeadline).isExpired ? 'Applications Closed' : 'Ready to propose?'}
+            </span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {getDeadlineInfo(job.applicationDeadline).isExpired 
+                ? `This job is no longer accepting applications (Deadline was ${getDeadlineInfo(job.applicationDeadline).formattedDate}).` 
+                : 'Submit your bid and cover note directly to this company.'}
+            </span>
           </div>
 
           <button
             onClick={() => {
-              if (job.applied) return;
+              if (job.applied || getDeadlineInfo(job.applicationDeadline).isExpired) return;
               setShowApplyForm(!showApplyForm);
             }}
-            disabled={job.applied}
+            disabled={job.applied || getDeadlineInfo(job.applicationDeadline).isExpired}
+            aria-disabled={job.applied || getDeadlineInfo(job.applicationDeadline).isExpired}
             className={`h-11 px-8 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer w-full sm:w-auto flex items-center justify-center space-x-1.5 ${
-              job.applied 
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' 
-                : 'bg-gradient-to-r from-[#2563EB] to-blue-600 hover:opacity-95 text-white shadow-md hover:scale-102'
+              getDeadlineInfo(job.applicationDeadline).isExpired
+                ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700'
+                : job.applied 
+                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 cursor-default' 
+                  : 'bg-gradient-to-r from-[#2563EB] to-blue-600 hover:opacity-95 text-white shadow-md hover:scale-102'
             }`}
           >
-            {job.applied ? (
+            {getDeadlineInfo(job.applicationDeadline).isExpired ? (
+              <span>Applications Closed</span>
+            ) : job.applied ? (
               <>
                 <CheckCircle2 className="w-4.5 h-4.5" />
                 <span>Application Submitted</span>

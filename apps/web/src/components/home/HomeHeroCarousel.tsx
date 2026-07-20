@@ -301,15 +301,15 @@ export default function HomeHeroCarousel({
       onTouchEnd={handleTouchEnd}
       onFocus={() => setIsPaused(true)}
       onBlur={() => setIsPaused(false)}
-      className="relative w-full overflow-hidden rounded-lg sm:rounded-xl md:rounded-2xl border border-indigo-500/25 p-3 sm:p-4.5 md:p-6 text-left shadow-sm shadow-indigo-500/5 transition-all duration-300 aspect-[16/9] min-h-[160px] sm:min-h-[190px] md:min-h-[240px] max-h-[245px] sm:max-h-[300px] md:max-h-[380px] flex flex-col justify-center bg-white outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-      style={{
-        background: 'radial-gradient(circle at 15% 20%, rgba(37, 99, 235, 0.16), transparent 38%), radial-gradient(circle at 85% 25%, rgba(168, 85, 247, 0.16), transparent 40%), radial-gradient(circle at 55% 90%, rgba(99, 102, 241, 0.10), transparent 42%), linear-gradient(135deg, #ffffff 0%, #f5f7ff 48%, #faf5ff 100%)'
-      }}
+      className="relative w-full overflow-hidden rounded-lg sm:rounded-xl md:rounded-2xl border border-indigo-500/25 dark:border-indigo-400/25 p-3 sm:p-4.5 md:p-6 text-left shadow-sm shadow-indigo-500/5 transition-all duration-300 aspect-[16/9] min-h-[160px] sm:min-h-[190px] md:min-h-[240px] max-h-[245px] sm:max-h-[300px] md:max-h-[380px] flex flex-col justify-center bg-white dark:bg-[#050505] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
     >
-      {/* Background Radial Glows */}
-      <div className="absolute -top-16 -right-16 w-56 h-56 sm:w-80 sm:h-80 bg-gradient-to-br from-indigo-500/25 via-purple-500/20 to-blue-500/10 rounded-full blur-2xl pointer-events-none z-0" />
-      <div className="absolute -bottom-16 -left-16 w-56 h-56 sm:w-80 sm:h-80 bg-gradient-to-tr from-blue-600/20 via-indigo-500/15 to-purple-600/10 rounded-full blur-2xl pointer-events-none z-0" />
-      <div className="absolute inset-0 opacity-[0.05] pointer-events-none z-0 bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:14px_14px]" />
+      {/* Background Radial Glows (Light & Dark mode aware) */}
+      <div className="absolute inset-0 pointer-events-none z-0 bg-[radial-gradient(circle_at_15%_20%,rgba(37,99,235,0.16),transparent_38%),radial-gradient(circle_at_85%_25%,rgba(168,85,247,0.16),transparent_40%),linear-gradient(135deg,#ffffff_0%,#f5f7ff_48%,#faf5ff_100%)] dark:bg-[radial-gradient(circle_at_15%_20%,rgba(37,99,235,0.22),transparent_38%),radial-gradient(circle_at_85%_25%,rgba(168,85,247,0.20),transparent_40%),linear-gradient(135deg,#050505_0%,#080A12_50%,#0B0D17_100%)] transition-all duration-300" />
+
+      {/* Layer 1: Ambient Glow Effects */}
+      <div className="absolute -top-16 -right-16 w-56 h-56 sm:w-80 sm:h-80 bg-gradient-to-br from-indigo-500/25 via-purple-500/20 to-blue-500/10 dark:from-indigo-500/35 dark:via-purple-500/30 rounded-full blur-2xl pointer-events-none z-0" />
+      <div className="absolute -bottom-16 -left-16 w-56 h-56 sm:w-80 sm:h-80 bg-gradient-to-tr from-blue-600/20 via-indigo-500/15 to-purple-600/10 dark:from-blue-600/30 rounded-full blur-2xl pointer-events-none z-0" />
+      <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.09] pointer-events-none z-0 bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:14px_14px]" />
 
       {/* Slide Content Carousel */}
       <div className="relative z-10 w-full my-auto overflow-hidden">
@@ -325,9 +325,9 @@ export default function HomeHeroCarousel({
           >
             {/* Top Badge / Label */}
             <div>
-              <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/12 via-purple-500/12 to-blue-500/12 backdrop-blur-md border border-indigo-500/20 shadow-2xs">
-                {activeSlide.icon && <activeSlide.icon className="w-3 h-3 mr-1 text-indigo-600 shrink-0" />}
-                <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent font-extrabold text-[9px] sm:text-[10px] uppercase tracking-widest font-mono">
+              <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/12 via-purple-500/12 to-blue-500/12 dark:from-indigo-400/20 dark:via-purple-400/20 dark:to-blue-400/20 backdrop-blur-md border border-indigo-500/20 dark:border-indigo-400/25 shadow-2xs">
+                {activeSlide.icon && <activeSlide.icon className="w-3 h-3 mr-1 text-indigo-600 dark:text-indigo-400 shrink-0" />}
+                <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 dark:from-indigo-300 dark:via-purple-200 dark:to-blue-300 bg-clip-text text-transparent font-extrabold text-[9px] sm:text-[10px] uppercase tracking-widest font-mono">
                   {activeSlide.badgeLabel}
                 </span>
               </div>
@@ -336,7 +336,7 @@ export default function HomeHeroCarousel({
             {/* Time Greeting (Welcome slide only) */}
             {activeSlide.type === 'welcome' && (
               <div>
-                <span className="text-[12px] sm:text-[13px] md:text-sm font-bold tracking-wide text-indigo-600 drop-shadow-[0_2px_8px_rgba(99,102,241,0.25)]">
+                <span className="text-[12px] sm:text-[13px] md:text-sm font-bold tracking-wide text-indigo-600 dark:text-purple-300 drop-shadow-[0_2px_8px_rgba(99,102,241,0.25)]">
                   {greetingText}
                 </span>
               </div>
@@ -344,17 +344,17 @@ export default function HomeHeroCarousel({
 
             {/* Main Title / Heading */}
             {activeSlide.type === 'welcome' ? (
-              <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-display font-extrabold tracking-tight text-slate-900 flex flex-wrap items-center gap-1.5 sm:gap-2 leading-none">
+              <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-display font-extrabold tracking-tight text-slate-900 dark:text-white flex flex-wrap items-center gap-1.5 sm:gap-2 leading-none">
                 <span>Welcome to</span>
                 <OpenCommLogo variant="hero" isLoggedIn={isLoggedIn} className="inline-flex items-center" />
               </h1>
             ) : (
               <div>
-                <h2 className="text-base sm:text-lg md:text-xl font-display font-black tracking-tight text-slate-900 line-clamp-1 leading-tight">
+                <h2 className="text-base sm:text-lg md:text-xl font-display font-black tracking-tight text-slate-900 dark:text-white line-clamp-1 leading-tight">
                   {activeSlide.title}
                 </h2>
                 {activeSlide.subtitle && (
-                  <p className="text-[11px] sm:text-xs font-semibold text-indigo-600 dark:text-indigo-600 mt-0.5 line-clamp-1">
+                  <p className="text-[11px] sm:text-xs font-semibold text-indigo-600 dark:text-purple-300 mt-0.5 line-clamp-1">
                     {activeSlide.subtitle}
                   </p>
                 )}
@@ -363,7 +363,7 @@ export default function HomeHeroCarousel({
 
             {/* Description Paragraph */}
             {activeSlide.description && (
-              <p className="text-[12px] sm:text-[13px] md:text-[14px] font-medium text-slate-700 leading-snug sm:leading-relaxed max-w-[650px] line-clamp-2">
+              <p className="text-[12px] sm:text-[13px] md:text-[14px] font-medium text-slate-700 dark:text-zinc-200 leading-snug sm:leading-relaxed max-w-[650px] line-clamp-2">
                 {activeSlide.description}
               </p>
             )}

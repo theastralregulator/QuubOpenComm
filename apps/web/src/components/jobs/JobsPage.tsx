@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Job } from '../../types';
 import JobCard from '../cards/JobCard';
+import { getDeadlineInfo } from '../../lib/deadline';
 
 interface JobsPageProps {
   jobs: Job[];
@@ -116,10 +117,13 @@ export default function JobsPage({
 
   // Sort
   const sortedJobs = [...filteredJobs].sort((a, b) => {
-    if (sortBy === 'newest') {
-      return 1; // Keep feed default order/as inserted
+    if (sortBy === 'closing_soon') {
+      const infoA = getDeadlineInfo(a.applicationDeadline);
+      const infoB = getDeadlineInfo(b.applicationDeadline);
+      if (infoA.isExpired && !infoB.isExpired) return 1;
+      if (!infoA.isExpired && infoB.isExpired) return -1;
+      return infoA.daysRemaining - infoB.daysRemaining;
     } else if (sortBy === 'salary') {
-      // Crude extract of numbers for sorting
       const getVal = (s: string) => {
         const num = s.replace(/[^0-9]/g, '');
         return parseInt(num) || 0;
@@ -201,6 +205,7 @@ export default function JobsPage({
               className="appearance-none text-xs font-semibold pl-2 pr-7 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
             >
               <option value="newest">Newest First</option>
+              <option value="closing_soon">Closing Soon (Nearest Deadline)</option>
               <option value="salary">Highest Budget</option>
             </select>
             <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -327,6 +332,7 @@ export default function JobsPage({
                     category={job.category}
                     saved={job.bookmarked}
                     applied={job.applied}
+                    applicationDeadline={job.applicationDeadline}
                     onSave={toggleBookmark}
                     onViewDetails={() => {
                       navigate(`/jobs/${job.id}`);

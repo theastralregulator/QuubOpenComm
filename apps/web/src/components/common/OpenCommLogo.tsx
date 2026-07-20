@@ -1,20 +1,49 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import openCommLogo from '../../assets/opencomm-dark-wordmark.png'; // Approved Light logo: Black "Open" + gradient "Comm"
+import blackTextLogo from '../../assets/opencomm-dark-wordmark.png';  // Black "Open" text -> for Light theme
+import whiteTextLogo from '../../assets/opencomm-light-wordmark.png'; // White "Open" text -> for Dark theme
 
 interface OpenCommLogoProps {
   variant?: 'navbar' | 'mobile-navbar' | 'auth' | 'footer' | 'hero' | 'custom';
   className?: string;
+  themeMode?: 'light' | 'dark' | string;
   isLoggedIn?: boolean;
-  themeMode?: string;
   onClick?: () => void;
 }
 
 export default function OpenCommLogo({
   variant = 'navbar',
   className = '',
+  themeMode,
   onClick,
 }: OpenCommLogoProps) {
+  const determineIsDark = (): boolean => {
+    if (themeMode === 'dark') return true;
+    if (themeMode === 'light') return false;
+    if (typeof document !== 'undefined') {
+      return document.documentElement.classList.contains('dark');
+    }
+    return false;
+  };
+
+  const [isDark, setIsDark] = useState<boolean>(determineIsDark);
+
+  useEffect(() => {
+    const updateTheme = () => setIsDark(determineIsDark());
+    updateTheme();
+
+    if (typeof document !== 'undefined') {
+      const observer = new MutationObserver(updateTheme);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+      return () => observer.disconnect();
+    }
+  }, [themeMode]);
+
+  const currentLogo = isDark ? whiteTextLogo : blackTextLogo;
+
   let sizeClass = '';
   switch (variant) {
     case 'navbar':
@@ -46,7 +75,7 @@ export default function OpenCommLogo({
       className={`inline-flex items-center outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg shrink-0 select-none ${className}`}
     >
       <img
-        src={openCommLogo}
+        src={currentLogo}
         alt="OpenComm"
         loading="eager"
         className={`object-contain pointer-events-none transition-all duration-200 ${sizeClass}`}

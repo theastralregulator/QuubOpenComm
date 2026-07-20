@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Bookmark, Star, MapPin, MessageSquare, CheckCircle2, Share2 } from 'lucide-react';
 import { analytics } from '../../lib/analytics';
+import { formatINR } from '../../lib/currency';
 
 export interface WorkerCardProps {
   key?: React.Key;
@@ -163,7 +164,7 @@ export default function WorkerCard({
           <div>
             <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono leading-none">HOURLY</span>
             <span className="block text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] mt-1 leading-none">
-              ${hourlyRate}/hr
+              {formatINR(hourlyRate)}/hr
             </span>
           </div>
         </div>

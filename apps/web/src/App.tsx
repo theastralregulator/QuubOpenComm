@@ -484,6 +484,11 @@ export default function App() {
   const [newJobCategory, setNewJobCategory] = useState('Developer');
   const [newJobDesc, setNewJobDesc] = useState('');
   const [newJobReqs, setNewJobReqs] = useState('');
+  const [newJobDeadline, setNewJobDeadline] = useState(() => {
+    const future = new Date();
+    future.setDate(future.getDate() + 14);
+    return future.toISOString().split('T')[0];
+  });
 
   // Form states for Create Worker Profile
   const [newWorkerName, setNewWorkerName] = useState('');
@@ -499,17 +504,34 @@ export default function App() {
   const [hireProjectDesc, setHireProjectDesc] = useState('');
   const [hireOfferRate, setHireOfferRate] = useState(0);
 
-  // --- PERMANENT LIGHT THEME ENFORCEMENT & STALE KEY PURGE ---
+  // --- THEME SYNC ---
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('opencomm_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+    }
+    return 'light';
+  });
+
   useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+      root.style.colorScheme = 'dark';
+    } else {
+      root.classList.remove('dark');
+      root.classList.add('light');
+      root.style.colorScheme = 'light';
+    }
+  }, [theme]);
+
+  const handleSetTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
     try {
-      ['opencomm_theme', 'theme', 'app-theme', 'color-mode', 'appearance'].forEach(key => {
-        localStorage.removeItem(key);
-      });
-      document.documentElement.classList.remove('dark');
-      document.documentElement.classList.add('light');
-      document.documentElement.style.colorScheme = 'light';
+      localStorage.setItem('opencomm_theme', newTheme);
     } catch (e) {}
-  }, []);
+  };
 
   // --- GOOGLE ANALYTICS INITIALIZATION & AUTO PAGE VIEW TRACKING ---
   useEffect(() => {
@@ -1720,8 +1742,14 @@ export default function App() {
 
   const handleCreateJob = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newJobTitle || !newJobCompany || !newJobSalary) {
-      alert("Please fill in the title, company, and salary rate.");
+    if (!newJobTitle || !newJobCompany || !newJobSalary || !newJobDeadline) {
+      triggerToast("Please fill in the title, company, salary rate, and application deadline.");
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (newJobDeadline < todayStr) {
+      triggerToast("Application deadline cannot be earlier than today.");
       return;
     }
 
@@ -1730,7 +1758,7 @@ export default function App() {
       title: newJobTitle,
       company: newJobCompany,
       companyLogo: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
-      salary: newJobSalary,
+      salary: newJobSalary.includes('₹') ? newJobSalary : `₹${newJobSalary}`,
       location: newJobLocation || 'Remote',
       category: newJobCategory,
       description: newJobDesc || 'No custom description provided.',
@@ -1738,7 +1766,8 @@ export default function App() {
       verified: true,
       bookmarked: false,
       applied: false,
-      datePosted: 'Just now'
+      datePosted: 'Just now',
+      applicationDeadline: newJobDeadline
     };
 
     setJobs(prev => [createdJob, ...prev]);
@@ -2080,6 +2109,8 @@ export default function App() {
       <Navbar 
         currentView={currentView}
         setCurrentView={setCurrentView}
+        themeMode={theme}
+        setThemeMode={handleSetTheme}
         unreadMessagesCount={unreadMessagesCount}
         unreadNotificationsCount={unreadNotificationsCount}
         username={username}
@@ -2759,11 +2790,11 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (e.g. $65/hr, $1500/mo)</label>
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (₹) (e.g. ₹650/hr, ₹45,000/mo)</label>
                   <input 
                     type="text" 
                     required
-                    placeholder="e.g. $85/hr"
+                    placeholder="e.g. ₹850/hr"
                     value={newJobSalary}
                     onChange={(e) => setNewJobSalary(e.target.value)}
                     className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -2795,15 +2826,27 @@ export default function App() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Core Requirements (comma-separated)</label>
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Application Deadline</label>
                     <input 
-                      type="text" 
-                      placeholder="e.g. Figma, Framer, NextJS"
-                      value={newJobReqs}
-                      onChange={(e) => setNewJobReqs(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      type="date" 
+                      required
+                      min={new Date().toISOString().split('T')[0]}
+                      value={newJobDeadline}
+                      onChange={(e) => setNewJobDeadline(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Core Requirements (comma-separated)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Figma, Framer, NextJS"
+                    value={newJobReqs}
+                    onChange={(e) => setNewJobReqs(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                  />
                 </div>
 
                 <div className="space-y-1">
@@ -2892,7 +2935,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Desired Hourly Rate ($/hr)</label>
+                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Desired Hourly Rate (₹/hr)</label>
                   <input 
                     type="number" 
                     required
@@ -3003,7 +3046,7 @@ export default function App() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Hourly Offer Rate ($/hr)</label>
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Hourly Offer Rate (₹/hr)</label>
                     <input 
                       type="number" 
                       required

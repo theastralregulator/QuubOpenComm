@@ -8,6 +8,7 @@ import {
 import { Worker } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
+import { formatINR } from '../../lib/currency';
 
 interface WorkerDetailPageProps {
   workers: Worker[];
@@ -305,7 +306,7 @@ export default function WorkerDetailPage({
           <div className="border-l border-slate-100 dark:border-slate-800/40 col-span-1">
             <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">HOURLY RATE</span>
             <span className="block text-sm font-black text-slate-900 dark:text-white mt-1">
-              ${worker.hourlyRate}/hr
+              {formatINR(worker.hourlyRate)}/hr
             </span>
           </div>
 

@@ -12,6 +12,7 @@ export interface Job {
   bookmarked: boolean;
   applied: boolean;
   datePosted: string;
+  applicationDeadline?: string;
 }
 
 export interface Worker {

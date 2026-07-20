@@ -27,7 +27,8 @@ export const INITIAL_JOBS: Job[] = [
     verified: true,
     bookmarked: false,
     applied: false,
-    datePosted: '2 days ago'
+    datePosted: '2 days ago',
+    applicationDeadline: '2026-08-30'
   },
   {
     id: 'user-job-2',
@@ -42,7 +43,8 @@ export const INITIAL_JOBS: Job[] = [
     verified: true,
     bookmarked: false,
     applied: false,
-    datePosted: '2 weeks ago'
+    datePosted: '2 weeks ago',
+    applicationDeadline: '2026-07-23'
   },
   {
     id: 'job-1',
@@ -57,7 +59,8 @@ export const INITIAL_JOBS: Job[] = [
     verified: true,
     bookmarked: false,
     applied: false,
-    datePosted: '2 hours ago'
+    datePosted: '2 hours ago',
+    applicationDeadline: '2026-08-15'
   },
   {
     id: 'job-2',
@@ -72,7 +75,8 @@ export const INITIAL_JOBS: Job[] = [
     verified: true,
     bookmarked: true,
     applied: false,
-    datePosted: '5 hours ago'
+    datePosted: '5 hours ago',
+    applicationDeadline: '2026-07-21'
   },
   {
     id: 'job-3',
@@ -87,7 +91,8 @@ export const INITIAL_JOBS: Job[] = [
     verified: true,
     bookmarked: false,
     applied: false,
-    datePosted: '1 day ago'
+    datePosted: '1 day ago',
+    applicationDeadline: '2026-07-20'
   },
   {
     id: 'job-4',
@@ -102,7 +107,8 @@ export const INITIAL_JOBS: Job[] = [
     verified: true,
     bookmarked: false,
     applied: false,
-    datePosted: '3 days ago'
+    datePosted: '3 days ago',
+    applicationDeadline: '2026-07-15'
   }
 ];
 
@@ -119,7 +125,7 @@ export const INITIAL_WORKERS: Worker[] = [
     bio: 'Ex-Airbnb & Linear. I specialize in designing lightning-fast, highly animated, ultra-accessible SaaS products and gorgeous mobile consumer applications. I build usable design systems from scratch.',
     skills: ['Figma', 'Framer Motion', 'React', 'Brand Strategy', 'Mobile UX', 'Tailwind CSS'],
     completedWorks: 124,
-    hourlyRate: 95,
+    hourlyRate: 1200,
     verified: true
   },
   {
@@ -134,7 +140,7 @@ export const INITIAL_WORKERS: Worker[] = [
     bio: 'Passionate about type safety, performance, and pixel-perfect transitions. I specialize in building complex dashboards, interactive WebGL charts, and Next.js / React 19 apps.',
     skills: ['TypeScript', 'Next.js', 'React 19', 'Tailwind', 'Node.js', 'GraphQL'],
     completedWorks: 89,
-    hourlyRate: 85,
+    hourlyRate: 950,
     verified: true
   },
   {
@@ -149,7 +155,7 @@ export const INITIAL_WORKERS: Worker[] = [
     bio: 'Residential & commercial electrical contractor. Fully insured, certified, and dedicated to safe, efficient power systems. Specializing in smart home retrofits, panel upgrades, and electric vehicle chargers.',
     skills: ['EV Charger Wiring', 'Panel Upgrades', 'Smart Home Integration', 'Industrial Codes', 'Emergency Diagnostics'],
     completedWorks: 312,
-    hourlyRate: 75,
+    hourlyRate: 850,
     verified: true
   },
   {
@@ -164,7 +170,7 @@ export const INITIAL_WORKERS: Worker[] = [
     bio: 'Aesthetic-driven commercial photographer. Creating crisp visual stories for high-end fashion, architectural design, culinary menus, and vibrant corporate events.',
     skills: ['Commercial Studio', 'Lightroom Pro', 'Architectural Styling', 'Portraiture', 'Drone Cinematography'],
     completedWorks: 78,
-    hourlyRate: 65,
+    hourlyRate: 750,
     verified: true
   },
   {
@@ -179,7 +185,7 @@ export const INITIAL_WORKERS: Worker[] = [
     bio: 'Transforming sustainable raw timber into bespoke heirloom furniture. Crafting custom floating shelves, dining tables, live-edge desks, and mid-century modern credenzas.',
     skills: ['Joinery & Inlays', 'Varnish Finishes', 'Live Edge Milling', 'Figma Blueprint Drafting', 'Restoration Work'],
     completedWorks: 94,
-    hourlyRate: 60,
+    hourlyRate: 650,
     verified: false
   }
 ];
