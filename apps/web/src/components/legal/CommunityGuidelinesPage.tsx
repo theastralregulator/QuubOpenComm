@@ -7,7 +7,7 @@ interface CommunityGuidelinesPageProps {
 
 export default function CommunityGuidelinesPage({ navigate }: CommunityGuidelinesPageProps) {
   return (
-    <div className="max-w-4xl mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8 text-left animate-fadeIn">
+    <div className="max-w-[1000px] w-[min(100%-2rem,1000px)] sm:w-[min(100%-3rem,1000px)] mx-auto py-8 sm:py-12 px-4 sm:px-6 md:px-8 text-left animate-fadeIn">
       {navigate && (
         <button
           onClick={() => navigate('/')}

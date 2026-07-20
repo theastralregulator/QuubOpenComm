@@ -42,7 +42,7 @@ export default function RecommendedForYou({
             RECOMMENDED FOR YOU
           </h3>
           <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-0.5 text-left font-medium">
-            Based on your interests and sandbox activity
+            Based on your interests and recent activity
           </p>
         </div>
 

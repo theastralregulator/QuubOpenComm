@@ -7,10 +7,10 @@ interface OpenCommLogoProps {
   variant?: 'navbar' | 'mobile-navbar' | 'auth' | 'footer' | 'hero' | 'custom';
   className?: string;
   themeMode?: 'light' | 'dark' | 'system';
-  onClick?: () => void;
+  onClick?: (e?: React.MouseEvent) => void;
 }
 
-// Preload both logo image assets once on module load
+// Preload both logo image assets once on module load to prevent flicker
 if (typeof window !== 'undefined') {
   const imgDark = new Image();
   imgDark.src = darkLogo;
@@ -24,32 +24,31 @@ export default function OpenCommLogo({
   themeMode,
   onClick
 }: OpenCommLogoProps) {
-  const [isDark, setIsDark] = useState<boolean>(() => {
+  const determineIsDark = (): boolean => {
     if (themeMode === 'dark') return true;
     if (themeMode === 'light') return false;
     if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('dark');
+      if (document.documentElement.classList.contains('dark')) return true;
+    }
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
     return false;
-  });
+  };
+
+  const [isDark, setIsDark] = useState<boolean>(determineIsDark);
 
   useEffect(() => {
-    if (themeMode === 'dark') {
-      setIsDark(true);
-      return;
-    }
-    if (themeMode === 'light') {
-      setIsDark(false);
-      return;
-    }
+    // Re-evaluate immediately whenever themeMode prop changes
+    setIsDark(determineIsDark());
+
+    if (typeof document === 'undefined') return;
 
     const checkDark = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+      setIsDark(determineIsDark());
     };
 
-    checkDark();
-
-    // Observe root element class mutations (for theme toggle without page reload)
+    // 1. Observe root <html> element class mutations (when theme toggle adds/removes 'dark' class)
     const observer = new MutationObserver(() => {
       checkDark();
     });
@@ -59,7 +58,32 @@ export default function OpenCommLogo({
       attributeFilter: ['class']
     });
 
-    return () => observer.disconnect();
+    // 2. Listen to system color scheme changes if in system mode
+    let mediaQuery: MediaQueryList | null = null;
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleMediaChange = () => {
+        if (!themeMode || themeMode === 'system') {
+          checkDark();
+        }
+      };
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', handleMediaChange);
+      } else if ((mediaQuery as any).addListener) {
+        (mediaQuery as any).addListener(handleMediaChange);
+      }
+    }
+
+    return () => {
+      observer.disconnect();
+      if (mediaQuery) {
+        if (mediaQuery.removeEventListener) {
+          mediaQuery.removeEventListener('change', checkDark);
+        } else if ((mediaQuery as any).removeListener) {
+          (mediaQuery as any).removeListener(checkDark);
+        }
+      }
+    };
   }, [themeMode]);
 
   const currentLogo = isDark ? darkLogo : lightLogo;
@@ -79,7 +103,7 @@ export default function OpenCommLogo({
       sizeClass = 'h-6 sm:h-7 w-auto max-w-[130px] sm:max-w-[150px]';
       break;
     case 'hero':
-      sizeClass = 'h-10 sm:h-12 md:h-14 w-auto max-w-[210px] sm:max-w-[260px]';
+      sizeClass = 'h-8 sm:h-9 md:h-11 w-auto max-w-[180px] sm:max-w-[230px]';
       break;
     case 'custom':
     default:
@@ -98,7 +122,7 @@ export default function OpenCommLogo({
         src={currentLogo}
         alt="OpenComm"
         loading="eager"
-        className={`object-contain pointer-events-none transition-all duration-200 ${sizeClass}`}
+        className={`object-contain pointer-events-none transition-opacity duration-150 ${sizeClass}`}
       />
     </Link>
   );
