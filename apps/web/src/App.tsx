@@ -2092,7 +2092,7 @@ export default function App() {
       )}
 
       {/* CORE CONTAINER */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-[calc(90px+env(safe-area-inset-bottom))]">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-[calc(90px+env(safe-area-inset-bottom))]">
         <RouteTracker jobs={jobs} workers={workers} />
         <Routes>
           {/* Home View */}

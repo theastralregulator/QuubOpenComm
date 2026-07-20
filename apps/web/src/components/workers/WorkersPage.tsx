@@ -204,7 +204,7 @@ export default function WorkersPage({
   const totalSavedCount = workers.filter(w => (w as any).bookmarked).length;
 
   return (
-    <div className="w-full text-left font-sans max-w-7xl mx-auto px-1 sm:px-2 pb-[calc(110px+env(safe-area-inset-bottom))]" id="workers-discovery-container">
+    <div className="w-full text-left font-sans max-w-[1600px] mx-auto px-1 sm:px-2 pb-[calc(110px+env(safe-area-inset-bottom))]" id="workers-discovery-container">
       
       {/* 1. Page Title & Subtitle */}
       <div className="space-y-1.5 mt-2">

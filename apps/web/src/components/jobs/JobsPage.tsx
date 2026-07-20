@@ -132,7 +132,7 @@ export default function JobsPage({
   const categoriesShortcuts = ['All', 'Developer', 'Designer', 'Electrician', 'Carpenter'];
 
   return (
-    <div className="w-full text-left space-y-6 pb-[calc(110px+env(safe-area-inset-bottom))]" id="jobs-page-container">
+    <div className="w-full max-w-[1600px] mx-auto text-left space-y-6 pb-[calc(110px+env(safe-area-inset-bottom))]" id="jobs-page-container">
       
       {/* 1. Page Title & Subtitle */}
       <div className="space-y-1.5">

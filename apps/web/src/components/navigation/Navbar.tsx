@@ -94,7 +94,7 @@ export default function Navbar({
     <>
       {/* DESKTOP & TABLET HEADER */}
       <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-[#080B18]/80 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-13 md:h-16 flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-13 md:h-16 flex items-center justify-between">
           
           {/* Logo Brand Section */}
           <OpenCommLogo 
