@@ -874,7 +874,7 @@ export default function App() {
     localStorage.setItem('opencomm_username', 'Akhil Varma');
     localStorage.setItem('opencomm_user_photo', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
 
-    triggerToast("Application data successfully reset.");
+    triggerToast("App data has been reset.");
   };
 
   // --- AUTH GATEWAY HELPERS ---
@@ -2092,7 +2092,7 @@ export default function App() {
       )}
 
       {/* CORE CONTAINER */}
-      <main className="max-w-[1360px] mx-auto px-4 sm:px-6 md:px-8 lg:px-10 pt-3 sm:pt-6 pb-[calc(90px+env(safe-area-inset-bottom))]">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-[calc(90px+env(safe-area-inset-bottom))]">
         <RouteTracker jobs={jobs} workers={workers} />
         <Routes>
           {/* Home View */}

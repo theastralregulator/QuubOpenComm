@@ -7,7 +7,7 @@ interface CookiePolicyPageProps {
 
 export default function CookiePolicyPage({ navigate }: CookiePolicyPageProps) {
   return (
-    <div className="max-w-[1000px] w-[min(100%-2rem,1000px)] sm:w-[min(100%-3rem,1000px)] mx-auto py-8 sm:py-12 px-4 sm:px-6 md:px-8 text-left animate-fadeIn">
+    <div className="max-w-[1000px] mx-auto py-8 sm:py-12 px-5 sm:px-8 lg:px-10 text-left animate-fadeIn pb-[calc(110px+env(safe-area-inset-bottom))]">
       {navigate && (
         <button
           onClick={() => navigate('/')}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -75,34 +75,37 @@ export default function Navbar({
     ] : [])
   ];
 
-  const handleNavClick = (viewId: string) => {
-    let targetPath = '/';
-    if (viewId === 'home') targetPath = '/';
-    else if (viewId === 'jobs') targetPath = '/jobs';
-    else if (viewId === 'workers') targetPath = '/workers';
-    else if (viewId === 'about') targetPath = '/about';
-    else if (viewId === 'messages') targetPath = '/messages';
-    else if (viewId === 'profile') targetPath = '/profile';
-    else if (viewId === 'saved-jobs') targetPath = '/profile/saved-jobs';
-    else if (viewId === 'saved-workers') targetPath = '/profile/saved-workers';
+  // Map nav id -> route path
+  const navRoutes: Record<string, string> = {
+    home: '/',
+    jobs: '/jobs',
+    workers: '/workers',
+    about: '/about',
+    messages: '/messages',
+    profile: '/profile',
+    'saved-jobs': '/profile/saved-jobs',
+    'saved-workers': '/profile/saved-workers',
+  };
 
-    if (location.pathname === targetPath) {
+  const handleNavClick = useCallback((viewId: string) => {
+    const targetPath = navRoutes[viewId];
+    if (targetPath && location.pathname === targetPath) {
+      // Already on this route — scroll to top smoothly instead of navigating
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else {
+    } else if (targetPath) {
       navigate(targetPath);
     }
-    
     setShowNotifications(false);
     setShowProfileMenu(false);
     setShowSettingsMenu(false);
     setShowThemeMenu(false);
-  };
+  }, [location.pathname, navigate]);
 
   return (
     <>
       {/* DESKTOP & TABLET HEADER */}
-      <header className="sticky top-0 z-40 w-full bg-white/85 dark:bg-[#080B18]/85 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40 transition-colors duration-300">
-        <div className="max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-10 h-13 md:h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-[#080B18]/80 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40 transition-colors duration-300">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-13 md:h-16 flex items-center justify-between">
           
           {/* Logo Brand Section */}
           <OpenCommLogo 
@@ -125,29 +128,27 @@ export default function Navbar({
                   to={item.to}
                   aria-current={isActive ? 'page' : undefined}
                   onClick={(e) => {
+                    if (isActive) {
+                      e.preventDefault();
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
                     setShowNotifications(false);
                     setShowProfileMenu(false);
                     setShowSettingsMenu(false);
                     setShowThemeMenu(false);
-                    if (location.pathname === item.to) {
-                      e.preventDefault();
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
                   }}
-                  className={`relative px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-200 flex items-center space-x-2 cursor-pointer outline-none ${
-                    isActive ? 'text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
-                  }`}
+                  className={`relative px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-300 flex items-center space-x-2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${!isActive ? 'hover:bg-slate-100 dark:hover:bg-slate-800/50' : ''}`}
                   id={`nav-${item.id}`}
                 >
                   {isActive && (
                     <motion.div
                       layoutId="activeTabPill"
-                      className="absolute inset-0 bg-gradient-to-r from-[#2563EB] to-[#7C3AED] rounded-full -z-10 shadow-sm"
-                      transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                      className="absolute inset-0 bg-gradient-to-r from-[#2563EB] to-[#7C3AED] rounded-full -z-10"
+                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
                     />
                   )}
-                  <IconComponent className={`w-4 h-4 z-10 transition-colors duration-200 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-900'}`} />
-                  <span className="z-10">
+                  <IconComponent className={`w-4 h-4 z-10 transition-colors duration-300 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-900'}`} />
+                  <span className={`z-10 transition-colors duration-300 ${isActive ? 'text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'}`}>
                     {item.label}
                   </span>
                   {item.badgeCount && item.badgeCount > 0 ? (
@@ -441,7 +442,7 @@ export default function Navbar({
                                     className="w-full text-left py-1 text-xs hover:underline flex items-center space-x-1.5 text-rose-500 font-bold cursor-pointer"
                                   >
                                     <RefreshCcw className="w-3.5 h-3.5 animate-spin-slow" />
-                                    <span>Reset Sandbox Data</span>
+                                    <span>Reset App Data</span>
                                   </button>
                                 </motion.div>
                               )}
@@ -487,13 +488,19 @@ export default function Navbar({
               <Link
                 key={item.id}
                 to={item.to}
-                onClick={() => {
+                aria-current={isActive ? 'page' : undefined}
+                onClick={(e) => {
+                  if (isActive) {
+                    // Already on this route — scroll to top instead of navigating
+                    e.preventDefault();
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
                   setShowNotifications(false);
                   setShowProfileMenu(false);
                   setShowSettingsMenu(false);
                   setShowThemeMenu(false);
                 }}
-                className="relative flex flex-col items-center justify-center flex-1 h-full py-0.5 text-slate-500 dark:text-slate-400 focus:outline-none min-h-[44px]"
+                className="relative flex flex-col items-center justify-center flex-1 h-full py-0.5 text-slate-500 dark:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-h-[44px]"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 id={`mobile-nav-${item.id}`}
               >

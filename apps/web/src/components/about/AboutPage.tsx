@@ -104,7 +104,7 @@ export default function AboutPage({ isLoggedIn = false, onOpenAuth }: AboutPageP
   };
 
   return (
-    <div className="w-full text-left font-sans max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-12 pb-[calc(110px+env(safe-area-inset-bottom))]">
+    <div className="w-full text-left font-sans max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-12 pb-[calc(110px+env(safe-area-inset-bottom))]">
       
       {/* Page Header */}
       <div className="space-y-4 border-b border-slate-200/80 dark:border-zinc-800/80 pb-8">
