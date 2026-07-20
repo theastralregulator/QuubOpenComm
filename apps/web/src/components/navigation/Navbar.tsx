@@ -12,8 +12,6 @@ import OpenCommLogo from '../common/OpenCommLogo';
 interface NavbarProps {
   currentView: string;
   setCurrentView: (view: any) => void;
-  themeMode: 'light' | 'dark';
-  setThemeMode: (mode: 'light' | 'dark') => void;
   unreadMessagesCount: number;
   unreadNotificationsCount: number;
   notifications: Notification[];
@@ -33,8 +31,6 @@ interface NavbarProps {
 export default function Navbar({
   currentView,
   setCurrentView,
-  themeMode,
-  setThemeMode,
   unreadMessagesCount,
   unreadNotificationsCount,
   notifications,
@@ -57,12 +53,6 @@ export default function Navbar({
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showSettingsSub, setShowSettingsSub] = useState(false);
-
-  const getThemeIcon = () => {
-    if (themeMode === 'light') return <Sun className="w-4 h-4" />;
-    if (themeMode === 'dark') return <Moon className="w-4 h-4" />;
-    return <Monitor className="w-4 h-4" />;
-  };
 
   const navItems = [
     { id: 'home', label: 'Home', icon: Home, to: '/' },
@@ -110,18 +100,23 @@ export default function Navbar({
           {/* Logo Brand Section */}
           <OpenCommLogo 
             variant="navbar" 
-            themeMode={isLoggedIn ? themeMode : 'light'}
             isLoggedIn={isLoggedIn}
             onClick={() => handleNavClick('home')} 
           />
 
           {/* Center Navigation Links (Hidden on mobile) */}
-          <nav className="hidden lg:flex items-center space-x-1 bg-slate-100/60 dark:bg-slate-900/40 p-1 rounded-full border border-slate-200/10 dark:border-slate-800/10" id="desktop-nav">
+          <nav className="hidden lg:flex items-center space-x-1 bg-slate-100/60 p-1 rounded-full border border-slate-200/50" id="desktop-nav">
             {navItems.map((item) => {
               const IconComponent = item.icon;
-              const isActive = currentView === item.id || 
-                (item.id === 'home' && (currentView === 'home')) ||
-                (item.id === 'profile' && (currentView === 'saved-jobs' || currentView === 'saved-workers'));
+              const pathname = location.pathname;
+              const isActive = 
+                item.id === 'home' ? pathname === '/' :
+                item.id === 'jobs' ? (pathname === '/jobs' || pathname.startsWith('/jobs/')) :
+                item.id === 'workers' ? (pathname === '/workers' || pathname.startsWith('/workers/')) :
+                item.id === 'about' ? (pathname === '/about' || pathname.startsWith('/about/')) :
+                item.id === 'messages' ? (pathname === '/messages' || pathname.startsWith('/messages/')) :
+                item.id === 'profile' ? (pathname === '/profile' || pathname.startsWith('/profile/')) :
+                false;
               
               return (
                 <Link
@@ -408,32 +403,6 @@ export default function Navbar({
                                       placeholder="Username"
                                     />
                                   </div>
-                                  <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 pl-0.5">Appearance Theme</label>
-                                    <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-[#111827] rounded-lg border border-slate-200/50 dark:border-slate-800/40">
-                                      {[
-                                        { id: 'light', label: 'Light', icon: Sun },
-                                        { id: 'dark', label: 'Dark', icon: Moon }
-                                      ].map((mode) => {
-                                        const ModeIcon = mode.icon;
-                                        const isSelected = themeMode === mode.id;
-                                        return (
-                                          <button
-                                            key={mode.id}
-                                            onClick={() => setThemeMode(mode.id as any)}
-                                            className={`py-1.5 rounded-md text-[10px] font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${
-                                              isSelected 
-                                                ? 'bg-white dark:bg-[#172033] text-[#2563EB] dark:text-[#60A5FA] shadow-xs' 
-                                                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
-                                            }`}
-                                          >
-                                            <ModeIcon className="w-3.5 h-3.5 mb-0.5" />
-                                            <span>{mode.label}</span>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
                                   <button 
                                     onClick={() => {
                                       onResetData();
@@ -480,9 +449,15 @@ export default function Navbar({
         <nav className="flex items-center justify-around h-13 px-2">
           {navItems.map((item) => {
             const IconComponent = item.icon;
-            const isActive = currentView === item.id || 
-              (item.id === 'home' && (currentView === 'home')) ||
-              (item.id === 'profile' && (currentView === 'saved-jobs' || currentView === 'saved-workers'));
+            const pathname = location.pathname;
+            const isActive = 
+              item.id === 'home' ? pathname === '/' :
+              item.id === 'jobs' ? (pathname === '/jobs' || pathname.startsWith('/jobs/')) :
+              item.id === 'workers' ? (pathname === '/workers' || pathname.startsWith('/workers/')) :
+              item.id === 'about' ? (pathname === '/about' || pathname.startsWith('/about/')) :
+              item.id === 'messages' ? (pathname === '/messages' || pathname.startsWith('/messages/')) :
+              item.id === 'profile' ? (pathname === '/profile' || pathname.startsWith('/profile/')) :
+              false;
             
             return (
               <Link

@@ -74,7 +74,7 @@ export default function HeroSection({
 
   return (
     <div 
-      className="relative w-full overflow-hidden rounded-lg sm:rounded-xl md:rounded-2xl border border-indigo-500/25 dark:border-indigo-400/25 p-3 sm:p-4.5 md:p-6 text-left shadow-sm shadow-indigo-500/5 transition-all duration-300 aspect-[16/9] min-h-[160px] sm:min-h-[190px] md:min-h-[240px] max-h-[245px] sm:max-h-[300px] md:max-h-[380px] flex flex-col justify-center dark:from-[#0b0e1e] dark:via-[#10152b] dark:to-[#070914]"
+      className="relative w-full overflow-hidden rounded-lg sm:rounded-xl md:rounded-2xl border border-indigo-500/25 p-3 sm:p-4.5 md:p-6 text-left shadow-sm shadow-indigo-500/5 transition-all duration-300 aspect-[16/9] min-h-[160px] sm:min-h-[190px] md:min-h-[240px] max-h-[245px] sm:max-h-[300px] md:max-h-[380px] flex flex-col justify-center bg-white"
       style={{
         background: 'radial-gradient(circle at 15% 20%, rgba(37, 99, 235, 0.16), transparent 38%), radial-gradient(circle at 85% 25%, rgba(168, 85, 247, 0.16), transparent 40%), radial-gradient(circle at 55% 90%, rgba(99, 102, 241, 0.10), transparent 42%), linear-gradient(135deg, #ffffff 0%, #f5f7ff 48%, #faf5ff 100%)'
       }}
@@ -92,7 +92,7 @@ export default function HeroSection({
 
       {/* Layer 2: Subtle Mesh Grid Pattern Overlay */}
       <div 
-        className="absolute inset-0 opacity-[0.05] dark:opacity-[0.09] pointer-events-none z-0 bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:14px_14px]" 
+        className="absolute inset-0 opacity-[0.05] pointer-events-none z-0 bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:14px_14px]" 
       />
 
       {/* Layer 3: Content Container (Exact Content Order) */}
@@ -100,8 +100,8 @@ export default function HeroSection({
 
         {/* 1. Label: "BUILD BETTER WORK CONNECTIONS" */}
         <div>
-          <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/12 via-purple-500/12 to-blue-500/12 dark:from-indigo-400/20 dark:via-purple-400/20 dark:to-blue-400/20 backdrop-blur-md border border-indigo-500/20 dark:border-indigo-400/25 shadow-2xs">
-            <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 dark:from-indigo-300 dark:via-purple-200 dark:to-blue-300 bg-clip-text text-transparent font-extrabold text-[9px] sm:text-[10px] uppercase tracking-widest font-mono">
+          <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/12 via-purple-500/12 to-blue-500/12 backdrop-blur-md border border-indigo-500/20 shadow-2xs">
+            <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent font-extrabold text-[9px] sm:text-[10px] uppercase tracking-widest font-mono">
               BUILD BETTER WORK CONNECTIONS
             </span>
           </div>
@@ -109,23 +109,23 @@ export default function HeroSection({
 
         {/* 2. Time Greeting: "Good Morning" */}
         <div>
-          <span className="text-[12px] sm:text-[13px] md:text-sm font-bold tracking-wide text-indigo-600 dark:text-purple-300 drop-shadow-[0_2px_8px_rgba(99,102,241,0.25)]">
+          <span className="text-[12px] sm:text-[13px] md:text-sm font-bold tracking-wide text-indigo-600 drop-shadow-[0_2px_8px_rgba(99,102,241,0.25)]">
             {greetingText}
           </span>
         </div>
 
         {/* 3. Main Heading: "Welcome to" + OpenComm Logo Image (Baseline Aligned) */}
-        <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-display font-extrabold tracking-tight text-slate-900 dark:text-white flex flex-wrap items-center gap-1.5 sm:gap-2 leading-none">
+        <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-display font-extrabold tracking-tight text-slate-900 flex flex-wrap items-center gap-1.5 sm:gap-2 leading-none">
           <span>Welcome to</span>
           <OpenCommLogo variant="hero" isLoggedIn={isLoggedIn} className="inline-flex items-center" />
         </h1>
 
-        {/* 4. Short Description (Compact 12px-14px font size) */}
-        <p className="text-[12px] sm:text-[13px] md:text-[14px] font-medium text-slate-700 dark:text-zinc-200 leading-snug sm:leading-relaxed max-w-[650px]">
+        {/* 4. Short Description */}
+        <p className="text-[12px] sm:text-[13px] md:text-[14px] font-medium text-slate-700 leading-snug sm:leading-relaxed max-w-[650px]">
           OpenComm helps people discover trusted professionals, meaningful work opportunities, and better ways to connect and collaborate.
         </p>
 
-        {/* 5. CTA Button: "About OpenComm" (Compact height & padding) */}
+        {/* 5. CTA Button: "About OpenComm" */}
         <div className="pt-0.5">
           <button
             type="button"
