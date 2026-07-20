@@ -133,13 +133,17 @@ export default function App() {
   const [showHireModal, setShowHireModal] = useState<Worker | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
   
-  // Auth Modal States
+  // Auth Modal States & Loading Guards
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const isSavingProfileRef = useRef(false);
+
   const [showAuthModal, _setShowAuthModal] = useState<'signin' | 'signup' | 'locked' | null>(null);
   const setShowAuthModal = (tab: 'signin' | 'signup' | 'locked' | null) => {
     setAuthError('');
     if (tab === 'signup') {
-      clearSignupTempState();
-      setSignupStep(1);
+      if (signupStep === 1) {
+        clearSignupTempState();
+      }
     } else if (tab === null) {
       clearSignupTempState();
     }
@@ -367,32 +371,38 @@ export default function App() {
     return false;
   };
 
+  // --- ROUTE GUARD & ONBOARDING REDIRECT EFFECT ---
   useEffect(() => {
+    if (isAuthLoading) return;
+
     if (isLoggedIn) {
       if (!isEmailVerified) {
         if (path !== '/verify-email') {
-          navigate('/verify-email');
+          navigate('/verify-email', { replace: true });
         }
       } else if (!isOnboardingCompleted) {
         if (path !== '/signup') {
-          navigate('/signup');
+          navigate('/signup', { replace: true });
         }
-        setShowAuthModal('signup');
-        setSignupStep(2);
+        _setShowAuthModal('signup');
       } else {
+        // Authenticated, confirmed, onboarding completed -> NEVER REDIRECT TO SIGNUP
+        _setShowAuthModal(null);
         if (path === '/signup' || path === '/login' || path === '/verify-email') {
-          navigate('/');
+          navigate('/', { replace: true });
         }
       }
     } else {
       // Logged out
       if (!isPublicPath(path)) {
-        navigate(`/login?redirect=${encodeURIComponent(path)}`);
+        navigate(`/login?redirect=${encodeURIComponent(path)}`, { replace: true });
       }
     }
-  }, [isLoggedIn, isEmailVerified, isOnboardingCompleted, path]);
+  }, [isLoggedIn, isEmailVerified, isOnboardingCompleted, path, isAuthLoading]);
 
   useEffect(() => {
+    if (isAuthLoading) return;
+
     if (!isLoggedIn) {
       if (path === '/signup') {
         _setShowAuthModal('signup');
@@ -403,7 +413,7 @@ export default function App() {
         clearSignupTempState();
       }
     }
-  }, [path, isLoggedIn]);
+  }, [path, isLoggedIn, isAuthLoading]);
 
   // Handle browser Back button and history state for signup/signin flow
   useEffect(() => {
@@ -537,24 +547,29 @@ export default function App() {
         // Fetch current session
         supabase.auth.getSession().then(({ data: { session } }: any) => {
           if (session?.user) {
-            syncUserSession(session);
+            syncUserSession(session).finally(() => setIsAuthLoading(false));
+          } else {
+            setIsAuthLoading(false);
           }
-        });
+        }).catch(() => setIsAuthLoading(false));
 
         // Listen for changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
           if (session?.user) {
-            syncUserSession(session);
+            await syncUserSession(session);
           } else {
             handleLogoutCleanState();
           }
+          setIsAuthLoading(false);
         });
 
         return () => {
           subscription.unsubscribe();
         };
+      } else {
+        setIsAuthLoading(false);
       }
-    });
+    }).catch(() => setIsAuthLoading(false));
   }, []);
 
   // --- DIRECT EMAIL VERIFICATION DEEP LINK REDIRECT HANDLER ---
@@ -702,6 +717,9 @@ export default function App() {
   }, []);
 
   const syncUserSession = async (session: any) => {
+    if (isSavingProfileRef.current) {
+      return;
+    }
     const user = session.user;
     const userId = user.id;
     const userEmail = user.email || '';
@@ -719,7 +737,8 @@ export default function App() {
         phone_verified: false,
         profile_type: 'basic',
         account_status: 'active',
-        email_verified_for_actions: false
+        email_verified_for_actions: false,
+        onboarding_completed: false
       });
     } else {
       // Rule 2 check: If profile_type is not 'basic' and email_verified_for_actions is false, safely migrate to basic.
@@ -729,7 +748,7 @@ export default function App() {
       }
     }
     
-    // 8. Verification status must come only from Supabase Auth
+    // Verification status must come only from Supabase Auth
     const isVerified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
     setIsEmailVerified(isVerified);
 
@@ -748,12 +767,16 @@ export default function App() {
     localStorage.setItem('opencomm_user_type', profile.profile_type || 'normal');
     localStorage.setItem('opencomm_user_id', userId);
 
-    const isOnboarded = !!profile.onboarding_completed || !!profile.city || !!profile.bio;
+    const isOnboarded = Boolean(
+      profile?.onboarding_completed || 
+      localStorage.getItem('opencomm_onboarding_completed') === 'true' ||
+      (profile?.city && profile?.bio)
+    );
     setIsOnboardingCompleted(isOnboarded);
     localStorage.setItem('opencomm_onboarding_completed', isOnboarded ? 'true' : 'false');
     
-    if (!isOnboarded) {
-      setShowAuthModal('signup');
+    if (!isOnboarded && !isSavingProfileRef.current) {
+      _setShowAuthModal('signup');
       setSignupStep(2);
       setOnboardingSubStep('A');
       setWorkerForm(prev => ({
@@ -762,7 +785,8 @@ export default function App() {
         phone: profile?.phone || user.user_metadata?.phone || '',
         avatarUrl: profile?.avatar_url || ''
       }));
-    } else {
+    } else if (isOnboarded) {
+      _setShowAuthModal(null);
       if (!profile.onboarding_completed) {
         dbService.updateProfile(userId, { onboarding_completed: true });
         profile.onboarding_completed = true;
@@ -1281,9 +1305,10 @@ export default function App() {
     }
 
     setIsAuthSubmitting(true);
+    isSavingProfileRef.current = true;
 
     try {
-      // Verify using 'email' or fallback 'signup'
+      // 1. Verify OTP using 'email' or fallback 'signup'
       let result = await supabase.auth.verifyOtp({
         email: emailToVerify.trim().toLowerCase(),
         token: otp,
@@ -1303,14 +1328,11 @@ export default function App() {
 
       const { data, error } = result;
 
-      if (error) {
+      if (error || !data?.user) {
         throw new Error("Invalid or expired verification code.");
       }
 
-      if (!data?.user) {
-        throw new Error("Invalid or expired verification code.");
-      }
-
+      // 2. Verify Session & User
       let session = data.session;
       if (!session) {
         const { data: { session: freshSession } } = await supabase.auth.getSession();
@@ -1331,77 +1353,84 @@ export default function App() {
         throw new Error("Invalid or expired verification code.");
       }
 
-      // Check getUser()
       const { data: userResult, error: userError } = await supabase.auth.getUser();
       if (userError || !userResult?.user) {
         throw new Error("Invalid or expired verification code.");
       }
 
       const verifiedUser = userResult.user;
-      const verifiedUserEmailConfirmed = Boolean(verifiedUser.email_confirmed_at || verifiedUser.confirmed_at);
-      if (!verifiedUserEmailConfirmed) {
-        throw new Error("Invalid or expired verification code.");
-      }
 
-      // --- VERIFICATION SUCCEEDED ---
-      // Upload cropped avatar file
-      let finalAvatarUrl = workerForm.avatarUrl;
+      // Preserve form values prior to async calls
+      const formFullName = workerForm.fullName.trim() || signupForm.name.trim() || verifiedUser.email?.split('@')[0] || 'User';
+      const formPhone = workerForm.phone.trim() || signupForm.phone.trim();
+      const formBio = workerForm.bio.trim();
+
+      // 3. Upload cropped avatar file
+      let finalAvatarUrl = workerForm.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80';
 
       if (croppedFile) {
-        await supabase.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token
-        });
-
-        const safeExtension =
-          croppedFile.type === 'image/png'
-            ? 'png'
-            : croppedFile.type === 'image/webp'
-              ? 'webp'
-              : 'jpg';
-
-        const filePath = `${verifiedUser.id}/${Date.now()}-profile.${safeExtension}`;
-
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(filePath, croppedFile, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: croppedFile.type
+        try {
+          await supabase.auth.setSession({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token
           });
 
-        if (!uploadError) {
-          const { data: publicUrlData } = supabase.storage
+          const safeExtension =
+            croppedFile.type === 'image/png'
+              ? 'png'
+              : croppedFile.type === 'image/webp'
+                ? 'webp'
+                : 'jpg';
+
+          const filePath = `${verifiedUser.id}/${Date.now()}-profile.${safeExtension}`;
+
+          const { error: uploadError } = await supabase.storage
             .from('avatars')
-            .getPublicUrl(filePath);
-          finalAvatarUrl = publicUrlData.publicUrl;
+            .upload(filePath, croppedFile, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: croppedFile.type
+            });
+
+          if (!uploadError) {
+            const { data: publicUrlData } = supabase.storage
+              .from('avatars')
+              .getPublicUrl(filePath);
+            finalAvatarUrl = publicUrlData.publicUrl;
+          }
+        } catch (e) {
+          console.warn("Avatar upload warning:", e);
         }
       }
 
-      // Upload resume file if present
+      // 4. Upload resume file if present
       if (resumeFile) {
-        const resumeExt = resumeFile.name.split('.').pop()?.toLowerCase();
-        const resumePath = `${verifiedUser.id}/${Date.now()}-resume.${resumeExt}`;
-        const { error: uploadResErr } = await supabase.storage
-          .from('resumes')
-          .upload(resumePath, resumeFile, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: resumeFile.type
-          });
-        if (!uploadResErr) {
-          workerForm.resumePath = resumePath;
+        try {
+          const resumeExt = resumeFile.name.split('.').pop()?.toLowerCase();
+          const resumePath = `${verifiedUser.id}/${Date.now()}-resume.${resumeExt}`;
+          const { error: uploadResErr } = await supabase.storage
+            .from('resumes')
+            .upload(resumePath, resumeFile, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: resumeFile.type
+            });
+          if (!uploadResErr) {
+            workerForm.resumePath = resumePath;
+          }
+        } catch (e) {
+          console.warn("Resume upload warning:", e);
         }
       }
 
-      // Update core profile
+      // 5. Update core profile with onboarding_completed = true
       const isWorker = selectedAccountType === 'worker';
 
-      await dbService.updateProfile(verifiedUser.id, {
+      const profilePayload = {
         id: verifiedUser.id,
-        full_name: workerForm.fullName || signupForm.name,
+        full_name: formFullName,
         email: emailToVerify,
-        phone: workerForm.phone || signupForm.phone,
+        phone: formPhone,
         city: workerForm.city,
         state: workerForm.state,
         country: workerForm.country,
@@ -1411,17 +1440,22 @@ export default function App() {
         latitude: workerForm.latitude,
         longitude: workerForm.longitude,
         preferred_language: workerForm.preferredLanguage,
-        bio: workerForm.bio,
+        bio: formBio,
         avatar_url: finalAvatarUrl,
-        profile_type: isWorker ? 'worker' : 'basic',
-        account_type: isWorker ? 'worker' : 'basic',
-        account_status: 'active',
+        profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
+        account_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
+        account_status: 'active' as const,
         email_verified_for_actions: true,
         onboarding_completed: true
-      });
+      };
 
+      const savedProfile = await dbService.updateProfile(verifiedUser.id, profilePayload);
+      if (!savedProfile) {
+        throw new Error("Failed to save user profile. Please try again.");
+      }
+
+      // 6. Create worker profile if selected
       if (isWorker) {
-        // Create worker profile
         await dbService.createWorkerProfile({
           id: verifiedUser.id,
           profession: workerForm.professionalTitle,
@@ -1433,7 +1467,7 @@ export default function App() {
           work_location: `${workerForm.city}, ${workerForm.state}`,
           availability: workerForm.availabilityStatus as any,
           availability_status: workerForm.availabilityStatus,
-          bio_summary: workerForm.bio,
+          bio_summary: formBio,
           hourly_rate: workerForm.hourlyRate,
           expected_salary: `${workerForm.expectedSalaryMin} - ${workerForm.expectedSalaryMax}`,
           expected_salary_min: workerForm.expectedSalaryMin,
@@ -1451,27 +1485,26 @@ export default function App() {
           certifications: workerForm.certifications
         });
 
-        // Mapped Worker for UI directory
         const mappedWorker: Worker = {
           id: verifiedUser.id,
-          name: workerForm.fullName || signupForm.name,
-          photo: finalAvatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+          name: formFullName,
+          photo: finalAvatarUrl,
           title: workerForm.professionalTitle,
           experience: Number(workerForm.yearsExperience) || 0,
           rating: 5.0,
           availability: workerForm.availabilityStatus as any || 'Available Now',
           location: `${workerForm.city}, ${workerForm.state}`,
-          bio: workerForm.bio,
+          bio: formBio,
           skills: workerForm.skills,
           completedWorks: 0,
           hourlyRate: Number(workerForm.hourlyRate) || 0,
           verified: true
         };
 
-        setWorkers(prev => [mappedWorker, ...prev]);
+        setWorkers(prev => [mappedWorker, ...prev.filter(w => w.id !== verifiedUser.id)]);
       }
 
-      // Log Terms consent record
+      // 7. Log terms consent
       await dbService.logTermsConsent({
         user_id: verifiedUser.id,
         terms_version: "2026-07-19-v1",
@@ -1479,45 +1512,45 @@ export default function App() {
         account_type: isWorker ? 'worker' : 'basic'
       });
 
-      // Clear all temporary signup states
-      clearSignupTempState();
-
-      // Log the user in
+      // 8. Update in-memory & localStorage auth states
       setIsLoggedIn(true);
       setIsEmailVerified(true);
-      setUsername(workerForm.fullName || signupForm.name);
+      setIsOnboardingCompleted(true);
+      setUsername(formFullName);
       setUserPhoto(finalAvatarUrl);
       setUserType(isWorker ? 'worker' : 'normal');
 
       localStorage.setItem('opencomm_is_logged_in', 'true');
-      localStorage.setItem('opencomm_username', workerForm.fullName || signupForm.name);
+      localStorage.setItem('opencomm_username', formFullName);
       localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
       localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
+      localStorage.setItem('opencomm_user_id', verifiedUser.id);
       localStorage.setItem('opencomm_onboarding_completed', 'true');
-      setIsOnboardingCompleted(true);
 
+      // 9. Clear temporary signup state AFTER DB save
+      clearSignupTempState();
       setSignupStep(1);
-      setShowAuthModal(null);
+      _setShowAuthModal(null);
       setLockedFeature(null);
       setIsAuthSubmitting(false);
+      isSavingProfileRef.current = false;
+
       triggerToast("Verification successful! Welcome to OpenComm.");
 
-      // Redirect back to intended destination if present
+      // 10. Replace navigation to home
       const queryParams = new URLSearchParams(window.location.search);
       const redirectPath = queryParams.get('redirect');
-      if (redirectPath) {
+      if (redirectPath && redirectPath !== '/signup' && redirectPath !== '/login') {
         navigate(redirectPath, { replace: true });
       } else {
         navigate('/', { replace: true });
       }
 
     } catch (err: any) {
+      isSavingProfileRef.current = false;
       setIsAuthSubmitting(false);
       setVerificationCodeInput('');
       setAuthError(err.message || "Invalid or expired verification code.");
-      try {
-        await supabase.auth.signOut();
-      } catch (e) {}
     }
   };
 
