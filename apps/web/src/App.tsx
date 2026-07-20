@@ -26,6 +26,7 @@ import {
 import Navbar from './components/navigation/Navbar';
 import HeroSection from './components/home/HeroSection';
 import OpenCommLogo from './components/common/OpenCommLogo';
+import AboutPage from './components/about/AboutPage';
 import SearchBar from './components/common/SearchBar';
 import QuickActions from './components/home/QuickActions';
 import DashboardSummary from './components/home/DashboardSummary';
@@ -2105,14 +2106,9 @@ export default function App() {
               className="space-y-4 sm:space-y-6 md:space-y-8"
             >
               <HeroSection 
-                username={isLoggedIn ? username : "Guest"}
+                userFullName={isLoggedIn ? (username || 'Member') : undefined}
                 isLoggedIn={isLoggedIn}
-                onExploreJobs={() => navigate('/jobs')}
-                onFindProfessionals={() => navigate('/workers')}
-                onCreateAccount={() => {
-                  setShowAuthModal('signup');
-                  setSignupStep(1);
-                }}
+                onAboutClick={() => navigate('/about')}
               />
 
               <SearchBar 
@@ -2183,6 +2179,25 @@ export default function App() {
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 triggerToast={triggerToast}
+                isLoggedIn={isLoggedIn}
+                onOpenAuth={(tab) => {
+                  if (tab === 'signin') navigate('/login');
+                  else if (tab === 'signup') navigate('/signup');
+                }}
+              />
+            </motion.div>
+          } />
+
+          {/* About View */}
+          <Route path="/about" element={
+            <motion.div
+              key="about-view"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+            >
+              <AboutPage 
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');

@@ -1,126 +1,104 @@
-import React from 'react';
-import { motion } from 'motion/react';
-import { Briefcase, Users, UserCheck, ShieldCheck, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronRight } from 'lucide-react';
 import OpenCommLogo from '../common/OpenCommLogo';
+import { getTimeGreeting } from '../../lib/time';
 
 interface HeroSectionProps {
-  username?: string;
+  userFullName?: string;
   isLoggedIn?: boolean;
-  onExploreJobs?: () => void;
-  onFindProfessionals?: () => void;
-  onCreateAccount?: () => void;
+  onAboutClick?: () => void;
 }
 
 export default function HeroSection({
-  username,
+  userFullName,
   isLoggedIn = false,
-  onExploreJobs,
-  onFindProfessionals,
-  onCreateAccount,
+  onAboutClick,
 }: HeroSectionProps) {
+  const [greeting, setGreeting] = useState<string>(() => getTimeGreeting());
+
+  useEffect(() => {
+    const updateGreeting = () => {
+      setGreeting(getTimeGreeting());
+    };
+
+    updateGreeting();
+
+    // Check time boundary every 30 seconds
+    const interval = setInterval(updateGreeting, 30000);
+
+    // Update greeting when user refocuses tab
+    const handleFocus = () => updateGreeting();
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, []);
+
+  // Format greeting display:
+  // Logged-in -> "Good morning, Sabin Saji"
+  // Logged-out -> "Good morning"
+  const greetingText = isLoggedIn && userFullName && userFullName.trim().length > 0
+    ? `${greeting}, ${userFullName.trim()}`
+    : greeting;
+
   return (
-    <div className="relative overflow-hidden bg-gradient-to-b from-blue-50/50 via-white to-slate-50/30 dark:from-[#0f172a]/60 dark:via-[#0b0d12] dark:to-[#0b0d12] rounded-3xl border border-slate-200/80 dark:border-zinc-800/80 p-6 sm:p-8 lg:p-10 text-left shadow-xl transition-all duration-300">
-      {/* Subtle Glow Accents */}
-      <div className="absolute -top-24 -right-24 w-96 h-96 bg-gradient-to-br from-[#2563EB]/10 via-[#7C3AED]/10 to-transparent rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-gradient-to-tr from-indigo-500/5 via-blue-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+    <div className="relative overflow-hidden bg-gradient-to-br from-blue-50/70 via-white to-indigo-50/40 dark:from-[#0f172a]/70 dark:via-[#0b0d12] dark:to-[#111827] rounded-2xl md:rounded-3xl border border-slate-200/80 dark:border-zinc-800/80 p-5 sm:p-6 lg:p-8 text-left shadow-lg transition-all duration-300 min-h-[360px] max-h-[480px] md:min-h-[300px] md:max-h-[420px] flex flex-col justify-center">
+      {/* Subtle Ambient Glow Effects */}
+      <div className="absolute -top-20 -right-20 w-72 h-72 sm:w-80 sm:h-80 bg-gradient-to-br from-blue-500/10 via-indigo-500/10 to-transparent rounded-full blur-2xl sm:blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-20 -left-20 w-72 h-72 sm:w-80 sm:h-80 bg-gradient-to-tr from-indigo-500/5 via-purple-500/5 to-transparent rounded-full blur-2xl sm:blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 space-y-6">
+      <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
         
-        {/* Eyebrow & Brand Logo Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-3">
-            <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
-              <span className="w-1.5 h-1.5 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-pulse" />
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest font-mono">
-                PROFESSIONAL MARKETPLACE
-              </span>
-            </div>
-
-            {/* Main Heading H1 */}
-            <h1 className="text-2xl sm:text-4xl md:text-5xl font-display font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
-              Build better work connections.
-            </h1>
+        {/* Main Content Column */}
+        <div className="flex-1 space-y-2.5 sm:space-y-3 max-w-3xl">
+          
+          {/* Small Top Label */}
+          <div className="inline-flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full shadow-xs w-fit">
+            <span className="w-1.5 h-1.5 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-pulse" />
+            <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest font-mono">
+              BUILD BETTER WORK CONNECTIONS
+            </span>
           </div>
 
-          {/* Display OpenComm logo image clearly */}
-          <div className="shrink-0 self-start sm:self-center">
-            <OpenCommLogo variant="hero" />
-          </div>
-        </div>
-
-        {/* Short & Supporting Descriptions */}
-        <div className="max-w-3xl space-y-2 text-slate-600 dark:text-zinc-300">
-          <p className="text-sm sm:text-base md:text-lg font-medium leading-relaxed">
-            Discover skilled professionals, trusted opportunities, and meaningful work connections—all in one place.
+          {/* Time-Based Greeting */}
+          <p className="text-xs sm:text-sm font-semibold tracking-wide text-indigo-600 dark:text-indigo-400">
+            {greetingText}
           </p>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400 leading-relaxed">
-            Browse jobs, find talent, create a professional profile, and connect securely through OpenComm.
+
+          {/* Main H1 Heading */}
+          <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            Welcome to OpenComm
+          </h1>
+
+          {/* Descriptions */}
+          <p className="text-xs sm:text-sm md:text-base font-medium text-slate-600 dark:text-zinc-300 leading-relaxed max-w-2xl">
+            OpenComm helps people discover trusted professionals, meaningful work opportunities, and better ways to connect and collaborate.
           </p>
-        </div>
+          <p className="text-[11px] sm:text-xs text-slate-500 dark:text-zinc-400 leading-relaxed max-w-2xl">
+            Browse opportunities, discover skilled workers, build your professional presence, and communicate securely in one place.
+          </p>
 
-        {/* CTA Buttons */}
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onExploreJobs}
-            className="px-6 h-12 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 shadow-md shadow-blue-500/15 active:scale-98 transition-all cursor-pointer flex items-center justify-center space-x-2"
-          >
-            <span>Explore Jobs</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={onFindProfessionals}
-            className="px-6 h-12 rounded-xl text-xs sm:text-sm font-bold text-slate-800 dark:text-zinc-100 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 shadow-sm active:scale-98 transition-all cursor-pointer flex items-center justify-center space-x-2"
-          >
-            <span>Find Professionals</span>
-          </button>
-
-          {!isLoggedIn && (
+          {/* Single Hero Button: About OpenComm */}
+          <div className="pt-1 sm:pt-2">
             <button
               type="button"
-              onClick={onCreateAccount}
-              className="px-5 h-12 rounded-xl text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/15 border border-indigo-500/20 active:scale-98 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+              onClick={onAboutClick}
+              className="px-5 h-10 sm:h-11 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:opacity-95 shadow-md shadow-indigo-500/15 active:scale-98 transition-all cursor-pointer flex items-center space-x-1.5 border border-white/10"
             >
-              <span>Create Free Account</span>
+              <span>About OpenComm</span>
+              <ChevronRight className="w-4 h-4" />
             </button>
-          )}
+          </div>
+
         </div>
 
-        {/* Compact Benefit Row with Lucide Line Icons */}
-        <div className="pt-4 border-t border-slate-200/60 dark:border-zinc-800/80">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-xs font-semibold text-slate-700 dark:text-zinc-300">
-            
-            <div className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200/40 dark:border-zinc-800/40">
-              <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                <Briefcase className="w-4 h-4" />
-              </div>
-              <span className="truncate">Find Opportunities</span>
-            </div>
-
-            <div className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200/40 dark:border-zinc-800/40">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                <Users className="w-4 h-4" />
-              </div>
-              <span className="truncate">Discover Professionals</span>
-            </div>
-
-            <div className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200/40 dark:border-zinc-800/40">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                <UserCheck className="w-4 h-4" />
-              </div>
-              <span className="truncate">Build Your Profile</span>
-            </div>
-
-            <div className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200/40 dark:border-zinc-800/40">
-              <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <span className="truncate">Connect Securely</span>
-            </div>
-
-          </div>
+        {/* Supporting Brand Logo Element (Desktop Right / Mobile Compact) */}
+        <div className="shrink-0 self-start md:self-center pt-2 md:pt-0">
+          <OpenCommLogo variant="hero" />
         </div>
 
       </div>

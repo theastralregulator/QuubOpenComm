@@ -24,6 +24,9 @@ export default function RouteTracker({ jobs, workers }: RouteTrackerProps) {
 
     if (path === '/') {
       title = 'OpenComm — Jobs, Professionals and Work Opportunities';
+    } else if (path === '/about') {
+      title = 'About OpenComm — Vision, Mission and Platform Purpose';
+      metaDescription = 'Learn about OpenComm, its mission, vision, users, features, values, and approach to trusted work connections.';
     } else if (path === '/jobs') {
       title = 'Jobs | OpenComm';
       metaDescription = 'Explore high-paying developer, designer, carpenter, electrician, and specialist job opportunities on OpenComm.';

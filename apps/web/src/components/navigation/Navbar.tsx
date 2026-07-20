@@ -67,6 +67,7 @@ export default function Navbar({
     { id: 'home', label: 'Home', icon: Home, to: '/' },
     { id: 'jobs', label: 'Jobs', icon: Briefcase, to: '/jobs' },
     { id: 'workers', label: 'Workers', icon: Users, to: '/workers' },
+    { id: 'about', label: 'About', icon: Info, to: '/about' },
     ...(isLoggedIn ? [
       { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, to: '/messages' },
       { id: 'profile', label: 'Profile', icon: User, to: '/profile' },
@@ -77,6 +78,7 @@ export default function Navbar({
     if (viewId === 'home') navigate('/');
     else if (viewId === 'jobs') navigate('/jobs');
     else if (viewId === 'workers') navigate('/workers');
+    else if (viewId === 'about') navigate('/about');
     else if (viewId === 'messages') navigate('/messages');
     else if (viewId === 'profile') navigate('/profile');
     else if (viewId === 'saved-jobs') navigate('/profile/saved-jobs');

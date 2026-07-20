@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Mail, HelpCircle, FileText, Lock, Globe } from 'lucide-react';
+import { ShieldCheck, Mail, HelpCircle, FileText, Lock, Globe, Info } from 'lucide-react';
 import OpenCommLogo from '../common/OpenCommLogo';
 
 interface FooterProps {
@@ -75,6 +75,16 @@ export default function Footer({ navigate }: FooterProps) {
               Help & Resources
             </h4>
             <ul className="space-y-2 text-xs font-semibold text-slate-600 dark:text-zinc-300">
+              <li>
+                <a
+                  href="/about"
+                  onClick={(e) => handleLinkClick('/about', e)}
+                  className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center space-x-1.5"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  <span>About OpenComm</span>
+                </a>
+              </li>
               <li>
                 <a
                   href="/community-guidelines"
