@@ -85,7 +85,7 @@ export default function OpenCommLogo({
       sizeClass = 'h-6 sm:h-7 w-auto max-w-[130px] sm:max-w-[150px]';
       break;
     case 'hero':
-      sizeClass = 'h-7 sm:h-8 md:h-10 w-auto max-w-[150px] sm:max-w-[200px]';
+      sizeClass = 'h-5 sm:h-6 md:h-8 w-auto max-w-[125px] sm:max-w-[160px] md:max-w-[200px]';
       break;
     case 'custom':
     default:
