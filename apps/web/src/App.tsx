@@ -333,6 +333,7 @@ export default function App() {
   const isPublicPath = (pathname: string) => {
     const p = pathname.toLowerCase();
     if (p === '/' || 
+        p === '/about' ||
         p === '/jobs' || 
         p === '/workers' || 
         p === '/terms' || 

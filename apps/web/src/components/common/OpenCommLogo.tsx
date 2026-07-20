@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import darkLogo from '../../assets/opencomm-dark-wordmark.png';
-import lightLogo from '../../assets/opencomm-light-wordmark.png';
+import blackTextLogo from '../../assets/opencomm-dark-wordmark.png';  // Black "Open" text -> for Light theme
+import whiteTextLogo from '../../assets/opencomm-light-wordmark.png'; // White "Open" text -> for Dark theme
 
 interface OpenCommLogoProps {
   variant?: 'navbar' | 'mobile-navbar' | 'auth' | 'footer' | 'hero' | 'custom';
@@ -10,59 +10,100 @@ interface OpenCommLogoProps {
   onClick?: () => void;
 }
 
-// Preload both logo image assets once on module load
+// Preload both logo image assets eagerly on module load to prevent flicker
 if (typeof window !== 'undefined') {
   const imgDark = new Image();
-  imgDark.src = darkLogo;
+  imgDark.src = whiteTextLogo;
   const imgLight = new Image();
-  imgLight.src = lightLogo;
+  imgLight.src = blackTextLogo;
 }
 
 export default function OpenCommLogo({
   variant = 'navbar',
   className = '',
   themeMode,
-  onClick
+  onClick,
 }: OpenCommLogoProps) {
-  const [isDark, setIsDark] = useState<boolean>(() => {
+  const determineIsDark = (): boolean => {
     if (themeMode === 'dark') return true;
     if (themeMode === 'light') return false;
+    if (themeMode === 'system') {
+      if (typeof window !== 'undefined') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      return false;
+    }
     if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('dark');
+      if (document.documentElement.classList.contains('dark')) {
+        return true;
+      }
+      if (document.documentElement.classList.contains('light')) {
+        return false;
+      }
+      if (typeof window !== 'undefined') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
     }
     return false;
-  });
+  };
+
+  const [isDark, setIsDark] = useState<boolean>(determineIsDark);
 
   useEffect(() => {
-    if (themeMode === 'dark') {
-      setIsDark(true);
-      return;
-    }
-    if (themeMode === 'light') {
-      setIsDark(false);
-      return;
-    }
-
-    const checkDark = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+    const updateTheme = () => {
+      setIsDark(determineIsDark());
     };
 
-    checkDark();
+    updateTheme();
 
-    // Observe root element class mutations (for theme toggle without page reload)
-    const observer = new MutationObserver(() => {
-      checkDark();
-    });
+    if (themeMode === 'dark' || themeMode === 'light') {
+      return;
+    }
 
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
+    // 1. Observe root documentElement class attribute mutations (for instant theme toggle)
+    let observer: MutationObserver | null = null;
+    if (typeof document !== 'undefined') {
+      observer = new MutationObserver(() => {
+        updateTheme();
+      });
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+    }
 
-    return () => observer.disconnect();
+    // 2. Observe system color scheme changes if theme is system or unassigned
+    let mediaQuery: MediaQueryList | null = null;
+    if (typeof window !== 'undefined') {
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleMediaChange = () => updateTheme();
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', handleMediaChange);
+      } else {
+        mediaQuery.addListener(handleMediaChange);
+      }
+
+      return () => {
+        if (observer) observer.disconnect();
+        if (mediaQuery) {
+          if (mediaQuery.removeEventListener) {
+            mediaQuery.removeEventListener('change', handleMediaChange);
+          } else {
+            mediaQuery.removeListener(handleMediaChange);
+          }
+        }
+      };
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+    };
   }, [themeMode]);
 
-  const currentLogo = isDark ? darkLogo : lightLogo;
+  // Select logo asset:
+  // Dark mode -> white "Open" text (whiteTextLogo)
+  // Light mode -> black "Open" text (blackTextLogo)
+  const currentLogo = isDark ? whiteTextLogo : blackTextLogo;
 
   let sizeClass = '';
   switch (variant) {
@@ -79,7 +120,7 @@ export default function OpenCommLogo({
       sizeClass = 'h-6 sm:h-7 w-auto max-w-[130px] sm:max-w-[150px]';
       break;
     case 'hero':
-      sizeClass = 'h-10 sm:h-12 md:h-14 w-auto max-w-[210px] sm:max-w-[260px]';
+      sizeClass = 'h-8 sm:h-9 md:h-11 w-auto max-w-[180px] sm:max-w-[230px]';
       break;
     case 'custom':
     default:
