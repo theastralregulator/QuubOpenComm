@@ -12,8 +12,8 @@ import OpenCommLogo from '../common/OpenCommLogo';
 interface NavbarProps {
   currentView: string;
   setCurrentView: (view: any) => void;
-  themeMode: 'light' | 'dark' | 'system';
-  setThemeMode: (mode: 'light' | 'dark' | 'system') => void;
+  themeMode: 'light' | 'dark';
+  setThemeMode: (mode: 'light' | 'dark') => void;
   unreadMessagesCount: number;
   unreadNotificationsCount: number;
   notifications: Notification[];
@@ -110,7 +110,8 @@ export default function Navbar({
           {/* Logo Brand Section */}
           <OpenCommLogo 
             variant="navbar" 
-            themeMode={themeMode}
+            themeMode={isLoggedIn ? themeMode : 'light'}
+            isLoggedIn={isLoggedIn}
             onClick={() => handleNavClick('home')} 
           />
 
@@ -409,11 +410,10 @@ export default function Navbar({
                                   </div>
                                   <div>
                                     <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 pl-0.5">Appearance Theme</label>
-                                    <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 dark:bg-[#111827] rounded-lg border border-slate-200/50 dark:border-slate-800/40">
+                                    <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-[#111827] rounded-lg border border-slate-200/50 dark:border-slate-800/40">
                                       {[
                                         { id: 'light', label: 'Light', icon: Sun },
-                                        { id: 'dark', label: 'Dark', icon: Moon },
-                                        { id: 'system', label: 'System', icon: Monitor }
+                                        { id: 'dark', label: 'Dark', icon: Moon }
                                       ].map((mode) => {
                                         const ModeIcon = mode.icon;
                                         const isSelected = themeMode === mode.id;
@@ -421,7 +421,7 @@ export default function Navbar({
                                           <button
                                             key={mode.id}
                                             onClick={() => setThemeMode(mode.id as any)}
-                                            className={`py-1 rounded-md text-[10px] font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${
+                                            className={`py-1.5 rounded-md text-[10px] font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${
                                               isSelected 
                                                 ? 'bg-white dark:bg-[#172033] text-[#2563EB] dark:text-[#60A5FA] shadow-xs' 
                                                 : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'

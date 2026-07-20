@@ -66,7 +66,18 @@ export default function App() {
   const [appMessages, setAppMessages] = useState<ApplicationMessage[]>(INITIAL_APP_MESSAGES);
   
   // Custom states
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const isLoggedIn = localStorage.getItem('opencomm_is_logged_in') === 'true';
+      if (isLoggedIn) {
+        const savedTheme = localStorage.getItem('opencomm_theme');
+        if (savedTheme === 'dark' || savedTheme === 'light') {
+          return savedTheme;
+        }
+      }
+    }
+    return 'light';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
@@ -490,22 +501,25 @@ export default function App() {
   const [hireProjectDesc, setHireProjectDesc] = useState('');
   const [hireOfferRate, setHireOfferRate] = useState(0);
 
-  // --- THEME SYNC ---
+  // --- THEME SYNC (Public = Always Light, Authenticated = Explicit User Preference) ---
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      if (systemTheme === 'dark') {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    } else if (theme === 'dark') {
+    if (isLoggedIn && theme === 'dark') {
       root.classList.add('dark');
+      root.classList.remove('light');
     } else {
       root.classList.remove('dark');
+      root.classList.add('light');
     }
-  }, [theme]);
+  }, [theme, isLoggedIn]);
+
+  const handleSetTheme = (newTheme: 'light' | 'dark' | 'system') => {
+    const targetTheme = newTheme === 'dark' ? 'dark' : 'light';
+    setTheme(targetTheme);
+    if (isLoggedIn) {
+      localStorage.setItem('opencomm_theme', targetTheme);
+    }
+  };
 
   // --- GOOGLE ANALYTICS INITIALIZATION & AUTO PAGE VIEW TRACKING ---
   useEffect(() => {
@@ -840,7 +854,9 @@ export default function App() {
     localStorage.removeItem('opencomm_user_photo');
     localStorage.removeItem('opencomm_user_type');
     localStorage.removeItem('opencomm_user_id');
+    localStorage.removeItem('opencomm_theme');
 
+    setTheme('light');
     clearSignupTempState();
   };
 
@@ -2052,8 +2068,8 @@ export default function App() {
       <Navbar 
         currentView={currentView}
         setCurrentView={setCurrentView}
-        themeMode={theme}
-        setThemeMode={setTheme}
+        themeMode={isLoggedIn ? theme : 'light'}
+        setThemeMode={handleSetTheme as any}
         unreadMessagesCount={unreadMessagesCount}
         unreadNotificationsCount={unreadNotificationsCount}
         username={username}

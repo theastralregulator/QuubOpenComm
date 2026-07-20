@@ -6,7 +6,8 @@ import whiteTextLogo from '../../assets/opencomm-light-wordmark.png'; // White "
 interface OpenCommLogoProps {
   variant?: 'navbar' | 'mobile-navbar' | 'auth' | 'footer' | 'hero' | 'custom';
   className?: string;
-  themeMode?: 'light' | 'dark' | 'system';
+  themeMode?: 'light' | 'dark';
+  isLoggedIn?: boolean;
   onClick?: () => void;
 }
 
@@ -21,28 +22,17 @@ if (typeof window !== 'undefined') {
 export default function OpenCommLogo({
   variant = 'navbar',
   className = '',
-  themeMode,
+  themeMode = 'light',
+  isLoggedIn = false,
   onClick,
 }: OpenCommLogoProps) {
   const determineIsDark = (): boolean => {
+    // Public/Logged-out pages are ALWAYS Light Theme -> return false (black logo)
+    if (!isLoggedIn) return false;
     if (themeMode === 'dark') return true;
     if (themeMode === 'light') return false;
-    if (themeMode === 'system') {
-      if (typeof window !== 'undefined') {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-      return false;
-    }
     if (typeof document !== 'undefined') {
-      if (document.documentElement.classList.contains('dark')) {
-        return true;
-      }
-      if (document.documentElement.classList.contains('light')) {
-        return false;
-      }
-      if (typeof window !== 'undefined') {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
+      return document.documentElement.classList.contains('dark');
     }
     return false;
   };
@@ -56,11 +46,9 @@ export default function OpenCommLogo({
 
     updateTheme();
 
-    if (themeMode === 'dark' || themeMode === 'light') {
-      return;
-    }
+    if (!isLoggedIn) return;
 
-    // 1. Observe root documentElement class attribute mutations (for instant theme toggle)
+    // Observe root documentElement class attribute mutations for authenticated dark mode
     let observer: MutationObserver | null = null;
     if (typeof document !== 'undefined') {
       observer = new MutationObserver(() => {
@@ -72,37 +60,14 @@ export default function OpenCommLogo({
       });
     }
 
-    // 2. Observe system color scheme changes if theme is system or unassigned
-    let mediaQuery: MediaQueryList | null = null;
-    if (typeof window !== 'undefined') {
-      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleMediaChange = () => updateTheme();
-      if (mediaQuery.addEventListener) {
-        mediaQuery.addEventListener('change', handleMediaChange);
-      } else {
-        mediaQuery.addListener(handleMediaChange);
-      }
-
-      return () => {
-        if (observer) observer.disconnect();
-        if (mediaQuery) {
-          if (mediaQuery.removeEventListener) {
-            mediaQuery.removeEventListener('change', handleMediaChange);
-          } else {
-            mediaQuery.removeListener(handleMediaChange);
-          }
-        }
-      };
-    }
-
     return () => {
       if (observer) observer.disconnect();
     };
-  }, [themeMode]);
+  }, [themeMode, isLoggedIn]);
 
   // Select logo asset:
-  // Dark mode -> white "Open" text (whiteTextLogo)
-  // Light mode -> black "Open" text (blackTextLogo)
+  // Dark mode (authenticated only) -> white "Open" text (whiteTextLogo)
+  // Light mode (default & public) -> black "Open" text (blackTextLogo)
   const currentLogo = isDark ? whiteTextLogo : blackTextLogo;
 
   let sizeClass = '';
@@ -120,7 +85,7 @@ export default function OpenCommLogo({
       sizeClass = 'h-6 sm:h-7 w-auto max-w-[130px] sm:max-w-[150px]';
       break;
     case 'hero':
-      sizeClass = 'h-8 sm:h-9 md:h-11 w-auto max-w-[180px] sm:max-w-[230px]';
+      sizeClass = 'h-7 sm:h-8 md:h-10 w-auto max-w-[150px] sm:max-w-[200px]';
       break;
     case 'custom':
     default:

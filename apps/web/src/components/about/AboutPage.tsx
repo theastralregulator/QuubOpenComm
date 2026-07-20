@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, Eye, Target, Users, CheckCircle2, ChevronDown, 
-  HelpCircle, Mail, Globe, ArrowRight, Lock, Heart, Award, Sparkles, Briefcase, UserCheck, MapPin, Compass
+  HelpCircle, Mail, Globe, ArrowRight, Lock, Heart, Award, Sparkles, Briefcase, UserCheck
 } from 'lucide-react';
 import OpenCommLogo from '../common/OpenCommLogo';
 
@@ -110,7 +110,7 @@ export default function AboutPage({ isLoggedIn = false, onOpenAuth }: AboutPageP
       <div className="space-y-4 border-b border-slate-200/80 dark:border-zinc-800/80 pb-8">
         <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
           <Sparkles className="w-3.5 h-3.5" />
-          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">PLATFORM OVERVIEW</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">ABOUT OPENCOMM</span>
         </div>
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-display font-black tracking-tight text-slate-900 dark:text-white leading-tight">
           About OpenComm
@@ -201,22 +201,16 @@ export default function AboutPage({ isLoggedIn = false, onOpenAuth }: AboutPageP
           <Users className="w-6 h-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span>Who Is OpenComm For?</span>
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {[
             { title: 'Job Seekers', desc: 'Discover verified jobs.' },
             { title: 'Freelancers', desc: 'Showcase portfolios & clients.' },
             { title: 'Skilled Workers', desc: 'Highlight technical trades.' },
             { title: 'Local Pros', desc: 'On-demand services nearby.' },
             { title: 'Students', desc: 'Build initial experience.' },
-            { title: 'Employers', desc: 'Post opportunities & hire.' },
-            { title: 'Companies', desc: 'Enterprise management.', comingSoon: true }
+            { title: 'Employers', desc: 'Post opportunities & hire.' }
           ].map((user, idx) => (
             <div key={idx} className="p-4 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/60 dark:border-zinc-800/60 space-y-1.5 text-left relative overflow-hidden">
-              {user.comingSoon && (
-                <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-mono">
-                  Coming Soon
-                </span>
-              )}
               <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">{user.title}</h3>
               <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-normal">{user.desc}</p>
             </div>
@@ -229,27 +223,21 @@ export default function AboutPage({ isLoggedIn = false, onOpenAuth }: AboutPageP
         <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">What You Can Do on OpenComm</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {[
-            { title: 'Create a Basic Account', status: 'Available' },
-            { title: 'Build a Worker Profile', status: 'Available' },
-            { title: 'Discover Verified Jobs', status: 'Available' },
-            { title: 'Discover Professionals', status: 'Available' },
-            { title: 'View Detailed Profiles', status: 'Available' },
-            { title: 'Share Links & Portfolios', status: 'Available' },
-            { title: 'Apply for Jobs', status: 'Available' },
-            { title: 'Platform Messaging', status: 'Available' },
-            { title: 'Save Opportunities', status: 'Available' },
-            { title: 'Manage Account Details', status: 'Available' },
-            { title: 'Company Organization Accounts', status: 'Coming Soon' },
-            { title: 'Automated Escrow Contracts', status: 'Coming Soon' }
+            { title: 'Create a Basic Account' },
+            { title: 'Build a Worker Profile' },
+            { title: 'Discover Verified Jobs' },
+            { title: 'Discover Professionals' },
+            { title: 'View Detailed Profiles' },
+            { title: 'Share Links & Portfolios' },
+            { title: 'Apply for Jobs' },
+            { title: 'Platform Messaging' },
+            { title: 'Save Opportunities' },
+            { title: 'Manage Account Details' }
           ].map((feature, idx) => (
             <div key={idx} className="flex items-center justify-between p-3.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs">
               <span className="font-semibold text-slate-800 dark:text-zinc-200">{feature.title}</span>
-              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono ${
-                feature.status === 'Available'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-              }`}>
-                {feature.status}
+              <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Available
               </span>
             </div>
           ))}
@@ -298,31 +286,6 @@ export default function AboutPage({ isLoggedIn = false, onOpenAuth }: AboutPageP
               <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">{st.desc}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* Future Roadmap */}
-      <section className="p-6 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-          <Compass className="w-6 h-6 text-purple-600 dark:text-purple-400 shrink-0" />
-          <span>Future Roadmap</span>
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-          <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 space-y-1">
-            <span className="px-2 py-0.5 text-[9px] font-bold font-mono uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded w-fit block">Phase 1</span>
-            <h3 className="font-bold text-slate-900 dark:text-white">Expanded Discovery</h3>
-            <p className="text-slate-500 dark:text-zinc-400">Enhanced filtering, saved searches, and real-time candidate recommendations.</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 space-y-1">
-            <span className="px-2 py-0.5 text-[9px] font-bold font-mono uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded w-fit block">Phase 2</span>
-            <h3 className="font-bold text-slate-900 dark:text-white">Company Organization Accounts</h3>
-            <p className="text-slate-500 dark:text-zinc-400">Multi-user corporate accounts, team hiring dashboards, and company profiles.</p>
-          </div>
-          <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 space-y-1">
-            <span className="px-2 py-0.5 text-[9px] font-bold font-mono uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded w-fit block">Phase 3</span>
-            <h3 className="font-bold text-slate-900 dark:text-white">Automated Milestone Escrow</h3>
-            <p className="text-slate-500 dark:text-zinc-400">Integrated milestone escrow payments and deliverables tracking.</p>
-          </div>
         </div>
       </section>
 
