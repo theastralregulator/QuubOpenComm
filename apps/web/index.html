@@ -9,6 +9,16 @@
     <script>
       (function() {
         try {
+          var isLoggedIn = localStorage.getItem('opencomm_is_logged_in') === 'true';
+          if (isLoggedIn) {
+            var userTheme = localStorage.getItem('opencomm_user_theme');
+            if (userTheme === 'dark') {
+              document.documentElement.classList.add('dark');
+              document.documentElement.classList.remove('light');
+              document.documentElement.style.colorScheme = 'dark';
+              return;
+            }
+          }
           document.documentElement.classList.remove('dark');
           document.documentElement.classList.add('light');
           document.documentElement.style.colorScheme = 'light';

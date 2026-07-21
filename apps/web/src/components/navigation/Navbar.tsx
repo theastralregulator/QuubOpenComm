@@ -407,7 +407,7 @@ export default function Navbar({
                                       placeholder="Username"
                                     />
                                   </div>
-                                  {setThemeMode && (
+                                  {isLoggedIn && setThemeMode && (
                                     <div>
                                       <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 pl-0.5">Appearance Theme</label>
                                       <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-[#111827] rounded-lg border border-slate-200/50 dark:border-slate-800/40">

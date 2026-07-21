@@ -504,18 +504,24 @@ export default function App() {
   const [hireProjectDesc, setHireProjectDesc] = useState('');
   const [hireOfferRate, setHireOfferRate] = useState(0);
 
-  // --- THEME SYNC ---
+  // --- THEME SYNC (Manual User Preference Only - Light Default for Public) ---
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem('opencomm_theme');
-      if (saved === 'dark' || saved === 'light') return saved;
+      const isUserLoggedIn = localStorage.getItem('opencomm_is_logged_in') === 'true';
+      if (isUserLoggedIn) {
+        const saved = localStorage.getItem('opencomm_user_theme');
+        if (saved === 'dark' || saved === 'light') return saved;
+      }
     }
-    return 'light';
+    return 'light'; // Always default to Light theme for public/logged-out visitors
   });
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
+    // Public / Logged-out website MUST ALWAYS be in Light Theme
+    const activeTheme = isLoggedIn ? theme : 'light';
+
+    if (activeTheme === 'dark') {
       root.classList.add('dark');
       root.classList.remove('light');
       root.style.colorScheme = 'dark';
@@ -524,12 +530,13 @@ export default function App() {
       root.classList.add('light');
       root.style.colorScheme = 'light';
     }
-  }, [theme]);
+  }, [theme, isLoggedIn]);
 
   const handleSetTheme = (newTheme: 'light' | 'dark') => {
+    if (!isLoggedIn) return; // Restrict theme switching to logged-in users only
     setTheme(newTheme);
     try {
-      localStorage.setItem('opencomm_theme', newTheme);
+      localStorage.setItem('opencomm_user_theme', newTheme);
     } catch (e) {}
   };
 
@@ -763,6 +770,14 @@ export default function App() {
     setUserPhoto(profile.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
     setUserType(profile.profile_type as any || 'normal');
 
+    // Restore saved user theme preference upon login
+    const savedTheme = localStorage.getItem('opencomm_user_theme');
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      setTheme(savedTheme as 'light' | 'dark');
+    } else {
+      setTheme('light');
+    }
+
     localStorage.setItem('opencomm_is_logged_in', 'true');
     localStorage.setItem('opencomm_username', profile.full_name || userEmail.split('@')[0]);
     localStorage.setItem('opencomm_user_photo', profile.avatar_url || '');
@@ -874,13 +889,19 @@ export default function App() {
     setUsername('Akhil Varma');
     setUserPhoto('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
     setUserType('normal');
+    setTheme('light'); // Reset theme state to Light Mode on logout
     
     localStorage.removeItem('opencomm_is_logged_in');
     localStorage.removeItem('opencomm_username');
     localStorage.removeItem('opencomm_user_photo');
     localStorage.removeItem('opencomm_user_type');
     localStorage.removeItem('opencomm_user_id');
-    localStorage.removeItem('opencomm_theme');
+
+    // Force public DOM root back to Light Theme immediately
+    const root = document.documentElement;
+    root.classList.remove('dark');
+    root.classList.add('light');
+    root.style.colorScheme = 'light';
 
     clearSignupTempState();
   };
