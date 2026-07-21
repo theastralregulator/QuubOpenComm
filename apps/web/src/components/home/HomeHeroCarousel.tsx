@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Briefcase, UserCheck, MessageSquare, ShieldCheck, Building2 } from 'lucide-react';
+import { Briefcase, UserCheck, MessageSquare, ShieldCheck, Building2, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import OpenCommLogo from '../common/OpenCommLogo';
 import { getTimeGreeting } from '../../lib/time';
@@ -156,7 +156,11 @@ export default function HomeHeroCarousel({
     return slideList;
   }, [jobs, workers, isLoggedIn, unreadMessagesCount, userFullName, onAboutClick, navigate]);
 
-  const totalSlides = slides.length;
+  const safeSlides = useMemo<SlideItem[]>(() => {
+    return Array.isArray(slides) ? slides.filter(Boolean) : [];
+  }, [slides]);
+
+  const totalSlides = safeSlides.length;
 
   const goToNextSlide = useCallback(() => {
     if (totalSlides <= 1) return;
@@ -233,7 +237,8 @@ export default function HomeHeroCarousel({
   }, []);
 
   // Track banner view event
-  const activeSlide = slides[currentIndex] || slides[0];
+  const safeIndex = Math.min(Math.max(currentIndex, 0), Math.max(0, totalSlides - 1));
+  const activeSlide = safeSlides[safeIndex];
 
   useEffect(() => {
     if (!activeSlide) return;
@@ -414,7 +419,7 @@ export default function HomeHeroCarousel({
           aria-label="Carousel pagination"
           className="absolute bottom-2.5 sm:bottom-3.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5"
         >
-          {slides.map((slide, idx) => {
+          {safeSlides.map((slide, idx) => {
             const isActive = idx === currentIndex;
             return (
               <button
