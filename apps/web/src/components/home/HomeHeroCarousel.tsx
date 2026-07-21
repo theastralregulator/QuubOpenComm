@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { ChevronLeft, ChevronRight, Briefcase, UserCheck, MessageSquare, Sparkles, ShieldCheck, ArrowRight, Building2, Bell } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Briefcase, UserCheck, MessageSquare, ShieldCheck, Building2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import OpenCommLogo from '../common/OpenCommLogo';
 import { getTimeGreeting } from '../../lib/time';
 import { analytics } from '../../lib/analytics';
@@ -51,6 +51,7 @@ export default function HomeHeroCarousel({
   const [isPaused, setIsPaused] = useState(false);
   const touchStartXRef = useRef<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastClickTimeRef = useRef<number>(0);
 
   // Update greeting periodically
   useEffect(() => {
@@ -181,6 +182,28 @@ export default function HomeHeroCarousel({
     setCurrentIndex(index);
   }, [currentIndex, totalSlides]);
 
+  // Throttled manual interactions to prevent broken rapid clicks & reset timer smoothly
+  const handleManualNext = () => {
+    const now = Date.now();
+    if (now - lastClickTimeRef.current < 250) return;
+    lastClickTimeRef.current = now;
+    goToNextSlide();
+  };
+
+  const handleManualPrev = () => {
+    const now = Date.now();
+    if (now - lastClickTimeRef.current < 250) return;
+    lastClickTimeRef.current = now;
+    goToPrevSlide();
+  };
+
+  const handleManualGoTo = (idx: number) => {
+    const now = Date.now();
+    if (now - lastClickTimeRef.current < 250) return;
+    lastClickTimeRef.current = now;
+    goToSlide(idx);
+  };
+
   // Auto rotation timer (30,000 ms)
   useEffect(() => {
     if (totalSlides <= 1 || isPaused) return;
@@ -227,9 +250,9 @@ export default function HomeHeroCarousel({
   // Keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
-      goToPrevSlide();
+      handleManualPrev();
     } else if (e.key === 'ArrowRight') {
-      goToNextSlide();
+      handleManualNext();
     }
   };
 
@@ -245,9 +268,9 @@ export default function HomeHeroCarousel({
     const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
     touchStartXRef.current = null;
     if (deltaX < -40) {
-      goToNextSlide();
+      handleManualNext();
     } else if (deltaX > 40) {
-      goToPrevSlide();
+      handleManualPrev();
     }
   };
 
@@ -321,7 +344,7 @@ export default function HomeHeroCarousel({
             initial="enter"
             animate="center"
             exit="exit"
-            className="w-full space-y-1 sm:space-y-1.5 md:space-y-2.5"
+            className="w-full px-7 sm:px-10 md:px-12 space-y-1 sm:space-y-1.5 md:space-y-2.5"
           >
             {/* Top Badge / Label */}
             <div>
@@ -388,45 +411,52 @@ export default function HomeHeroCarousel({
       {/* Manual Navigation Controls (Only if >1 slide exists) */}
       {totalSlides > 1 && (
         <>
-          {/* Previous Arrow */}
+          {/* Minimal Premium Previous Arrow */}
           <button
             type="button"
-            onClick={goToPrevSlide}
+            onClick={handleManualPrev}
             aria-label="Previous banner"
-            className="absolute left-1.5 sm:left-2 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/70 backdrop-blur-sm border border-slate-200 text-slate-700 hover:bg-white hover:text-indigo-600 flex items-center justify-center shadow-xs transition-all active:scale-95 cursor-pointer opacity-80 hover:opacity-100"
+            className="absolute left-1 sm:left-2 md:left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/35 dark:bg-black/30 hover:bg-white/75 dark:hover:bg-white/20 border border-white/50 dark:border-white/15 text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-white backdrop-blur-md flex items-center justify-center shadow-2xs hover:shadow-sm transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+            <ChevronLeft className="w-5 h-5 text-current" />
           </button>
 
-          {/* Next Arrow */}
+          {/* Minimal Premium Next Arrow */}
           <button
             type="button"
-            onClick={goToNextSlide}
+            onClick={handleManualNext}
             aria-label="Next banner"
-            className="absolute right-1.5 sm:right-2 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/70 backdrop-blur-sm border border-slate-200 text-slate-700 hover:bg-white hover:text-indigo-600 flex items-center justify-center shadow-xs transition-all active:scale-95 cursor-pointer opacity-80 hover:opacity-100"
+            className="absolute right-1 sm:right-2 md:right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/35 dark:bg-black/30 hover:bg-white/75 dark:hover:bg-white/20 border border-white/50 dark:border-white/15 text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-white backdrop-blur-md flex items-center justify-center shadow-2xs hover:shadow-sm transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
+            <ChevronRight className="w-5 h-5 text-current" />
           </button>
 
-          {/* Slide Indicator Dots */}
+          {/* Premium Slide Indicator Row */}
           <div 
             aria-label="Carousel pagination"
-            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-white/60 backdrop-blur-sm border border-slate-200/60 shadow-2xs"
+            className="absolute bottom-2.5 sm:bottom-3.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2"
           >
-            {slides.map((slide, idx) => (
-              <button
-                key={slide.id}
-                type="button"
-                onClick={() => goToSlide(idx)}
-                aria-label={`Go to banner ${idx + 1}`}
-                aria-current={idx === currentIndex ? 'true' : undefined}
-                className={`transition-all duration-300 rounded-full cursor-pointer ${
-                  idx === currentIndex
-                    ? 'w-4 h-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 shadow-2xs'
-                    : 'w-1.5 h-1.5 bg-slate-300 hover:bg-slate-400'
-                }`}
-              />
-            ))}
+            {slides.map((slide, idx) => {
+              const isActive = idx === currentIndex;
+              return (
+                <button
+                  key={slide.id}
+                  type="button"
+                  onClick={() => handleManualGoTo(idx)}
+                  aria-label={`Go to banner ${idx + 1}`}
+                  aria-current={isActive ? 'true' : undefined}
+                  className="p-1 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer flex items-center justify-center"
+                >
+                  <span
+                    className={`block h-2 rounded-full transition-all duration-300 ease-out ${
+                      isActive
+                        ? 'w-6.5 sm:w-7 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-2xs'
+                        : 'w-2 bg-slate-400/45 dark:bg-white/30 hover:bg-slate-500/70 dark:hover:bg-white/50'
+                    }`}
+                  />
+                </button>
+              );
+            })}
           </div>
         </>
       )}
