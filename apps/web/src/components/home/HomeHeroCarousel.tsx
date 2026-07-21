@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { ChevronLeft, ChevronRight, Briefcase, UserCheck, MessageSquare, ShieldCheck, Building2 } from 'lucide-react';
+import { Briefcase, UserCheck, MessageSquare, ShieldCheck, Building2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import OpenCommLogo from '../common/OpenCommLogo';
 import { getTimeGreeting } from '../../lib/time';
@@ -204,7 +204,7 @@ export default function HomeHeroCarousel({
     goToSlide(idx);
   };
 
-  // Auto rotation timer (30,000 ms)
+  // Auto rotation timer (45,000 ms)
   useEffect(() => {
     if (totalSlides <= 1 || isPaused) return;
 
@@ -212,7 +212,7 @@ export default function HomeHeroCarousel({
       if (document.visibilityState === 'visible') {
         goToNextSlide();
       }
-    }, 30000);
+    }, 45000);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -344,7 +344,7 @@ export default function HomeHeroCarousel({
             initial="enter"
             animate="center"
             exit="exit"
-            className="w-full px-7 sm:px-10 md:px-12 space-y-1 sm:space-y-1.5 md:space-y-2.5"
+            className="w-full px-2.5 sm:px-4 md:px-6 space-y-1 sm:space-y-1.5 md:space-y-2.5"
           >
             {/* Top Badge / Label */}
             <div>
@@ -408,57 +408,34 @@ export default function HomeHeroCarousel({
         </AnimatePresence>
       </div>
 
-      {/* Manual Navigation Controls (Only if >1 slide exists) */}
+      {/* Premium Slide Indicator Row */}
       {totalSlides > 1 && (
-        <>
-          {/* Minimal Premium Previous Arrow */}
-          <button
-            type="button"
-            onClick={handleManualPrev}
-            aria-label="Previous banner"
-            className="absolute left-1 sm:left-2 md:left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/35 dark:bg-black/30 hover:bg-white/75 dark:hover:bg-white/20 border border-white/50 dark:border-white/15 text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-white backdrop-blur-md flex items-center justify-center shadow-2xs hover:shadow-sm transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <ChevronLeft className="w-5 h-5 text-current" />
-          </button>
-
-          {/* Minimal Premium Next Arrow */}
-          <button
-            type="button"
-            onClick={handleManualNext}
-            aria-label="Next banner"
-            className="absolute right-1 sm:right-2 md:right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-white/35 dark:bg-black/30 hover:bg-white/75 dark:hover:bg-white/20 border border-white/50 dark:border-white/15 text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-white backdrop-blur-md flex items-center justify-center shadow-2xs hover:shadow-sm transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <ChevronRight className="w-5 h-5 text-current" />
-          </button>
-
-          {/* Premium Slide Indicator Row */}
-          <div 
-            aria-label="Carousel pagination"
-            className="absolute bottom-2.5 sm:bottom-3.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2"
-          >
-            {slides.map((slide, idx) => {
-              const isActive = idx === currentIndex;
-              return (
-                <button
-                  key={slide.id}
-                  type="button"
-                  onClick={() => handleManualGoTo(idx)}
-                  aria-label={`Go to banner ${idx + 1}`}
-                  aria-current={isActive ? 'true' : undefined}
-                  className="p-1 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer flex items-center justify-center"
-                >
-                  <span
-                    className={`block h-2 rounded-full transition-all duration-300 ease-out ${
-                      isActive
-                        ? 'w-6.5 sm:w-7 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-2xs'
-                        : 'w-2 bg-slate-400/45 dark:bg-white/30 hover:bg-slate-500/70 dark:hover:bg-white/50'
-                    }`}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        </>
+        <div 
+          aria-label="Carousel pagination"
+          className="absolute bottom-2.5 sm:bottom-3.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5"
+        >
+          {slides.map((slide, idx) => {
+            const isActive = idx === currentIndex;
+            return (
+              <button
+                key={slide.id}
+                type="button"
+                onClick={() => handleManualGoTo(idx)}
+                aria-label={`Go to banner ${idx + 1}`}
+                aria-current={isActive ? 'true' : undefined}
+                className="p-1 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer flex items-center justify-center"
+              >
+                <span
+                  className={`block rounded-full transition-all duration-300 ease-out ${
+                    isActive
+                      ? 'w-[22px] h-[5px] bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-2xs'
+                      : 'w-[5px] h-[5px] bg-slate-400/45 dark:bg-white/30 hover:bg-slate-500/70 dark:hover:bg-white/50'
+                  }`}
+                />
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
