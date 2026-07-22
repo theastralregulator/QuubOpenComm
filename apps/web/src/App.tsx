@@ -43,6 +43,7 @@ import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
 import { PRESET_AVATARS, DEFAULT_AVATAR_URL } from './data/presetAvatars';
+import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE } from './data/countryCodes';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
 
@@ -145,8 +146,16 @@ export default function App() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [selectedAccountType, setSelectedAccountType] = useState<'basic' | 'worker' | 'company'>('basic');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
+  const [whatsappSameNumber, setWhatsappSameNumber] = useState(true);
+  const [telegramUsername, setTelegramUsername] = useState('');
+  const [isWorkerDirectoryEnabled, setIsWorkerDirectoryEnabled] = useState(false);
+  const [showOptionalWorkerDetails, setShowOptionalWorkerDetails] = useState(false);
+  const [driverLicenceType, setDriverLicenceType] = useState('Commercial (LMV/HMV)');
+  const [driverVehicleType, setDriverVehicleType] = useState('Car / Sedan');
+  const [electricianWorkType, setElectricianWorkType] = useState('Domestic & Commercial');
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
-  const [avatarTab, setAvatarTab] = useState<'upload' | 'preset'>('upload');
+  const [avatarTab, setAvatarTab] = useState<'upload' | 'preset' | 'skip'>('upload');
   const [showAvatarGalleryModal, setShowAvatarGalleryModal] = useState(false);
   const [newSkillInput, setNewSkillInput] = useState('');
   const [onboardingSubStep, setOnboardingSubStep] = useState<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'>('A');
@@ -160,19 +169,19 @@ export default function App() {
   const [workerForm, setWorkerForm] = useState({
     fullName: '',
     phone: '',
-    country: 'United States',
-    state: 'Texas',
-    district: 'Travis County',
-    city: 'Austin',
-    country_code: 'US',
-    state_code: 'TX',
-    latitude: 30.2672,
-    longitude: -97.7431,
+    country: 'India',
+    state: '',
+    district: '',
+    city: '',
+    country_code: 'IN',
+    state_code: '',
+    latitude: 20.5937,
+    longitude: 78.9629,
     preferredLanguage: 'English',
     bio: '',
     avatarUrl: '',
     professionalTitle: '',
-    primaryCategory: 'Software Development',
+    primaryCategory: 'Developer',
     skills: [] as string[],
     experienceLevel: 'Entry',
     availabilityStatus: 'Available Now',
@@ -872,6 +881,11 @@ export default function App() {
     setSignupConfirmPassword('');
     setSigninPassword('');
     setSelectedAccountType('basic');
+    setPhoneCountryCode('+91');
+    setWhatsappSameNumber(true);
+    setTelegramUsername('');
+    setIsWorkerDirectoryEnabled(false);
+    setShowOptionalWorkerDetails(false);
     setSelectedAvatar(null);
     setAvatarTab('upload');
     setAcceptTerms(false);
@@ -883,7 +897,11 @@ export default function App() {
       localStorage.removeItem('opencomm_pending_email');
       localStorage.removeItem('opencomm_pending_signup_name');
       localStorage.removeItem('opencomm_pending_signup_phone');
+      localStorage.removeItem('opencomm_pending_signup_country_code');
+      localStorage.removeItem('opencomm_pending_signup_whatsapp');
+      localStorage.removeItem('opencomm_pending_signup_telegram');
       localStorage.removeItem('opencomm_pending_signup_account_type');
+      localStorage.removeItem('opencomm_pending_signup_is_worker_listed');
       localStorage.removeItem('opencomm_pending_signup_avatar');
       localStorage.removeItem('opencomm_pending_signup_city');
       localStorage.removeItem('opencomm_pending_signup_state');
@@ -900,19 +918,19 @@ export default function App() {
     setWorkerForm({
       fullName: '',
       phone: '',
-      country: 'United States',
-      state: 'Texas',
-      district: 'Travis County',
-      city: 'Austin',
-      country_code: 'US',
-      state_code: 'TX',
-      latitude: 30.2672,
-      longitude: -97.7431,
+      country: 'India',
+      state: '',
+      district: '',
+      city: '',
+      country_code: 'IN',
+      state_code: '',
+      latitude: 20.5937,
+      longitude: 78.9629,
       preferredLanguage: 'English',
       bio: '',
       avatarUrl: '',
       professionalTitle: '',
-      primaryCategory: 'Software Development',
+      primaryCategory: 'Developer',
       skills: [] as string[],
       experienceLevel: 'Entry',
       availabilityStatus: 'Available Now',
@@ -1667,13 +1685,17 @@ export default function App() {
       }
 
       // 5. Update core profile with onboarding_completed = true
-      const isWorker = selectedAccountType === 'worker';
+      const isWorker = isWorkerDirectoryEnabled;
 
       const profilePayload = {
         id: verifiedUser.id,
         full_name: formFullName,
         email: emailToVerify,
-        phone: formPhone,
+        phone: `${phoneCountryCode} ${formPhone}`,
+        phone_country_code: phoneCountryCode,
+        phone_number: formPhone,
+        whatsapp_same_as_phone: whatsappSameNumber,
+        telegram_username: telegramUsername,
         city: workerForm.city,
         state: workerForm.state,
         country: workerForm.country,
@@ -1683,10 +1705,12 @@ export default function App() {
         latitude: workerForm.latitude,
         longitude: workerForm.longitude,
         preferred_language: workerForm.preferredLanguage,
-        bio: formBio,
+        bio: formBio || signupForm.bio,
+        short_bio: signupForm.bio || formBio,
         avatar_url: finalAvatarUrl,
         profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
         account_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
+        is_worker_listed: isWorker,
         account_status: 'active' as const,
         email_verified_for_actions: true,
         onboarding_completed: true
@@ -3659,7 +3683,30 @@ export default function App() {
 
               {/* --- CASE C: SINGLE-PAGE SIGN UP & ONBOARDING FORM --- */}
               {showAuthModal === 'signup' && (
-                <div className="space-y-4 text-left">
+                <div className="space-y-5 text-left">
+                  {/* Header Branding */}
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
+                    <div className="flex items-center space-x-2 cursor-pointer" onClick={() => { _setShowAuthModal(null); navigate('/'); }}>
+                      <OpenCommLogo className="h-6 w-auto" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { _setShowAuthModal(null); navigate('/'); }}
+                      className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h2 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                      Create your OpenComm Account
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
+                      Join the open marketplace for local work & professional services.
+                    </p>
+                  </div>
+
                   {/* Returning Unverified User Banner */}
                   {pendingEmail && signupStep === 1 && (
                     <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-2 text-left animate-fadeIn">
@@ -3668,7 +3715,7 @@ export default function App() {
                         <div className="space-y-0.5">
                           <h4 className="text-xs font-bold text-slate-900 dark:text-white">Email Verification Pending</h4>
                           <p className="text-[11px] text-slate-600 dark:text-zinc-400 leading-relaxed font-medium">
-                            You have a pending verification for <strong className="text-slate-900 dark:text-white">{pendingEmail}</strong>.
+                            This email is registered but still needs verification: <strong className="text-slate-900 dark:text-white">{pendingEmail}</strong>.
                           </p>
                         </div>
                       </div>
@@ -3696,7 +3743,7 @@ export default function App() {
                           }}
                           className="h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-slate-500 font-bold text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                         >
-                          Use Different Email
+                          Use Another Email
                         </button>
                       </div>
                     </div>
@@ -3706,14 +3753,15 @@ export default function App() {
                   {signupStep === 1 && (
                     <form onSubmit={handleSinglePageSignUp} className="space-y-4 text-xs text-left animate-fadeIn">
                       
-                      {/* SECTION 1: ACCOUNT DETAILS */}
-                      <div className="space-y-3">
+                      {/* SECTION 1: BASIC PROFILE (REQUIRED FOR EVERY USER) */}
+                      <div className="space-y-3.5">
                         <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
                           <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                            1. Account Details
+                            Basic Profile Details
                           </h3>
                         </div>
 
+                        {/* Full Name */}
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                             Full Name <span className="text-rose-500">*</span>
@@ -3724,10 +3772,11 @@ export default function App() {
                             value={signupForm.name}
                             onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
                             className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                            placeholder="e.g. Akhil Varma"
+                            placeholder="e.g. Rahul Sharma"
                           />
                         </div>
 
+                        {/* Email Address */}
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                             Email Address <span className="text-rose-500">*</span>
@@ -3739,26 +3788,64 @@ export default function App() {
                             value={signupForm.email}
                             onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
                             className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
-                            placeholder="e.g. akhil.v@opencomm.io"
+                            placeholder="e.g. rahul.sharma@example.com"
                           />
                         </div>
 
+                        {/* Phone Number with Country Code Selector (Default India +91) */}
                         <div className="space-y-1">
                           <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Phone Number (with Country Code) <span className="text-rose-500">*</span>
+                            Phone Number <span className="text-rose-500">*</span>
                           </label>
-                          <input 
-                            type="tel" 
-                            required
-                            value={signupForm.phone}
-                            onChange={(e) => setSignupForm({...signupForm, phone: e.target.value})}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                            placeholder="e.g. +919876543210"
-                          />
+                          <div className="flex rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 overflow-hidden focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10">
+                            {/* Country Code Dropdown */}
+                            <select
+                              value={phoneCountryCode}
+                              onChange={(e) => setPhoneCountryCode(e.target.value)}
+                              className="h-11 px-2.5 bg-slate-100 dark:bg-zinc-900 text-slate-900 dark:text-white font-mono text-xs font-bold border-r border-slate-200 dark:border-zinc-800 outline-none cursor-pointer"
+                            >
+                              {COUNTRY_CODES.map(c => (
+                                <option key={c.code} value={c.dialCode}>
+                                  {c.flag} {c.dialCode} ({c.code})
+                                </option>
+                              ))}
+                            </select>
+                            {/* Phone Input */}
+                            <input 
+                              type="tel" 
+                              required
+                              value={signupForm.phone}
+                              onChange={(e) => setSignupForm({...signupForm, phone: e.target.value.replace(/[^\d]/g, '')})}
+                              className="flex-1 h-11 px-3.5 bg-transparent text-slate-950 dark:text-white text-xs font-semibold focus:outline-none placeholder-slate-400"
+                              placeholder="Phone number e.g. 9876543210"
+                            />
+                          </div>
+
+                          {/* Contact Preferences */}
+                          <div className="pt-1.5 space-y-1.5">
+                            <label className="flex items-center space-x-2 text-[11px] text-slate-600 dark:text-zinc-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={whatsappSameNumber}
+                                onChange={(e) => setWhatsappSameNumber(e.target.checked)}
+                                className="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                              />
+                              <span>WhatsApp uses this same number</span>
+                            </label>
+
+                            <input
+                              type="text"
+                              value={telegramUsername}
+                              onChange={(e) => setTelegramUsername(e.target.value)}
+                              placeholder="Telegram username e.g. @rahul_dev (optional)"
+                              className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-850 bg-slate-50 dark:bg-zinc-950/60 text-slate-900 dark:text-white text-[11px] font-mono placeholder-slate-400 focus:outline-none"
+                            />
+                          </div>
                         </div>
 
+                        {/* Password & Confirm Password */}
                         {!isLoggedIn && (
-                          <>
+                          <div className="space-y-3 pt-1">
                             <div className="space-y-1">
                               <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Password <span className="text-rose-500">*</span>
@@ -3808,203 +3895,279 @@ export default function App() {
                                 </button>
                               </div>
                             </div>
-                          </>
+                          </div>
                         )}
+
+                        {/* Base Location */}
+                        <div className="space-y-1.5 pt-1">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Base Location <span className="text-rose-500">*</span>
+                          </label>
+                          <LocationSelector
+                            value={{
+                              country: workerForm.country,
+                              country_code: workerForm.country_code,
+                              state: workerForm.state,
+                              state_code: workerForm.state_code,
+                              district: workerForm.district,
+                              city: workerForm.city,
+                              latitude: workerForm.latitude,
+                              longitude: workerForm.longitude
+                            }}
+                            onChange={(loc) => setWorkerForm(prev => ({
+                              ...prev,
+                              country: loc.country,
+                              country_code: loc.country_code,
+                              state: loc.state,
+                              state_code: loc.state_code,
+                              district: loc.district,
+                              city: loc.city,
+                              latitude: loc.latitude,
+                              longitude: loc.longitude
+                            }))}
+                          />
+                        </div>
+
+                        {/* Profile Picture / Avatar Selector (Optional) */}
+                        <div className="space-y-2 pt-1">
+                          <div className="flex justify-between items-center">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                              Profile Picture or Avatar <span className="text-slate-400 font-normal">(optional)</span>
+                            </label>
+                          </div>
+
+                          {/* Options Tabs */}
+                          <div className="flex space-x-1.5 p-1 bg-slate-100 dark:bg-zinc-950 rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => setAvatarTab('upload')}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                avatarTab === 'upload'
+                                  ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
+                              }`}
+                            >
+                              Upload Photo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAvatarTab('preset');
+                                setShowAvatarGalleryModal(true);
+                              }}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                avatarTab === 'preset'
+                                  ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
+                              }`}
+                            >
+                              Choose Avatar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAvatarTab('skip');
+                                setSelectedAvatar(DEFAULT_AVATAR_URL);
+                                setCroppedFile(null);
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                avatarTab === 'skip'
+                                  ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                  : 'text-slate-400 dark:text-zinc-500 hover:text-slate-700'
+                              }`}
+                            >
+                              Skip for now
+                            </button>
+                          </div>
+
+                          {avatarTab === 'upload' ? (
+                            <ProfilePhotoUpload
+                              value={workerForm.avatarUrl}
+                              onFileChange={(file) => {
+                                setCroppedFile(file);
+                                if (file) setSelectedAvatar(null);
+                              }}
+                              onChange={(url) => {
+                                setWorkerForm(prev => ({ ...prev, avatarUrl: url }));
+                                setUserPhoto(url);
+                                if (url) setSelectedAvatar(null);
+                              }}
+                              userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
+                              supabase={supabase}
+                              triggerToast={triggerToast}
+                            />
+                          ) : (
+                            <div className="flex items-center space-x-3.5 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-200/80 dark:border-zinc-800">
+                              <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-indigo-500/30 bg-white dark:bg-zinc-800 shrink-0 p-0.5 shadow-xs">
+                                <img
+                                  src={selectedAvatar || workerForm.avatarUrl || DEFAULT_AVATAR_URL}
+                                  alt="Avatar preview"
+                                  className="w-full h-full object-cover rounded-full"
+                                />
+                              </div>
+                              <div className="space-y-1 text-left flex-1">
+                                <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                                  {avatarTab === 'skip' ? 'Default Avatar Assigned' : selectedAvatar ? 'Preset Avatar Selected' : 'Choose Preset Avatar'}
+                                </span>
+                                <p className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
+                                  Select from 50+ diverse professional avatars
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAvatarGalleryModal(true)}
+                                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-xs cursor-pointer"
+                                >
+                                  Browse Avatar Gallery (50+)
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Short Bio (Optional) */}
+                        <div className="space-y-1 pt-1">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Short Bio <span className="text-slate-400 font-normal">(optional)</span>
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={signupForm.bio}
+                            onChange={(e) => setSignupForm({ ...signupForm, bio: e.target.value })}
+                            placeholder="Tell people a little about yourself…"
+                            className="w-full p-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-medium resize-none focus:outline-none"
+                          />
+                        </div>
                       </div>
 
-                      {/* SECTION 2: ACCOUNT TYPE */}
-                      <div className="space-y-3 border-t border-slate-100 dark:border-zinc-800 pt-3.5">
-                        <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
-                          <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                            2. Account Type
-                          </h3>
-                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 font-medium mt-0.5">
-                            What would you like to create?
+                      {/* WORKER DIRECTORY TOGGLE */}
+                      <div className="space-y-2 border-t border-slate-100 dark:border-zinc-800 pt-4 mt-2">
+                        <div className="space-y-0.5">
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                            Would you like employers and clients to discover your profile?
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                            Add professional details so clients can find and contact you through OpenComm.
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {/* Basic Account Option (Default) */}
-                          <div
-                            onClick={() => setSelectedAccountType('basic')}
-                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
-                              selectedAccountType === 'basic'
-                                ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
-                                : 'border-slate-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-950/50 hover:border-slate-300 dark:hover:border-zinc-700'
-                            }`}
-                          >
-                            <div className="space-y-1">
-                              <div className="flex justify-between items-center">
-                                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-                                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedAccountType === 'basic' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
-                                    {selectedAccountType === 'basic' && <Check className="w-2.5 h-2.5" />}
-                                  </span>
-                                  <span>Basic Account</span>
-                                </h4>
-                              </div>
-                              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pl-6">
-                                Browse jobs, find workers, and manage applications.
-                              </p>
-                            </div>
+                        <div 
+                          onClick={() => setIsWorkerDirectoryEnabled(!isWorkerDirectoryEnabled)}
+                          className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                            isWorkerDirectoryEnabled
+                              ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
+                              : 'border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 hover:border-slate-300 dark:hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="space-y-0.5">
+                            <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                              List my profile in the Worker Directory
+                            </span>
+                            <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
+                              {isWorkerDirectoryEnabled ? 'Professional details expanded below' : 'OFF — Normal Basic Account'}
+                            </span>
                           </div>
 
-                          {/* Worker Account Option */}
-                          <div
-                            onClick={() => setSelectedAccountType('worker')}
-                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
-                              selectedAccountType === 'worker'
-                                ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
-                                : 'border-slate-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-950/50 hover:border-slate-300 dark:hover:border-zinc-700'
-                            }`}
-                          >
-                            <div className="space-y-1">
-                              <div className="flex justify-between items-center">
-                                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-                                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedAccountType === 'worker' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
-                                    {selectedAccountType === 'worker' && <Check className="w-2.5 h-2.5" />}
-                                  </span>
-                                  <span>Worker Account</span>
-                                </h4>
-                              </div>
-                              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pl-6">
-                                Offer services, showcase skills, and receive work requests.
-                              </p>
-                            </div>
+                          <div className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${isWorkerDirectoryEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-zinc-700'}`}>
+                            <div className={`w-5 h-5 rounded-full bg-white transition-transform shadow-xs ${isWorkerDirectoryEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                           </div>
-                        </div>
-
-                        {/* Company Account (Disabled) */}
-                        <div className="p-3 rounded-2xl border border-slate-200/50 dark:border-zinc-850 bg-slate-50/50 dark:bg-zinc-950/20 opacity-60 cursor-not-allowed flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <span className="w-3.5 h-3.5 rounded-full border border-slate-300 bg-slate-100 dark:bg-zinc-800" />
-                            <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">Company Account</span>
-                          </div>
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                            Coming Soon
-                          </span>
                         </div>
                       </div>
 
-                      {/* SECTION 3: WORKER PROFILE DETAILS (SMOOTH EXPANDABLE) */}
+                      {/* SECTION 3: PROFESSIONAL DETAILS (EXPANDABLE WHEN TOGGLE IS ON) */}
                       <AnimatePresence>
-                        {selectedAccountType === 'worker' && (
+                        {isWorkerDirectoryEnabled && (
                           <motion.div
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
                             transition={{ duration: 0.25, ease: 'easeInOut' }}
-                            className="overflow-hidden space-y-4 border-t border-slate-100 dark:border-zinc-800 pt-3.5"
+                            className="overflow-hidden space-y-4 border-t border-slate-100 dark:border-zinc-800 pt-4"
                           >
                             <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
                               <h3 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                                3. Worker Profile Details
+                                Professional Details
                               </h3>
-                              <p className="text-[11px] text-slate-500 dark:text-zinc-400 font-medium mt-0.5">
-                                Set up your professional worker details directly below
-                              </p>
                             </div>
 
-                            {/* Profile Photo / Avatar Selector */}
-                            <div className="space-y-2">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Profile Photo or Avatar <span className="text-rose-500">*</span>
-                              </label>
-
-                              {/* Tabs: Upload vs Preset */}
-                              <div className="flex space-x-2 p-1 bg-slate-100 dark:bg-zinc-950 rounded-xl">
-                                <button
-                                  type="button"
-                                  onClick={() => setAvatarTab('upload')}
-                                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                    avatarTab === 'upload'
-                                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                                      : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
-                                  }`}
-                                >
-                                  Upload Photo
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setAvatarTab('preset');
-                                    setShowAvatarGalleryModal(true);
-                                  }}
-                                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                    avatarTab === 'preset'
-                                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                                      : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
-                                  }`}
-                                >
-                                  Choose Avatar (50+)
-                                </button>
-                              </div>
-
-                              {avatarTab === 'upload' ? (
-                                <ProfilePhotoUpload
-                                  value={workerForm.avatarUrl}
-                                  onFileChange={(file) => {
-                                    setCroppedFile(file);
-                                    if (file) {
-                                      setSelectedAvatar(null);
-                                    }
-                                  }}
-                                  onChange={(url) => {
-                                    setWorkerForm(prev => ({ ...prev, avatarUrl: url }));
-                                    setUserPhoto(url);
-                                    if (url) setSelectedAvatar(null);
-                                  }}
-                                  userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
-                                  supabase={supabase}
-                                  triggerToast={triggerToast}
-                                />
-                              ) : (
-                                <div className="flex items-center space-x-3.5 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-200/80 dark:border-zinc-800">
-                                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-indigo-500/30 bg-white dark:bg-zinc-800 shrink-0 p-0.5 shadow-xs">
-                                    <img
-                                      src={selectedAvatar || workerForm.avatarUrl || DEFAULT_AVATAR_URL}
-                                      alt="Selected preset avatar"
-                                      className="w-full h-full object-cover rounded-full"
-                                    />
-                                  </div>
-                                  <div className="space-y-1 text-left flex-1">
-                                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                                      {selectedAvatar ? 'Preset Avatar Selected' : 'No Preset Selected'}
-                                    </span>
-                                    <p className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
-                                      Choose from 50+ diverse professional avatars
-                                    </p>
-                                    <button
-                                      type="button"
-                                      onClick={() => setShowAvatarGalleryModal(true)}
-                                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-xs cursor-pointer"
-                                    >
-                                      Browse Avatar Gallery
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Primary Category */}
+                            {/* Primary Profession / Category (Required) */}
                             <div className="space-y-1">
                               <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Primary Category <span className="text-rose-500">*</span>
+                                Primary Profession / Category <span className="text-rose-500">*</span>
                               </label>
                               <select
                                 value={workerForm.primaryCategory}
                                 onChange={(e) => setWorkerForm({ ...workerForm, primaryCategory: e.target.value })}
-                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
                               >
-                                {INITIAL_CATEGORIES.map(cat => (
-                                  <option key={cat.name} value={cat.name}>{cat.name}</option>
-                                ))}
+                                <option value="Driver">Driver</option>
+                                <option value="Electrician">Electrician</option>
+                                <option value="Plumber">Plumber</option>
+                                <option value="Carpenter">Carpenter</option>
+                                <option value="Mason">Mason</option>
+                                <option value="Welder">Welder</option>
+                                <option value="Cleaner">Cleaner</option>
+                                <option value="Cook / Chef">Cook / Chef</option>
+                                <option value="Teacher">Teacher</option>
+                                <option value="Photographer">Photographer</option>
+                                <option value="Designer">Designer</option>
+                                <option value="Developer">Developer</option>
+                                <option value="Accountant">Accountant</option>
+                                <option value="Technician">Technician</option>
+                                <option value="Healthcare">Healthcare</option>
+                                <option value="Other">Other</option>
                               </select>
                             </div>
+
+                            {/* Category-Specific Form Fields */}
+                            {workerForm.primaryCategory === 'Driver' && (
+                              <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/15 rounded-2xl">
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-300">Licence Type</label>
+                                  <select
+                                    value={driverLicenceType}
+                                    onChange={(e) => setDriverLicenceType(e.target.value)}
+                                    className="w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold"
+                                  >
+                                    <option value="Commercial (LMV/HMV)">Commercial (LMV/HMV)</option>
+                                    <option value="Private (LMV)">Private (LMV)</option>
+                                    <option value="Two Wheeler">Two Wheeler</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-300">Vehicle Type</label>
+                                  <select
+                                    value={driverVehicleType}
+                                    onChange={(e) => setDriverVehicleType(e.target.value)}
+                                    className="w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold"
+                                  >
+                                    <option value="Car / Sedan">Car / Sedan</option>
+                                    <option value="SUV / Van">SUV / Van</option>
+                                    <option value="Auto / Rickshaw">Auto / Rickshaw</option>
+                                    <option value="Truck / Heavy Vehicle">Truck / Heavy Vehicle</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+
+                            {workerForm.primaryCategory === 'Electrician' && (
+                              <div className="p-3 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/15 rounded-2xl space-y-2">
+                                <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-300">Work Specialty</label>
+                                <select
+                                  value={electricianWorkType}
+                                  onChange={(e) => setElectricianWorkType(e.target.value)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold"
+                                >
+                                  <option value="Domestic & Residential">Domestic & Residential</option>
+                                  <option value="Commercial & Industrial">Commercial & Industrial</option>
+                                  <option value="Domestic & Commercial">Domestic & Commercial</option>
+                                </select>
+                              </div>
+                            )}
 
                             {/* Skills Tag Input */}
                             <div className="space-y-1">
                               <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Skills (Add at least one) <span className="text-rose-500">*</span>
+                                Skills <span className="text-slate-400 font-normal">(optional)</span>
                               </label>
                               <div className="flex space-x-2">
                                 <input
@@ -4020,8 +4183,8 @@ export default function App() {
                                       }
                                     }
                                   }}
-                                  placeholder="Type skill & press Enter"
-                                  className="flex-1 h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                                  placeholder="Type skill e.g. Driving, Wiring & press Enter"
+                                  className="flex-1 h-10 px-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
                                 />
                                 <button
                                   type="button"
@@ -4031,7 +4194,7 @@ export default function App() {
                                       setNewSkillInput('');
                                     }
                                   }}
-                                  className="px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-950 rounded-xl font-bold text-xs cursor-pointer"
+                                  className="px-3 bg-slate-900 dark:bg-white text-white dark:text-slate-950 rounded-xl font-bold text-xs cursor-pointer"
                                 >
                                   Add
                                 </button>
@@ -4052,16 +4215,16 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Experience Level & Work Availability */}
+                            {/* Experience Level & Availability */}
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1">
                                 <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                  Experience Level <span className="text-rose-500">*</span>
+                                  Experience Level
                                 </label>
                                 <select
                                   value={workerForm.experienceLevel}
                                   onChange={(e) => setWorkerForm({ ...workerForm, experienceLevel: e.target.value as any })}
-                                  className="w-full h-11 px-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                                  className="w-full h-10 px-2.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
                                 >
                                   <option value="Entry">Entry (0-2 yrs)</option>
                                   <option value="Mid">Mid (2-5 yrs)</option>
@@ -4072,12 +4235,12 @@ export default function App() {
 
                               <div className="space-y-1">
                                 <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                  Work Availability <span className="text-rose-500">*</span>
+                                  Work Availability
                                 </label>
                                 <select
                                   value={workerForm.availabilityStatus}
                                   onChange={(e) => setWorkerForm({ ...workerForm, availabilityStatus: e.target.value as any })}
-                                  className="w-full h-11 px-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                                  className="w-full h-10 px-2.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
                                 >
                                   <option value="Available Now">Available Now</option>
                                   <option value="Open to Offers">Open to Offers</option>
@@ -4086,122 +4249,85 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Location Selector (Country, State, District, Local Area) */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Location (Country, State, District, Local Area) <span className="text-rose-500">*</span>
-                              </label>
-                              <LocationSelector
-                                value={{
-                                  country: workerForm.country,
-                                  country_code: workerForm.country_code,
-                                  state: workerForm.state,
-                                  state_code: workerForm.state_code,
-                                  district: workerForm.district,
-                                  city: workerForm.city,
-                                  latitude: workerForm.latitude,
-                                  longitude: workerForm.longitude
-                                }}
-                                onChange={(loc) => setWorkerForm(prev => ({
-                                  ...prev,
-                                  country: loc.country,
-                                  country_code: loc.country_code,
-                                  state: loc.state,
-                                  state_code: loc.state_code,
-                                  district: loc.district,
-                                  city: loc.city,
-                                  latitude: loc.latitude || 30.2672,
-                                  longitude: loc.longitude || -97.7431
-                                }))}
-                              />
-                            </div>
+                            {/* Section B: Optional Details Collapsible Accordion */}
+                            <div className="border border-slate-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => setShowOptionalWorkerDetails(!showOptionalWorkerDetails)}
+                                className="w-full p-3 bg-slate-50 dark:bg-zinc-950/40 flex justify-between items-center text-xs font-bold text-slate-700 dark:text-zinc-300 cursor-pointer"
+                              >
+                                <span>Optional Details (Qualifications, Resume PDF)</span>
+                                <ChevronDown className={`w-4 h-4 transition-transform ${showOptionalWorkerDetails ? 'rotate-180' : ''}`} />
+                              </button>
 
-                            {/* Preferred Language & Short Bio */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Preferred Language <span className="text-rose-500">*</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={workerForm.preferredLanguage}
-                                onChange={(e) => setWorkerForm({ ...workerForm, preferredLanguage: e.target.value })}
-                                placeholder="e.g. English, Hindi"
-                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
-                              />
-                            </div>
+                              {showOptionalWorkerDetails && (
+                                <div className="p-3.5 space-y-3 bg-white dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800">
+                                  <div className="space-y-1">
+                                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-zinc-300">
+                                      Qualification
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={workerForm.highestQualification}
+                                      onChange={(e) => setWorkerForm({ ...workerForm, highestQualification: e.target.value })}
+                                      placeholder="e.g. Higher Secondary, Bachelor Degree"
+                                      className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-xs font-semibold focus:outline-none"
+                                    />
+                                  </div>
 
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Short Bio <span className="text-rose-500">*</span>
-                              </label>
-                              <textarea
-                                rows={3}
-                                value={workerForm.bio}
-                                onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })}
-                                placeholder="Describe your primary professional expertise..."
-                                className="w-full p-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-medium resize-none focus:outline-none"
-                              />
-                            </div>
-
-                            {/* Highest Qualification (Optional) */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Qualification <span className="text-slate-400 font-normal">(optional)</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={workerForm.highestQualification}
-                                onChange={(e) => setWorkerForm({ ...workerForm, highestQualification: e.target.value })}
-                                placeholder="e.g. Master of Computer Applications"
-                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
-                              />
-                            </div>
-
-                            {/* Resume Upload (Optional) */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Resume <span className="text-slate-400 font-normal">(optional PDF, max 5MB)</span>
-                              </label>
-                              <input
-                                type="file"
-                                accept=".pdf"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    if (file.type !== 'application/pdf') {
-                                      setResumeUploadError("Only PDF files are supported.");
-                                      setResumeFile(null);
-                                      return;
-                                    }
-                                    if (file.size > 5 * 1024 * 1024) {
-                                      setResumeUploadError("File size must be under 5 MB.");
-                                      setResumeFile(null);
-                                      return;
-                                    }
-                                    setResumeFile(file);
-                                    setResumeUploadError('');
-                                    triggerToast("Resume attached!");
-                                  }
-                                }}
-                                className="w-full text-xs text-slate-500 cursor-pointer"
-                              />
-                              {resumeFile && (
-                                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-                                  Attached: {resumeFile.name} ({(resumeFile.size / 1024 / 1024).toFixed(2)} MB)
-                                </p>
-                              )}
-                              {resumeUploadError && (
-                                <p className="text-[10px] text-rose-500 font-bold">
-                                  {resumeUploadError}
-                                </p>
+                                  <div className="space-y-1">
+                                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-zinc-300">
+                                      Resume / CV (PDF, max 5MB)
+                                    </label>
+                                    <input
+                                      type="file"
+                                      accept=".pdf"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          if (file.type !== 'application/pdf') {
+                                            setResumeUploadError("Only PDF files are supported.");
+                                            setResumeFile(null);
+                                            return;
+                                          }
+                                          if (file.size > 5 * 1024 * 1024) {
+                                            setResumeUploadError("File size must be under 5 MB.");
+                                            setResumeFile(null);
+                                            return;
+                                          }
+                                          setResumeFile(file);
+                                          setResumeUploadError('');
+                                          triggerToast("Resume attached!");
+                                        }
+                                      }}
+                                      className="w-full text-xs text-slate-500 cursor-pointer"
+                                    />
+                                    {resumeFile && (
+                                      <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                        Attached: {resumeFile.name} ({(resumeFile.size / 1024 / 1024).toFixed(2)} MB)
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
                               )}
                             </div>
                           </motion.div>
                         )}
                       </AnimatePresence>
 
-                      {/* TERMS & PRIVACY CHECKBOX */}
-                      <div className="flex items-start space-x-2.5 pt-1 text-left">
+                      {/* COMPANY ACCOUNT BADGE (DISABLED) */}
+                      <div className="p-3 rounded-2xl border border-slate-200/50 dark:border-zinc-850 bg-slate-50/50 dark:bg-zinc-950/20 opacity-60 cursor-not-allowed flex items-center justify-between mt-2">
+                        <div className="flex items-center space-x-2">
+                          <span className="w-3.5 h-3.5 rounded-full border border-slate-300 bg-slate-100 dark:bg-zinc-800" />
+                          <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">Company Profiles</span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          Coming Soon
+                        </span>
+                      </div>
+
+                      {/* TERMS AND PRIVACY CONSENT */}
+                      <div className="flex items-start space-x-2.5 pt-2 text-left">
                         <input 
                           type="checkbox"
                           id="accept-terms-privacy"
@@ -4211,7 +4337,7 @@ export default function App() {
                             setAcceptTerms(e.target.checked);
                             setAcceptPrivacy(e.target.checked);
                           }}
-                          className="mt-1 w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                          className="mt-0.5 w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
                         />
                         <label htmlFor="accept-terms-privacy" className="text-[11px] text-slate-500 dark:text-zinc-400 leading-normal font-medium cursor-pointer">
                           I have read and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">Privacy Policy</a>.
@@ -4276,7 +4402,7 @@ export default function App() {
                             Verify your Email
                           </h3>
                           <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-                            Please enter the 6-digit OTP code sent to <strong className="text-slate-900 dark:text-white">{pendingEmail || signupForm.email}</strong>.
+                            Please enter the 6-digit OTP code we sent to <strong className="text-slate-900 dark:text-white">{pendingEmail || signupForm.email}</strong>.
                           </p>
                         </div>
                       </div>
@@ -4290,9 +4416,11 @@ export default function App() {
 
                       <form onSubmit={handleVerifyOTP} className="space-y-4">
                         <div className="space-y-1">
-                          <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">Enter Code</label>
+                          <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">Enter 6-Digit Code</label>
                           <input
                             type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             maxLength={6}
                             autoFocus
                             value={verificationCodeInput}

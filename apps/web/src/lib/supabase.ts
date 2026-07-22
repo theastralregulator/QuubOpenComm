@@ -73,7 +73,12 @@ export interface LocalProfile {
   username: string;
   avatar_url: string;
   bio: string;
+  short_bio?: string;
   phone: string;
+  phone_country_code?: string;
+  phone_number?: string;
+  whatsapp_same_as_phone?: boolean;
+  telegram_username?: string;
   phone_verified: boolean;
   email: string;
   city: string;
@@ -88,6 +93,8 @@ export interface LocalProfile {
   account_status: 'active' | 'disabled';
   profile_type: 'basic' | 'worker' | 'company';
   account_type?: 'basic' | 'worker' | 'company';
+  is_worker_listed?: boolean;
+  signup_status?: 'pending_verification' | 'completed';
   created_at: string;
   updated_at: string;
   email_verified_for_actions?: boolean;
