@@ -41,6 +41,8 @@ import MessagesPage from './components/messages/MessagesPage';
 import ProfilePage from './components/profile/ProfilePage';
 import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
+import AvatarGalleryModal from './components/common/AvatarGalleryModal';
+import { PRESET_AVATARS, DEFAULT_AVATAR_URL } from './data/presetAvatars';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
 
@@ -142,7 +144,11 @@ export default function App() {
   const [signupType, setSignupType] = useState<'normal' | 'worker' | 'company'>('normal');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
-  const [selectedAccountType, setSelectedAccountType] = useState<'worker' | 'company' | null>(null);
+  const [selectedAccountType, setSelectedAccountType] = useState<'basic' | 'worker' | 'company'>('basic');
+  const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
+  const [avatarTab, setAvatarTab] = useState<'upload' | 'preset'>('upload');
+  const [showAvatarGalleryModal, setShowAvatarGalleryModal] = useState(false);
+  const [newSkillInput, setNewSkillInput] = useState('');
   const [onboardingSubStep, setOnboardingSubStep] = useState<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'>('A');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeUploadError, setResumeUploadError] = useState('');
@@ -865,7 +871,9 @@ export default function App() {
     setSignupPassword('');
     setSignupConfirmPassword('');
     setSigninPassword('');
-    setSelectedAccountType(null);
+    setSelectedAccountType('basic');
+    setSelectedAvatar(null);
+    setAvatarTab('upload');
     setAcceptTerms(false);
     setAcceptPrivacy(false);
     setVerificationCodeInput('');
@@ -3649,245 +3657,550 @@ export default function App() {
                 </form>
               )}
 
-                        {/* --- CASE C: SINGLE-PAGE SIGN UP & ONBOARDING FORM --- */}
+              {/* --- CASE C: SINGLE-PAGE SIGN UP & ONBOARDING FORM --- */}
               {showAuthModal === 'signup' && (
-                <div className="space-y-4">
+                <div className="space-y-4 text-left">
+                  {/* Returning Unverified User Banner */}
+                  {pendingEmail && signupStep === 1 && (
+                    <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-2 text-left animate-fadeIn">
+                      <div className="flex items-start space-x-2.5">
+                        <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white">Email Verification Pending</h4>
+                          <p className="text-[11px] text-slate-600 dark:text-zinc-400 leading-relaxed font-medium">
+                            You have a pending verification for <strong className="text-slate-900 dark:text-white">{pendingEmail}</strong>.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSignupStep(3)}
+                          className="flex-1 h-9 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-500 transition-colors shadow-xs cursor-pointer"
+                        >
+                          Continue Verification
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleResendOTP}
+                          disabled={resendCooldown > 0}
+                          className="h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend OTP'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPendingEmail('');
+                            localStorage.removeItem('opencomm_pending_email');
+                          }}
+                          className="h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-slate-500 font-bold text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                        >
+                          Use Different Email
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 1: UNIFIED SINGLE PAGE SIGNUP FORM */}
                   {signupStep === 1 && (
                     <form onSubmit={handleSinglePageSignUp} className="space-y-4 text-xs text-left animate-fadeIn">
-                      {/* Section 1 */}
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Full Name
-                        </label>
-                        <input 
-                          type="text" 
-                          required
-                          value={signupForm.name}
-                          onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
-                          className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
-                          placeholder="e.g. Akhil Varma"
-                        />
-                      </div>
+                      
+                      {/* SECTION 1: ACCOUNT DETAILS */}
+                      <div className="space-y-3">
+                        <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
+                          <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                            1. Account Details
+                          </h3>
+                        </div>
 
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Email Address
-                        </label>
-                        <input 
-                          type="email" 
-                          required
-                          disabled={isLoggedIn}
-                          value={signupForm.email}
-                          onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
-                          className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
-                          placeholder="e.g. akhil.v@opencomm.io"
-                        />
-                      </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Full Name <span className="text-rose-500">*</span>
+                          </label>
+                          <input 
+                            type="text" 
+                            required
+                            value={signupForm.name}
+                            onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
+                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
+                            placeholder="e.g. Akhil Varma"
+                          />
+                        </div>
 
-                      <div className="space-y-1">
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          Phone Number (with Country Code)
-                        </label>
-                        <input 
-                          type="tel" 
-                          required
-                          value={signupForm.phone}
-                          onChange={(e) => setSignupForm({...signupForm, phone: e.target.value})}
-                          className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
-                          placeholder="e.g. +919876543210"
-                        />
-                      </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Email Address <span className="text-rose-500">*</span>
+                          </label>
+                          <input 
+                            type="email" 
+                            required
+                            disabled={isLoggedIn}
+                            value={signupForm.email}
+                            onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
+                            className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            placeholder="e.g. akhil.v@opencomm.io"
+                          />
+                        </div>
 
-                      {!isLoggedIn && (
-                        <>
-                          <div className="space-y-1">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                              Password
-                            </label>
-                            <div className="relative">
-                              <input 
-                                type={showSignupPassword ? "text" : "password"} 
-                                required
-                                autoComplete="new-password"
-                                value={signupPassword}
-                                onChange={(e) => setSignupPassword(e.target.value)}
-                                className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
-                                placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowSignupPassword(!showSignupPassword)}
-                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
-                                aria-label={showSignupPassword ? "Hide password" : "Show password"}
-                                title={showSignupPassword ? "Hide password" : "Show password"}
-                              >
-                                {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                              </button>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Phone Number (with Country Code) <span className="text-rose-500">*</span>
+                          </label>
+                          <input 
+                            type="tel" 
+                            required
+                            value={signupForm.phone}
+                            onChange={(e) => setSignupForm({...signupForm, phone: e.target.value})}
+                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
+                            placeholder="e.g. +919876543210"
+                          />
+                        </div>
+
+                        {!isLoggedIn && (
+                          <>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Password <span className="text-rose-500">*</span>
+                              </label>
+                              <div className="relative">
+                                <input 
+                                  type={showSignupPassword ? "text" : "password"} 
+                                  required
+                                  autoComplete="new-password"
+                                  value={signupPassword}
+                                  onChange={(e) => setSignupPassword(e.target.value)}
+                                  className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
+                                  placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSignupPassword(!showSignupPassword)}
+                                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                                  aria-label={showSignupPassword ? "Hide password" : "Show password"}
+                                >
+                                  {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                              </div>
                             </div>
-                          </div>
 
-                          <div className="space-y-1">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                              Confirm Password
-                            </label>
-                            <div className="relative">
-                              <input 
-                                type={showSignupConfirmPassword ? "text" : "password"} 
-                                required
-                                autoComplete="new-password"
-                                value={signupConfirmPassword}
-                                onChange={(e) => setSignupConfirmPassword(e.target.value)}
-                                className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold"
-                                placeholder="Confirm password"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
-                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
-                                aria-label={showSignupConfirmPassword ? "Hide password" : "Show password"}
-                                title={showSignupConfirmPassword ? "Hide password" : "Show password"}
-                              >
-                                {showSignupConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                              </button>
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Confirm Password <span className="text-rose-500">*</span>
+                              </label>
+                              <div className="relative">
+                                <input 
+                                  type={showSignupConfirmPassword ? "text" : "password"} 
+                                  required
+                                  autoComplete="new-password"
+                                  value={signupConfirmPassword}
+                                  onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                                  className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
+                                  placeholder="Confirm password"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
+                                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                                  aria-label={showSignupConfirmPassword ? "Hide password" : "Show password"}
+                                >
+                                  {showSignupConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </>
-                      )}
+                          </>
+                        )}
+                      </div>
 
-                      {/* Optional Worker Account Checkbox */}
-                      <div className="space-y-2 mb-2 pt-1">
-                        <label className="block text-xs font-black text-slate-700 dark:text-zinc-300 uppercase tracking-wider text-left">
-                          Want to offer your skills and receive work opportunities? <span className="text-slate-400 dark:text-zinc-500 font-normal lowercase">(optional)</span>
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-left">
-                          {/* Worker Card */}
+                      {/* SECTION 2: ACCOUNT TYPE */}
+                      <div className="space-y-3 border-t border-slate-100 dark:border-zinc-800 pt-3.5">
+                        <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
+                          <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                            2. Account Type
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 font-medium mt-0.5">
+                            What would you like to create?
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Basic Account Option (Default) */}
                           <div
-                            onClick={() => setSelectedAccountType(prev => prev === 'worker' ? null : 'worker')}
+                            onClick={() => setSelectedAccountType('basic')}
                             className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
-                              selectedAccountType === 'worker'
-                                ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10'
+                              selectedAccountType === 'basic'
+                                ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
                                 : 'border-slate-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-950/50 hover:border-slate-300 dark:hover:border-zinc-700'
                             }`}
                           >
-                            <div className="space-y-1.5">
+                            <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                                  Worker Account
+                                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedAccountType === 'basic' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
+                                    {selectedAccountType === 'basic' && <Check className="w-2.5 h-2.5" />}
+                                  </span>
+                                  <span>Basic Account</span>
                                 </h4>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedAccountType === 'worker'}
-                                  onChange={() => {}} 
-                                  className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500 rounded"
-                                />
                               </div>
-                              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-                                Create a professional profile, showcase your skills, and get connected to clients.
+                              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pl-6">
+                                Browse jobs, find workers, and manage applications.
                               </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedAccountType(prev => prev === 'worker' ? null : 'worker');
-                              }}
-                              className={`w-full mt-3 h-8 rounded-lg text-[10px] font-bold transition-all ${
-                                selectedAccountType === 'worker'
-                                  ? 'bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/20 text-rose-600 dark:text-rose-400'
-                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
-                              }`}
-                            >
-                              {selectedAccountType === 'worker' ? 'Remove Worker Details' : 'Enable Worker Details'}
-                            </button>
                           </div>
 
-                          {/* Company Card */}
-                          <div className="p-3.5 rounded-2xl border border-slate-200/50 dark:border-zinc-850 bg-slate-50/50 dark:bg-zinc-950/20 opacity-60 cursor-not-allowed flex flex-col justify-between">
-                            <div className="space-y-1.5">
+                          {/* Worker Account Option */}
+                          <div
+                            onClick={() => setSelectedAccountType('worker')}
+                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                              selectedAccountType === 'worker'
+                                ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
+                                : 'border-slate-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-950/50 hover:border-slate-300 dark:hover:border-zinc-700'
+                            }`}
+                          >
+                            <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <div className="flex items-center space-x-1.5">
-                                  <h4 className="text-xs font-bold text-slate-400 dark:text-zinc-500">
-                                    Company Account
-                                  </h4>
-                                  <span className="px-1.5 py-0.5 rounded-full text-[8px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                    Coming Soon
+                                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedAccountType === 'worker' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
+                                    {selectedAccountType === 'worker' && <Check className="w-2.5 h-2.5" />}
                                   </span>
-                                </div>
+                                  <span>Worker Account</span>
+                                </h4>
                               </div>
-                              <p className="text-[10px] text-slate-400 dark:text-zinc-500 leading-relaxed font-medium">
-                                Hire professionals, publish jobs, and manage applicants.
+                              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pl-6">
+                                Offer services, showcase skills, and receive work requests.
                               </p>
                             </div>
-                            <button type="button" disabled className="w-full mt-3 h-8 rounded-lg text-[10px] font-bold bg-slate-200/50 dark:bg-zinc-900/50 text-slate-400 dark:text-zinc-600 cursor-not-allowed">
-                              Notify Me
-                            </button>
                           </div>
+                        </div>
+
+                        {/* Company Account (Disabled) */}
+                        <div className="p-3 rounded-2xl border border-slate-200/50 dark:border-zinc-850 bg-slate-50/50 dark:bg-zinc-950/20 opacity-60 cursor-not-allowed flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-3.5 h-3.5 rounded-full border border-slate-300 bg-slate-100 dark:bg-zinc-800" />
+                            <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">Company Account</span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Coming Soon
+                          </span>
                         </div>
                       </div>
 
-                      {/* Section 2 (Only visible if Worker Account is selected) */}
-                      {selectedAccountType === 'worker' && (
-                        <div className="space-y-3.5 border-t border-slate-100 dark:border-zinc-800/80 pt-4 mt-3 animate-fadeIn">
-                          <h4 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2">Worker Profile Details</h4>
-                          
-                          <div className="space-y-1">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 text-center">
-                              Profile Photo <span className="text-rose-500">*</span>
-                            </label>
-                            <ProfilePhotoUpload
-                              value={workerForm.avatarUrl}
-                              onFileChange={setCroppedFile}
-                              onChange={(url) => {
-                                setWorkerForm({ ...workerForm, avatarUrl: url });
-                                setUserPhoto(url);
-                              }}
-                              userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
-                              supabase={supabase}
-                              triggerToast={triggerToast}
-                            />
-                          </div>
+                      {/* SECTION 3: WORKER PROFILE DETAILS (SMOOTH EXPANDABLE) */}
+                      <AnimatePresence>
+                        {selectedAccountType === 'worker' && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.25, ease: 'easeInOut' }}
+                            className="overflow-hidden space-y-4 border-t border-slate-100 dark:border-zinc-800 pt-3.5"
+                          >
+                            <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
+                              <h3 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                                3. Worker Profile Details
+                              </h3>
+                              <p className="text-[11px] text-slate-500 dark:text-zinc-400 font-medium mt-0.5">
+                                Set up your professional worker details directly below
+                              </p>
+                            </div>
 
-                          <div className="space-y-1.5 text-left">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Base Location <span className="text-rose-500">*</span></label>
-                            <LocationSelector
-                              value={{
-                                city: workerForm.city,
-                                state: workerForm.state,
-                                country: workerForm.country,
-                                country_code: workerForm.country_code,
-                                state_code: workerForm.state_code,
-                                district: workerForm.district,
-                                latitude: workerForm.latitude,
-                                longitude: workerForm.longitude
-                              } as any}
-                              onChange={(loc) => setWorkerForm(prev => ({
-                                ...prev,
-                                city: loc.city,
-                                state: loc.state,
-                                country: loc.country,
-                                country_code: loc.country_code,
-                                state_code: loc.state_code,
-                                district: loc.district,
-                                latitude: loc.latitude || 30.2672,
-                                longitude: loc.longitude || -97.7431
-                              }))}
-                            />
-                          </div>
+                            {/* Profile Photo / Avatar Selector */}
+                            <div className="space-y-2">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Profile Photo or Avatar <span className="text-rose-500">*</span>
+                              </label>
 
-                          <div className="space-y-1">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">Short Bio <span className="text-rose-500">*</span></label>
-                            <textarea
-                              rows={3}
-                              value={workerForm.bio}
-                              onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })}
-                              placeholder="Describe your primary professional expertise..."
-                              className="w-full p-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-medium resize-none focus:outline-none focus:border-blue-500"
-                            />
-                          </div>
-                        </div>
-                      )}
+                              {/* Tabs: Upload vs Preset */}
+                              <div className="flex space-x-2 p-1 bg-slate-100 dark:bg-zinc-950 rounded-xl">
+                                <button
+                                  type="button"
+                                  onClick={() => setAvatarTab('upload')}
+                                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    avatarTab === 'upload'
+                                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                      : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
+                                  }`}
+                                >
+                                  Upload Photo
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAvatarTab('preset');
+                                    setShowAvatarGalleryModal(true);
+                                  }}
+                                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    avatarTab === 'preset'
+                                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                      : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
+                                  }`}
+                                >
+                                  Choose Avatar (50+)
+                                </button>
+                              </div>
 
-                      {/* Section 3 */}
+                              {avatarTab === 'upload' ? (
+                                <ProfilePhotoUpload
+                                  value={workerForm.avatarUrl}
+                                  onFileChange={(file) => {
+                                    setCroppedFile(file);
+                                    if (file) {
+                                      setSelectedAvatar(null);
+                                    }
+                                  }}
+                                  onChange={(url) => {
+                                    setWorkerForm(prev => ({ ...prev, avatarUrl: url }));
+                                    setUserPhoto(url);
+                                    if (url) setSelectedAvatar(null);
+                                  }}
+                                  userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
+                                  supabase={supabase}
+                                  triggerToast={triggerToast}
+                                />
+                              ) : (
+                                <div className="flex items-center space-x-3.5 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-200/80 dark:border-zinc-800">
+                                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-indigo-500/30 bg-white dark:bg-zinc-800 shrink-0 p-0.5 shadow-xs">
+                                    <img
+                                      src={selectedAvatar || workerForm.avatarUrl || DEFAULT_AVATAR_URL}
+                                      alt="Selected preset avatar"
+                                      className="w-full h-full object-cover rounded-full"
+                                    />
+                                  </div>
+                                  <div className="space-y-1 text-left flex-1">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                                      {selectedAvatar ? 'Preset Avatar Selected' : 'No Preset Selected'}
+                                    </span>
+                                    <p className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
+                                      Choose from 50+ diverse professional avatars
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowAvatarGalleryModal(true)}
+                                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-xs cursor-pointer"
+                                    >
+                                      Browse Avatar Gallery
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Primary Category */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Primary Category <span className="text-rose-500">*</span>
+                              </label>
+                              <select
+                                value={workerForm.primaryCategory}
+                                onChange={(e) => setWorkerForm({ ...workerForm, primaryCategory: e.target.value })}
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500"
+                              >
+                                {INITIAL_CATEGORIES.map(cat => (
+                                  <option key={cat.name} value={cat.name}>{cat.name}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Skills Tag Input */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Skills (Add at least one) <span className="text-rose-500">*</span>
+                              </label>
+                              <div className="flex space-x-2">
+                                <input
+                                  type="text"
+                                  value={newSkillInput}
+                                  onChange={(e) => setNewSkillInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      if (newSkillInput.trim() && !workerForm.skills.includes(newSkillInput.trim())) {
+                                        setWorkerForm(prev => ({ ...prev, skills: [...prev.skills, newSkillInput.trim()] }));
+                                        setNewSkillInput('');
+                                      }
+                                    }
+                                  }}
+                                  placeholder="Type skill & press Enter"
+                                  className="flex-1 h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (newSkillInput.trim() && !workerForm.skills.includes(newSkillInput.trim())) {
+                                      setWorkerForm(prev => ({ ...prev, skills: [...prev.skills, newSkillInput.trim()] }));
+                                      setNewSkillInput('');
+                                    }
+                                  }}
+                                  className="px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-950 rounded-xl font-bold text-xs cursor-pointer"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {workerForm.skills.map(skill => (
+                                  <span key={skill} className="inline-flex items-center px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/15 font-bold text-[10px]">
+                                    {skill}
+                                    <button
+                                      type="button"
+                                      onClick={() => setWorkerForm(prev => ({ ...prev, skills: prev.skills.filter(s => s !== skill) }))}
+                                      className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+                                    >
+                                      &times;
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Experience Level & Work Availability */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                  Experience Level <span className="text-rose-500">*</span>
+                                </label>
+                                <select
+                                  value={workerForm.experienceLevel}
+                                  onChange={(e) => setWorkerForm({ ...workerForm, experienceLevel: e.target.value as any })}
+                                  className="w-full h-11 px-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                                >
+                                  <option value="Entry">Entry (0-2 yrs)</option>
+                                  <option value="Mid">Mid (2-5 yrs)</option>
+                                  <option value="Senior">Senior (5+ yrs)</option>
+                                  <option value="Expert">Expert (8+ yrs)</option>
+                                </select>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                  Work Availability <span className="text-rose-500">*</span>
+                                </label>
+                                <select
+                                  value={workerForm.availabilityStatus}
+                                  onChange={(e) => setWorkerForm({ ...workerForm, availabilityStatus: e.target.value as any })}
+                                  className="w-full h-11 px-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                                >
+                                  <option value="Available Now">Available Now</option>
+                                  <option value="Open to Offers">Open to Offers</option>
+                                  <option value="Busy">Busy</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Location Selector (Country, State, District, Local Area) */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Location (Country, State, District, Local Area) <span className="text-rose-500">*</span>
+                              </label>
+                              <LocationSelector
+                                value={{
+                                  country: workerForm.country,
+                                  country_code: workerForm.country_code,
+                                  state: workerForm.state,
+                                  state_code: workerForm.state_code,
+                                  district: workerForm.district,
+                                  city: workerForm.city,
+                                  latitude: workerForm.latitude,
+                                  longitude: workerForm.longitude
+                                }}
+                                onChange={(loc) => setWorkerForm(prev => ({
+                                  ...prev,
+                                  country: loc.country,
+                                  country_code: loc.country_code,
+                                  state: loc.state,
+                                  state_code: loc.state_code,
+                                  district: loc.district,
+                                  city: loc.city,
+                                  latitude: loc.latitude || 30.2672,
+                                  longitude: loc.longitude || -97.7431
+                                }))}
+                              />
+                            </div>
+
+                            {/* Preferred Language & Short Bio */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Preferred Language <span className="text-rose-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={workerForm.preferredLanguage}
+                                onChange={(e) => setWorkerForm({ ...workerForm, preferredLanguage: e.target.value })}
+                                placeholder="e.g. English, Hindi"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Short Bio <span className="text-rose-500">*</span>
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={workerForm.bio}
+                                onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })}
+                                placeholder="Describe your primary professional expertise..."
+                                className="w-full p-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-medium resize-none focus:outline-none"
+                              />
+                            </div>
+
+                            {/* Highest Qualification (Optional) */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Qualification <span className="text-slate-400 font-normal">(optional)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={workerForm.highestQualification}
+                                onChange={(e) => setWorkerForm({ ...workerForm, highestQualification: e.target.value })}
+                                placeholder="e.g. Master of Computer Applications"
+                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
+                              />
+                            </div>
+
+                            {/* Resume Upload (Optional) */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Resume <span className="text-slate-400 font-normal">(optional PDF, max 5MB)</span>
+                              </label>
+                              <input
+                                type="file"
+                                accept=".pdf"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    if (file.type !== 'application/pdf') {
+                                      setResumeUploadError("Only PDF files are supported.");
+                                      setResumeFile(null);
+                                      return;
+                                    }
+                                    if (file.size > 5 * 1024 * 1024) {
+                                      setResumeUploadError("File size must be under 5 MB.");
+                                      setResumeFile(null);
+                                      return;
+                                    }
+                                    setResumeFile(file);
+                                    setResumeUploadError('');
+                                    triggerToast("Resume attached!");
+                                  }
+                                }}
+                                className="w-full text-xs text-slate-500 cursor-pointer"
+                              />
+                              {resumeFile && (
+                                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                  Attached: {resumeFile.name} ({(resumeFile.size / 1024 / 1024).toFixed(2)} MB)
+                                </p>
+                              )}
+                              {resumeUploadError && (
+                                <p className="text-[10px] text-rose-500 font-bold">
+                                  {resumeUploadError}
+                                </p>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* TERMS & PRIVACY CHECKBOX */}
                       <div className="flex items-start space-x-2.5 pt-1 text-left">
                         <input 
                           type="checkbox"
@@ -3905,6 +4218,7 @@ export default function App() {
                         </label>
                       </div>
 
+                      {/* AUTH ERROR BANNER */}
                       {authError && (
                         <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/15 rounded-xl flex items-start space-x-2.5 text-red-600 dark:text-red-400 text-[11px] font-semibold leading-relaxed animate-shake">
                           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -3912,17 +4226,18 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="pt-2">
+                      {/* SUBMIT BUTTON */}
+                      <div className="pt-1">
                         <button
                           type="submit"
                           disabled={isAuthSubmitting}
-                          className="w-full h-11 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50"
+                          className="w-full h-12 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 shadow-md active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50"
                         >
                           {isAuthSubmitting ? (
                             <RefreshCw className="w-4 h-4 animate-spin" />
                           ) : (
                             <>
-                              <span>{isLoggedIn ? "Save & Complete Profile" : "Create Account"}</span>
+                              <span>Create Account & Send OTP</span>
                               <ChevronRight className="w-4 h-4" />
                             </>
                           )}
@@ -3930,7 +4245,7 @@ export default function App() {
                       </div>
 
                       {!isLoggedIn && (
-                        <div className="text-center pt-2 border-t border-slate-100 dark:border-zinc-800/80 mt-2">
+                        <div className="text-center pt-2 border-t border-slate-100 dark:border-zinc-800/80 mt-1">
                           <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
                             Already have an account?{' '}
                             <button
@@ -3949,6 +4264,7 @@ export default function App() {
                     </form>
                   )}
 
+                  {/* STEP 3: INLINE EMAIL OTP VERIFICATION SECTION */}
                   {signupStep === 3 && (
                     <div className="space-y-4 text-xs text-left animate-fadeIn">
                       <div className="flex items-start space-x-3.5">
@@ -3956,11 +4272,11 @@ export default function App() {
                           <ShieldCheck className="w-5 h-5 animate-pulse" />
                         </div>
                         <div className="space-y-1">
-                          <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight leading-snug">
-                            Verify your email
+                          <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight">
+                            Verify your Email
                           </h3>
-                          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-                            Please enter the 6-digit OTP code we sent to <strong className="text-slate-800 dark:text-white">{pendingEmail || signupForm.email}</strong>.
+                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                            Please enter the 6-digit OTP code sent to <strong className="text-slate-900 dark:text-white">{pendingEmail || signupForm.email}</strong>.
                           </p>
                         </div>
                       </div>
@@ -3972,16 +4288,17 @@ export default function App() {
                         </div>
                       )}
 
-                      <form onSubmit={handleVerifyOTP} className="space-y-3.5">
+                      <form onSubmit={handleVerifyOTP} className="space-y-4">
                         <div className="space-y-1">
                           <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest font-mono">Enter Code</label>
                           <input
                             type="text"
                             maxLength={6}
+                            autoFocus
                             value={verificationCodeInput}
                             onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
                             placeholder="e.g. 123456"
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-mono font-bold tracking-widest text-center"
+                            className="w-full h-12 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-sm font-mono font-bold tracking-widest text-center focus:outline-none focus:border-indigo-500"
                           />
                         </div>
 
@@ -3990,28 +4307,53 @@ export default function App() {
                             type="button"
                             disabled={resendCooldown > 0 || isAuthSubmitting}
                             onClick={handleResendOTP}
-                            className="flex-1 h-11 border border-slate-200 dark:border-zinc-800 text-slate-500 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 flex items-center justify-center text-xs"
+                            className="flex-1 h-11 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50 text-xs"
                           >
-                            {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend OTP"}
+                            {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend Code"}
                           </button>
                           <button
-                            type="submit"
-                            disabled={isAuthSubmitting}
-                            className="flex-1 h-11 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl cursor-pointer flex items-center justify-center text-xs shadow-md"
+                            type="button"
+                            onClick={() => {
+                              setSignupStep(1);
+                              setPendingEmail('');
+                              localStorage.removeItem('opencomm_pending_email');
+                            }}
+                            className="px-3.5 h-11 border border-slate-200 dark:border-zinc-800 text-slate-500 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors text-xs cursor-pointer"
                           >
-                            {isAuthSubmitting ? (
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                            ) : (
-                              "Verify"
-                            )}
+                            Change Email
                           </button>
                         </div>
+
+                        <button
+                          type="submit"
+                          disabled={isAuthSubmitting || verificationCodeInput.length !== 6}
+                          className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white font-bold rounded-xl cursor-pointer flex items-center justify-center text-xs shadow-md disabled:opacity-50"
+                        >
+                          {isAuthSubmitting ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            "Verify & Continue"
+                          )}
+                        </button>
                       </form>
                     </div>
                   )}
 
                 </div>
               )}
+
+              {/* Avatar Gallery Modal */}
+              <AvatarGalleryModal
+                isOpen={showAvatarGalleryModal}
+                onClose={() => setShowAvatarGalleryModal(false)}
+                onSelectAvatar={(url) => {
+                  setSelectedAvatar(url);
+                  setWorkerForm(prev => ({ ...prev, avatarUrl: url }));
+                  setUserPhoto(url);
+                  setCroppedFile(null);
+                }}
+                selectedAvatarUrl={selectedAvatar || workerForm.avatarUrl}
+              />
             </motion.div>
           </div>
         )}
