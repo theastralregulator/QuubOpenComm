@@ -376,7 +376,7 @@ export default function App() {
 
   // --- ROUTE GUARD & ONBOARDING REDIRECT EFFECT ---
   useEffect(() => {
-    if (isAuthLoading) return;
+    if (isAuthLoading || isSavingProfileRef.current) return;
 
     if (isLoggedIn) {
       if (!isEmailVerified) {
@@ -455,6 +455,14 @@ export default function App() {
 
   // Protect routes and trigger sign in if needed
   function ProtectedRoute({ children }: { children: React.ReactNode }) {
+    if (isAuthLoading || isSavingProfileRef.current) {
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+        </div>
+      );
+    }
+
     useEffect(() => {
       if (!isLoggedIn) {
         navigate(`/login?redirect=${encodeURIComponent(path)}`);
@@ -864,8 +872,7 @@ export default function App() {
   function clearSignupTempState(forceClearPending = false) {
     setSignupStep(1);
     setOnboardingSubStep('A');
-    setIsOnboardingCompleted(false);
-    localStorage.removeItem('opencomm_onboarding_completed');
+
     setSignupForm({
       name: '',
       email: '',
