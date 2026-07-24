@@ -43,6 +43,7 @@ import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
 import { PRESET_AVATARS, DEFAULT_AVATAR_URL } from './data/presetAvatars';
+import { resolveProfileImage } from './lib/avatarResolver';
 import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE } from './data/countryCodes';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
@@ -115,7 +116,7 @@ export default function App() {
     return localStorage.getItem('opencomm_username') || 'Akhil Varma';
   });
   const [userPhoto, setUserPhoto] = useState(() => {
-    return localStorage.getItem('opencomm_user_photo') || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80';
+    return localStorage.getItem('opencomm_user_photo') || '';
   });
 
   // UI Modals & Menus
@@ -799,7 +800,8 @@ export default function App() {
         id: userId,
         full_name: user.user_metadata?.full_name || userEmail.split('@')[0],
         email: userEmail,
-        avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+        avatar_url: '',
+        default_avatar_id: 'avatar-tech-01',
         phone: user.user_metadata?.phone || '',
         phone_verified: false,
         profile_type: 'basic',
@@ -825,7 +827,7 @@ export default function App() {
 
     setIsLoggedIn(true);
     setUsername(profile.full_name || userEmail.split('@')[0]);
-    setUserPhoto(profile.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
+    setUserPhoto(resolveProfileImage(profile));
     setUserType(profile.profile_type as any || 'normal');
 
     // Restore saved user theme preference upon login
@@ -968,9 +970,9 @@ export default function App() {
 
   const handleLogoutCleanState = () => {
     setIsLoggedIn(false);
-    setIsEmailVerified(true);
-    setUsername('Akhil Varma');
-    setUserPhoto('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
+    setIsEmailVerified(false);
+    setUsername('');
+    setUserPhoto('');
     setUserType('normal');
     setTheme('light'); // Reset theme state to Light Mode on logout
     
@@ -1013,12 +1015,14 @@ export default function App() {
     
     setIsLoggedIn(true);
     setUserType('normal');
-    setUsername('Akhil Varma');
-    setUserPhoto('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
-    localStorage.setItem('opencomm_is_logged_in', 'true');
-    localStorage.setItem('opencomm_user_type', 'normal');
-    localStorage.setItem('opencomm_username', 'Akhil Varma');
-    localStorage.setItem('opencomm_user_photo', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
+    setUsername('');
+    setUserPhoto('');
+    setUserType('normal');
+    setIsOnboardingCompleted(false);
+
+    localStorage.removeItem('opencomm_is_logged_in');
+    localStorage.removeItem('opencomm_username');
+    localStorage.removeItem('opencomm_user_photo');
 
     triggerToast("App data has been reset.");
   };
@@ -1177,12 +1181,7 @@ export default function App() {
     setUsername(uName);
     analytics.trackLogin('direct', uName);
     
-    const photos = [
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
-      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80',
-      'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=150&h=150&q=80'
-    ];
-    const pickedPhoto = photos[Math.floor(Math.random() * photos.length)];
+    const pickedPhoto = '';
     setUserPhoto(pickedPhoto);
 
     localStorage.setItem('opencomm_is_logged_in', 'true');
@@ -1633,8 +1632,9 @@ export default function App() {
       const formPhone = workerForm.phone.trim() || signupForm.phone.trim();
       const formBio = workerForm.bio.trim();
 
-      // 3. Upload cropped avatar file
-      let finalAvatarUrl = workerForm.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80';
+      // 3. Handle Avatar Storage / Linking
+      let finalAvatarUrl = '';
+      let finalAvatarId = '';
 
       if (croppedFile) {
         try {
@@ -1668,6 +1668,14 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Avatar upload warning:", e);
+        }
+      } else if (workerForm.avatarUrl || selectedAvatar) {
+        const urlToMatch = selectedAvatar || workerForm.avatarUrl;
+        const presetMatch = PRESET_AVATARS.find(p => p.url === urlToMatch);
+        if (presetMatch) {
+          finalAvatarId = presetMatch.id;
+        } else {
+          finalAvatarUrl = urlToMatch || '';
         }
       }
 
@@ -1714,7 +1722,9 @@ export default function App() {
         preferred_language: workerForm.preferredLanguage,
         bio: formBio || signupForm.bio,
         short_bio: signupForm.bio || formBio,
-        avatar_url: finalAvatarUrl,
+        avatar_url: '',
+        profile_image_url: finalAvatarUrl || undefined,
+        avatar_id: finalAvatarId || undefined,
         profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
         account_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
         is_worker_listed: isWorker,
@@ -1790,13 +1800,14 @@ export default function App() {
       setIsLoggedIn(true);
       setIsEmailVerified(true);
       setIsOnboardingCompleted(true);
+      const resolvedPhoto = resolveProfileImage(profilePayload as any);
       setUsername(formFullName);
-      setUserPhoto(finalAvatarUrl);
+      setUserPhoto(resolvedPhoto);
       setUserType(isWorker ? 'worker' : 'normal');
 
       localStorage.setItem('opencomm_is_logged_in', 'true');
       localStorage.setItem('opencomm_username', formFullName);
-      localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
+      localStorage.setItem('opencomm_user_photo', resolvedPhoto);
       localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
       localStorage.setItem('opencomm_user_id', verifiedUser.id);
       localStorage.setItem('opencomm_onboarding_completed', 'true');
@@ -2403,7 +2414,7 @@ export default function App() {
       />
 
       {/* UNVERIFIED EMAIL WARNING BANNER */}
-      {isLoggedIn && !isEmailVerified && (
+      {isLoggedIn && !isAuthLoading && !isEmailVerified && (
         <div className="bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 border-b border-indigo-500/15 py-2.5 px-4 text-center flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 relative z-40" id="unverified-email-banner">
           <div className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400">
             <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />

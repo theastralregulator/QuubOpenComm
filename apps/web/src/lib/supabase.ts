@@ -72,6 +72,9 @@ export interface LocalProfile {
   full_name: string;
   username: string;
   avatar_url: string;
+  profile_image_url?: string;
+  avatar_id?: string;
+  default_avatar_id?: string;
   bio: string;
   short_bio?: string;
   phone: string;
@@ -220,7 +223,8 @@ const DEFAULT_PROFILES: LocalProfile[] = [
     id: 'user-demo-id',
     full_name: 'Akhil Varma',
     username: 'akhilvarma',
-    avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+    avatar_url: '',
+    default_avatar_id: 'avatar-tech-01',
     bio: 'Experienced full stack developer focusing on clean, modular component structures.',
     phone: '+919876543210',
     phone_verified: true,

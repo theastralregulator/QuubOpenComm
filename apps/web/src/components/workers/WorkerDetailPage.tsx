@@ -73,7 +73,7 @@ export default function WorkerDetailPage({
             const mappedWorker: Worker = {
               id: data.id,
               name: data.full_name || 'Verified Worker',
-              photo: data.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+              photo: data.avatar_url || 'https://api.dicebear.com/7.x/notionists/svg?seed=mock45121',
               title: data.preferred_language || 'Professional Specialist',
               experience: 5,
               rating: 5.0,

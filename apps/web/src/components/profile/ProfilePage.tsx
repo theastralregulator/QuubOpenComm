@@ -145,8 +145,8 @@ export default function ProfilePage({
 
   // Connection Requests simulation
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([
-    { id: 'req-1', requesterName: 'Rahul Sharma', requesterPhoto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80', reason: 'Discuss local app development contract escrow setup.', status: 'Pending', timestamp: '2 hours ago' },
-    { id: 'req-2', requesterName: 'Emily Chen', requesterPhoto: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&h=100&q=80', reason: 'Full-time carpentry trim renovation collaboration.', status: 'Approved', timestamp: 'Yesterday' }
+    { id: 'req-1', requesterName: 'Rahul Sharma', requesterPhoto: 'https://api.dicebear.com/7.x/notionists/svg?seed=Rahul', reason: 'Discuss local app development contract escrow setup.', status: 'Pending', timestamp: '2 hours ago' },
+    { id: 'req-2', requesterName: 'Emily Chen', requesterPhoto: 'https://api.dicebear.com/7.x/notionists/svg?seed=Emily', reason: 'Full-time carpentry trim renovation collaboration.', status: 'Approved', timestamp: 'Yesterday' }
   ]);
 
   // Edit fields temp buffers

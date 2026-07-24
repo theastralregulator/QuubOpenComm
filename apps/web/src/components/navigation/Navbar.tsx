@@ -62,7 +62,7 @@ export default function Navbar({
     { id: 'home', label: 'Home', icon: Home, to: '/' },
     { id: 'jobs', label: 'Jobs', icon: Briefcase, to: '/jobs' },
     { id: 'workers', label: 'Workers', icon: Users, to: '/workers' },
-    { id: 'about', label: 'About', icon: Info, to: '/about' },
+    ...(isLoggedIn ? [] : [{ id: 'about', label: 'About', icon: Info, to: '/about' }]),
     ...(isLoggedIn ? [
       { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, to: '/messages' },
       { id: 'profile', label: 'Profile', icon: User, to: '/profile' },

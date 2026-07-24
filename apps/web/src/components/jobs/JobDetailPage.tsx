@@ -73,7 +73,7 @@ export default function JobDetailPage({
               id: data.id,
               title: data.title,
               company: data.company_name || 'Verified Employer',
-              companyLogo: data.company_logo || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&h=120&q=80',
+              companyLogo: data.company_logo || 'https://api.dicebear.com/7.x/notionists/svg?seed=mock10793',
               salary: data.salary_range || 'Contract',
               location: data.location || 'Remote',
               category: data.category || 'Professional',
