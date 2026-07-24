@@ -23,3 +23,80 @@ file_size_limit = "50MB"
 
 [realtime]
 enabled = true
+
+[functions.admin-user-action]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-user-action/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-user-action/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-user-action/*.html" ]
+
+[functions.admin-role-action]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-role-action/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-role-action/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-role-action/*.html" ]
+
+[functions.admin-job-action]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-job-action/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-job-action/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-job-action/*.html" ]
+
+[functions.admin-company-action]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-company-action/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-company-action/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-company-action/*.html" ]
+
+[functions.admin-report-action]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-report-action/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-report-action/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-report-action/*.html" ]
+
+[functions.admin-content-publish]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-content-publish/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-content-publish/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-content-publish/*.html" ]
+
+[functions.admin-account-delete]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-account-delete/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/admin-account-delete/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/admin-account-delete/*.html" ]

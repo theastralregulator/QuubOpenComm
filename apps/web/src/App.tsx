@@ -56,6 +56,22 @@ import CookiePolicyPage from './components/legal/CookiePolicyPage';
 import GrievancePage from './components/legal/GrievancePage';
 import Footer from './components/navigation/Footer';
 
+// Admin Components
+import AdminLayout from './components/admin/AdminLayout';
+import AdminDashboard from './components/admin/AdminDashboard';
+import AdminUsers from './components/admin/AdminUsers';
+import AdminWorkers from './components/admin/AdminWorkers';
+import AdminJobs from './components/admin/AdminJobs';
+import AdminCompanies from './components/admin/AdminCompanies';
+import AdminVerifications from './components/admin/AdminVerifications';
+import AdminReports from './components/admin/AdminReports';
+import AdminMessages from './components/admin/AdminMessages';
+import AdminSupport from './components/admin/AdminSupport';
+import AdminContent from './components/admin/AdminContent';
+import AdminAnnouncements from './components/admin/AdminAnnouncements';
+import AdminSettings from './components/admin/AdminSettings';
+import AdminStaff from './components/admin/AdminStaff';
+import AdminAuditLogs from './components/admin/AdminAuditLogs';
 
 export default function App() {
   // --- CORE SYSTEM STATES ---
@@ -2362,6 +2378,31 @@ export default function App() {
           )}
         </div>
       </div>
+    );
+  }
+
+  // --- ADMIN PANEL ISOLATION ---
+  // Returns entirely different layout and routes for /admin, avoiding Navbar and footer.
+  if (path.startsWith('/admin')) {
+    return (
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="workers" element={<AdminWorkers />} />
+          <Route path="jobs" element={<AdminJobs />} />
+          <Route path="companies" element={<AdminCompanies />} />
+          <Route path="verifications" element={<AdminVerifications />} />
+          <Route path="reports" element={<AdminReports />} />
+          <Route path="messages" element={<AdminMessages />} />
+          <Route path="support" element={<AdminSupport />} />
+          <Route path="content" element={<AdminContent />} />
+          <Route path="announcements" element={<AdminAnnouncements />} />
+          <Route path="settings" element={<AdminSettings />} />
+          <Route path="admins" element={<AdminStaff />} />
+          <Route path="audit-logs" element={<AdminAuditLogs />} />
+        </Route>
+      </Routes>
     );
   }
 

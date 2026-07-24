@@ -192,6 +192,87 @@ export interface LocalCompanyProfile {
   verified: boolean;
 }
 
+export interface AdminMember {
+  id: string;
+  email: string;
+  role: 'support' | 'content_admin' | 'moderator' | 'admin' | 'super_admin';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  added_by?: string;
+}
+
+export interface AdminAuditLog {
+  id: string;
+  admin_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  previous_data?: any;
+  new_data?: any;
+  reason?: string;
+  request_id?: string;
+  created_at: string;
+}
+
+export interface AdminNote {
+  id: string;
+  admin_id: string;
+  target_type: string;
+  target_id: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SiteSetting {
+  id: string;
+  group_name: string;
+  setting_key: string;
+  setting_value: any;
+  description?: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface SiteContent {
+  id: string;
+  content_type: string;
+  content_key: string;
+  content_value: any;
+  status: 'draft' | 'published' | 'archived';
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  audience: string;
+  cta_text?: string;
+  cta_link?: string;
+  starts_at?: string;
+  ends_at?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  user_id: string;
+  category: string;
+  subject: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'waiting_on_user' | 'resolved' | 'closed';
+  assigned_to?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LocalContactRequest {
   id: string;
   requester_id: string;
