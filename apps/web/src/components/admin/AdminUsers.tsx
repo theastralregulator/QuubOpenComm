@@ -48,17 +48,17 @@ export default function AdminUsers() {
       return;
     }
 
-    if (!confirm(\`Are you sure you want to perform \${action} on user \${userId}?\`)) return;
+    if (!confirm(`Are you sure you want to perform ${action} on user ${userId}?`)) return;
 
     // Call edge function for sensitive operations
     const { data: { session } } = await supabase.auth.getSession();
     
     try {
-      const res = await fetch(\`\${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/admin-user-action\`, {
+      const res = await fetch(`${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/admin-user-action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \`Bearer \${session?.access_token}\`
+          'Authorization': `Bearer ${session?.access_token}`
         },
         body: JSON.stringify({
           action,
@@ -159,11 +159,11 @@ export default function AdminUsers() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={\`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider \${
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
                           user.account_status === 'active' 
                             ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20'
                             : 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-500/20'
-                        }\`}>
+                        }`}>
                           {user.account_status}
                         </span>
                       </td>

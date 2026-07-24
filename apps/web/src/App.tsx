@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-r
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin, 
-  ChevronRight, ChevronLeft, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
+  ChevronRight, ChevronLeft, ChevronDown, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
   Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
 } from 'lucide-react';
 import { Job, Worker, Category, Activity, Notification, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
