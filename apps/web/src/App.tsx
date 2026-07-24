@@ -2381,33 +2381,13 @@ export default function App() {
     );
   }
 
-  // --- ADMIN PANEL ISOLATION ---
-  // Returns entirely different layout and routes for /admin, avoiding Navbar and footer.
-  if (path.startsWith('/admin')) {
-    return (
-      <Routes>
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminDashboard />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="workers" element={<AdminWorkers />} />
-          <Route path="jobs" element={<AdminJobs />} />
-          <Route path="companies" element={<AdminCompanies />} />
-          <Route path="verifications" element={<AdminVerifications />} />
-          <Route path="reports" element={<AdminReports />} />
-          <Route path="messages" element={<AdminMessages />} />
-          <Route path="support" element={<AdminSupport />} />
-          <Route path="content" element={<AdminContent />} />
-          <Route path="announcements" element={<AdminAnnouncements />} />
-          <Route path="settings" element={<AdminSettings />} />
-          <Route path="admins" element={<AdminStaff />} />
-          <Route path="audit-logs" element={<AdminAuditLogs />} />
-        </Route>
-      </Routes>
-    );
-  }
+  const isAdminRoute = path.startsWith('/admin');
+  console.log('DEBUG: Rendering page. Path:', path, 'isAdminRoute:', isAdminRoute);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] font-sans transition-colors duration-300 relative overflow-x-hidden pb-24 md:pb-8">
+    <div className={`min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] font-sans transition-colors duration-300 relative overflow-x-hidden pb-24 md:pb-8 ${
+      isAdminRoute ? 'admin-theme' : ''
+    }`}>
       
       {/* GLOWING AMBIENT BACKGROUND ACCENTS */}
       <div className="absolute top-[-100px] left-1/4 w-[600px] h-[600px] bg-blue-500/5 dark:bg-blue-600/5 rounded-full blur-[130px] pointer-events-none -z-10" />
@@ -2431,31 +2411,33 @@ export default function App() {
       </AnimatePresence>
 
       {/* STICKY TOP NAVBAR */}
-      <Navbar 
-        currentView={currentView}
-        setCurrentView={setCurrentView}
-        themeMode={theme}
-        setThemeMode={handleSetTheme}
-        unreadMessagesCount={unreadMessagesCount}
-        unreadNotificationsCount={unreadNotificationsCount}
-        username={username}
-        setUsername={setUsername}
-        userPhoto={userPhoto}
-        notifications={notifications}
-        setNotifications={setNotifications}
-        onResetData={handleResetData}
-        isLoggedIn={isLoggedIn}
-        userType={userType}
-        isEmailVerified={isEmailVerified}
-        onOpenAuth={(tab) => {
-          if (tab === 'signin') navigate('/login');
-          else if (tab === 'signup') navigate('/signup');
-        }}
-        onLogout={handleLogout}
-      />
+      {!isAdminRoute && (
+        <Navbar 
+          currentView={currentView}
+          setCurrentView={setCurrentView}
+          themeMode={theme}
+          setThemeMode={handleSetTheme}
+          unreadMessagesCount={unreadMessagesCount}
+          unreadNotificationsCount={unreadNotificationsCount}
+          username={username}
+          setUsername={setUsername}
+          userPhoto={userPhoto}
+          notifications={notifications}
+          setNotifications={setNotifications}
+          onResetData={handleResetData}
+          isLoggedIn={isLoggedIn}
+          userType={userType}
+          isEmailVerified={isEmailVerified}
+          onOpenAuth={(tab) => {
+            if (tab === 'signin') navigate('/login');
+            else if (tab === 'signup') navigate('/signup');
+          }}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* UNVERIFIED EMAIL WARNING BANNER */}
-      {isLoggedIn && !isAuthLoading && !isEmailVerified && (
+      {isLoggedIn && !isAuthLoading && !isEmailVerified && !isAdminRoute && (
         <div className="bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 border-b border-indigo-500/15 py-2.5 px-4 text-center flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 relative z-40" id="unverified-email-banner">
           <div className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400">
             <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
@@ -2958,13 +2940,51 @@ export default function App() {
           <Route path="/contact" element={<GrievancePage navigate={navigate} triggerToast={triggerToast} />} />
           <Route path="/grievance" element={<GrievancePage navigate={navigate} triggerToast={triggerToast} />} />
 
+          {/* ADMIN ROUTES */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="workers" element={<AdminWorkers />} />
+            <Route path="jobs" element={<AdminJobs />} />
+            <Route path="companies" element={<AdminCompanies />} />
+            <Route path="verifications" element={<AdminVerifications />} />
+            <Route path="reports" element={<AdminReports />} />
+            <Route path="messages" element={<AdminMessages />} />
+            <Route path="support" element={<AdminSupport />} />
+            <Route path="content" element={<AdminContent />} />
+            <Route path="announcements" element={<AdminAnnouncements />} />
+            <Route path="settings" element={<AdminSettings />} />
+            <Route path="admins" element={<AdminStaff />} />
+            <Route path="audit-logs" element={<AdminAuditLogs />} />
+          </Route>
+
           {/* 404 Wildcard Page */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
 
       {/* FOOTER NAVIGATION */}
-      <Footer navigate={navigate} />
+      {!isAdminRoute && (
+        <footer className="mt-auto bg-[#F8FAFC] dark:bg-[#0B1020] border-t border-slate-200/60 dark:border-[#273449] py-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+              <div className="flex items-center space-x-2 opacity-80 hover:opacity-100 transition-opacity">
+                <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                <span className="font-bold text-slate-800 dark:text-zinc-200">OpenComm</span>
+              </div>
+              <div className="flex items-center space-x-6 text-sm font-medium">
+                <Link to="/about" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">About Us</Link>
+                <Link to="/terms" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Terms</Link>
+                <Link to="/privacy" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Privacy</Link>
+                <Link to="/contact" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Contact</Link>
+              </div>
+              <p className="text-sm font-medium text-slate-500 dark:text-zinc-500">
+                &copy; {new Date().getFullYear()} Quub Inc. All rights reserved.
+              </p>
+            </div>
+          </div>
+        </footer>
+      )}
 
       {/* ====================================================
           MODAL: EMAIL VERIFICATION GATEWAY
