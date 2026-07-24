@@ -75,7 +75,7 @@ export default function HomeHeroCarousel({
       type: 'welcome',
       badgeLabel: 'BUILD BETTER WORK CONNECTIONS',
       title: 'Welcome to',
-      description: 'OpenComm helps people discover trusted professionals, meaningful work opportunities, and better ways to connect and collaborate.',
+      description: 'One place to find jobs, hire workers, and build trusted connections.',
       buttonText: 'About OpenComm',
       onButtonClick: onAboutClick || (() => navigate('/about'))
     });
