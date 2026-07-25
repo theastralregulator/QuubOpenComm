@@ -295,6 +295,27 @@ export default function ProfilePage({
     setIsEditing(true);
   };
 
+  const handleCloseEdit = () => {
+    const isUnsaved = 
+      editName !== (profile?.full_name || username || '') ||
+      editBio !== (profile?.bio || '') ||
+      editCity !== (profile?.city || '') ||
+      editState !== (profile?.state || '') ||
+      editCountry !== (profile?.country || '') ||
+      editLang !== (profile?.preferred_language || '') ||
+      editEmail !== (profile?.email || '') ||
+      editPhone !== (profile?.phone || '') ||
+      editBannerId !== (profile?.banner_id || 'banner_01');
+
+    if (isUnsaved) {
+      if (window.confirm("Discard unsaved changes?")) {
+        setIsEditing(false);
+      }
+    } else {
+      setIsEditing(false);
+    }
+  };
+
   const handleSaveCompanyProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyLegalName.trim() || !companyIndustry.trim()) {
@@ -915,153 +936,165 @@ export default function ProfilePage({
       {/* 5. EDIT MODAL OVERLAY */}
       <AnimatePresence>
         {isEditing && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-sm">
             <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl text-left"
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-[#111827] rounded-t-[32px] sm:rounded-[32px] border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] sm:max-h-[85vh] flex flex-col shadow-2xl text-left overflow-hidden"
             >
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
-                <span className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white uppercase tracking-wider font-mono">Modify Account Meta</span>
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-[#111827] shrink-0 z-10">
+                <span className="font-bold text-lg text-slate-900 dark:text-white">Edit Profile</span>
                 <button 
-                  onClick={() => setIsEditing(false)}
-                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+                  onClick={handleCloseEdit}
+                  className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveProfile} className="p-6 space-y-4 text-xs">
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Full Profile Name</label>
+              {/* Scrollable Form Body */}
+              <form id="edit-profile-form" onSubmit={handleSaveProfile} className="p-6 space-y-6 overflow-y-auto flex-1">
+                {/* 1. Name */}
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Full Name</label>
                   <input 
                     type="text" 
                     required
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-blue-500 font-semibold"
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-medium transition-all"
                   />
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">City</label>
+                {/* 2. Location */}
+                <div className="space-y-3">
+                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Location</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <input 
                       type="text" 
                       value={editCity}
                       onChange={(e) => setEditCity(e.target.value)}
-                      placeholder="Kochi"
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none"
+                      placeholder="City"
+                      className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">State</label>
                     <input 
                       type="text" 
                       value={editState}
                       onChange={(e) => setEditState(e.target.value)}
-                      placeholder="Kerala"
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none"
+                      placeholder="State"
+                      className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Country</label>
                     <input 
                       type="text" 
                       value={editCountry}
                       onChange={(e) => setEditCountry(e.target.value)}
-                      placeholder="India"
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none"
+                      placeholder="Country"
+                      className="col-span-2 sm:col-span-1 w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Preferred Language</label>
+                {/* 3. Privacy / Meta */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Preferred Language</label>
                     <input 
                       type="text" 
                       value={editLang}
                       onChange={(e) => setEditLang(e.target.value)}
-                      placeholder="English"
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none"
+                      placeholder="e.g. English, Spanish"
+                      className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Private Phone</label>
+                  <div className="space-y-1.5">
+                    <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Private Phone <span className="text-slate-400 font-normal">(Hidden)</span></label>
                     <input 
                       type="text" 
                       value={editPhone}
                       onChange={(e) => setEditPhone(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none"
+                      className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Private Email</label>
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Private Email <span className="text-slate-400 font-normal">(Hidden)</span></label>
                   <input 
                     type="email" 
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none"
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
 
                 {/* Built-in Banner Picker */}
-                <div className="space-y-2">
-                  <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Select Built-in Profile Banner (30 Choices)</label>
-                  <div className="grid grid-cols-3 gap-2.5 max-h-48 overflow-y-auto p-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl scrollbar-thin">
+                <div className="space-y-3">
+                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Profile Banner</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-48 overflow-y-auto p-3 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl">
                     {BUILTIN_BANNERS.map((banner) => (
                       <button
                         key={banner.id}
                         type="button"
                         onClick={() => setEditBannerId(banner.id)}
-                        className={`group relative h-12 rounded-lg overflow-hidden border-2 text-left p-1.5 transition-all ${
+                        className={`group relative h-[60px] rounded-[10px] overflow-hidden text-left transition-all ${
                           editBannerId === banner.id
-                            ? 'border-indigo-600 ring-2 ring-indigo-600/10 scale-[1.02]'
-                            : 'border-transparent hover:border-slate-300 dark:hover:border-zinc-700'
+                            ? 'ring-2 ring-offset-2 ring-indigo-500 dark:ring-offset-slate-900 scale-[1.02]'
+                            : 'border border-transparent hover:border-slate-300 dark:hover:border-slate-700'
                         }`}
                       >
                         <div className={`absolute inset-0 ${banner.class}`} />
-                        <div className="absolute inset-0 bg-black/5 dark:bg-black/10 group-hover:bg-transparent transition-colors" />
-                        <div className="relative z-10 h-full flex flex-col justify-end">
-                          <span className="text-[8px] font-black font-sans text-slate-900 dark:text-white drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] truncate max-w-full">
-                            {banner.name}
-                          </span>
-                        </div>
+                        {editBannerId === banner.id && (
+                          <div className="absolute inset-0 bg-indigo-600/20 flex items-center justify-center">
+                            <div className="bg-white rounded-full p-0.5 shadow-sm">
+                              <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+                            </div>
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono text-[9px]">Bio / Summary</label>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Bio / Summary</label>
+                    <span className={`text-[10px] font-bold ${editBio.length > 500 ? 'text-rose-500' : 'text-slate-400'}`}>
+                      {editBio.length} / 500
+                    </span>
+                  </div>
                   <textarea 
-                    rows={3}
+                    rows={4}
                     value={editBio}
-                    onChange={(e) => setEditBio(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-blue-500 leading-relaxed"
+                    onChange={(e) => setEditBio(e.target.value.substring(0, 500))}
+                    placeholder="Write a short summary about yourself..."
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-y min-h-[100px] max-h-[300px] leading-relaxed"
                   />
                 </div>
-
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end space-x-2.5">
-                  <button 
-                    type="button"
-                    onClick={() => setIsEditing(false)}
-                    className="px-4 py-2.5 border border-slate-200 dark:border-rose-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer"
-                  >
-                    Save Changes
-                  </button>
-                </div>
               </form>
+
+              {/* Sticky Footer */}
+              <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex gap-3 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                <button 
+                  type="button"
+                  onClick={handleCloseEdit}
+                  className="flex-1 sm:flex-none px-6 py-3 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  form="edit-profile-form"
+                  disabled={loading}
+                  className="flex-[2] sm:flex-none sm:ml-auto px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-500/20 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+
             </motion.div>
           </div>
         )}

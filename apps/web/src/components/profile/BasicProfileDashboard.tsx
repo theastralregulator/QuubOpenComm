@@ -60,6 +60,7 @@ export default function BasicProfileDashboard({
 }: BasicProfileDashboardProps) {
   
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isBioExpanded, setIsBioExpanded] = useState(false);
 
   // Animation variants
   const containerVariants = {
@@ -206,9 +207,21 @@ export default function BasicProfileDashboard({
             <h3 className="text-[15px] font-bold text-slate-900 dark:text-white mb-3">About</h3>
             
             {profile?.bio ? (
-              <p className="text-[14px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                {profile.bio}
-              </p>
+              <div>
+                <p className="text-[14px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-line">
+                  {isBioExpanded || profile.bio.length <= 150 
+                    ? profile.bio 
+                    : `${profile.bio.substring(0, 150).trim()}...`}
+                </p>
+                {profile.bio.length > 150 && (
+                  <button 
+                    onClick={() => setIsBioExpanded(!isBioExpanded)}
+                    className="mt-2 text-[13px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                  >
+                    {isBioExpanded ? 'Show less' : 'Read more'}
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="bg-slate-50 dark:bg-slate-900/50 rounded-[16px] p-4 flex flex-col items-start border border-slate-100 dark:border-slate-800/50">
                 <span className="text-sm text-slate-600 dark:text-slate-300 font-medium mb-3">Complete your profile to improve visibility</span>
