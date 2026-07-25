@@ -425,6 +425,7 @@ export default function ProfilePage({
           jobs={jobs}
           workers={workers}
           onEditProfile={handleOpenEdit}
+          onUpdateBanner={() => setIsSelectingBanner(true)}
           onCreateWorker={() => {
             if (setShowCreateProfile) {
               setShowCreateProfile(true);
