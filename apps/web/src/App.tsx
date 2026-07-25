@@ -3157,15 +3157,15 @@ export default function App() {
          ==================================================== */}
       <AnimatePresence>
         {showPostJob && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-xs">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full max-w-xl overflow-hidden shadow-2xl text-left"
+              className="bg-white dark:bg-[#111827] rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-[#273449] w-full max-w-xl shadow-2xl text-left flex flex-col max-h-[90dvh] sm:max-h-[85dvh]"
             >
               {/* Header */}
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40 shrink-0 z-10 rounded-t-3xl">
                 <div className="flex items-center space-x-2">
                   <Briefcase className="w-5 h-5 text-blue-500" />
                   <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Post an Active Job Listing</span>
@@ -3179,7 +3179,7 @@ export default function App() {
               </div>
 
               {/* Form */}
-              <form onSubmit={handleCreateJob} className="p-6 space-y-4 text-xs">
+              <form id="post-job-form" onSubmit={handleCreateJob} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Title</label>
@@ -3276,22 +3276,25 @@ export default function App() {
                   />
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end space-x-2.5">
-                  <button 
-                    type="button"
-                    onClick={() => setShowPostJob(false)}
-                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors font-semibold cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer hover:scale-102 active:scale-98"
-                  >
-                    Publish Listing
-                  </button>
-                </div>
               </form>
+
+              {/* Sticky Footer */}
+              <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2.5 shrink-0 bg-white dark:bg-[#111827] pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                <button 
+                  type="button"
+                  onClick={() => setShowPostJob(false)}
+                  className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  form="post-job-form"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer hover:scale-102 active:scale-98"
+                >
+                  Publish Listing
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -117,7 +117,7 @@ export default function BasicProfileDashboard({
       initial="hidden"
       animate="show"
       variants={containerVariants}
-      className="max-w-[1200px] w-full mx-auto space-y-4 sm:space-y-5 pt-0 pb-[calc(100px+env(safe-area-inset-bottom))] sm:pb-12 px-2.5 sm:px-6 lg:px-8"
+      className="max-w-[1200px] w-full mx-auto space-y-3 sm:space-y-5 pt-0 pb-[calc(100px+env(safe-area-inset-bottom))] sm:pb-12 px-2 sm:px-6 lg:px-8"
     >
       {/* 1 & 2. HERO SECTION */}
       <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] overflow-hidden shadow-[0_2px_10px_rgba(0,0,0,0.02)] relative w-full">
@@ -141,8 +141,8 @@ export default function BasicProfileDashboard({
         </div>
 
         {/* Profile Details Area */}
-        <div className="px-4 md:px-8 pb-6 md:pb-8 relative">
-          <div className="flex flex-col md:flex-row md:items-end justify-between -mt-10 md:-mt-16 gap-4">
+        <div className="px-3 md:px-8 pb-5 md:pb-8 relative">
+          <div className="flex flex-col md:flex-row md:items-end justify-between -mt-10 md:-mt-16 gap-3 md:gap-4">
             
             {/* Avatar & Info Group */}
             <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-6 flex-1 min-w-0">
@@ -264,10 +264,10 @@ export default function BasicProfileDashboard({
       </motion.div>
 
       {/* COMPACT STATISTICS & MAIN CONTENT */}
-      <div className={`grid grid-cols-1 gap-4 sm:gap-6 ${isOwner ? 'lg:grid-cols-12' : 'lg:grid-cols-1'}`}>
+      <div className={`grid grid-cols-1 gap-3 sm:gap-6 ${isOwner ? 'lg:grid-cols-12' : 'lg:grid-cols-1'}`}>
         
         {/* LEFT COLUMN: Main Info ~65% */}
-        <div className={isOwner ? "lg:col-span-8 space-y-4 sm:space-y-6" : "space-y-4 sm:space-y-6 w-full max-w-4xl mx-auto"}>
+        <div className={isOwner ? "lg:col-span-8 space-y-3 sm:space-y-6" : "space-y-3 sm:space-y-6 w-full max-w-4xl mx-auto"}>
           
           {/* 3. COMPACT STATISTICS */}
           {stats.length > 0 && (
@@ -276,7 +276,7 @@ export default function BasicProfileDashboard({
                 {stats.map((stat, i) => (
                   <div 
                     key={i}
-                    className={`flex items-center justify-center sm:justify-start gap-4 p-4 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors cursor-pointer ${
+                    className={`flex items-center justify-center sm:justify-start gap-3 sm:gap-4 p-3 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors cursor-pointer ${
                       i % 2 === 0 ? 'border-r border-slate-100 dark:border-slate-800/80 md:border-r-0' : ''
                     } ${i < 2 ? 'border-b md:border-b-0 border-slate-100 dark:border-slate-800/80' : ''}`}
                   >
@@ -295,8 +295,8 @@ export default function BasicProfileDashboard({
 
           {/* Professional Details (Empty State for Basic Account) */}
           {isOwner && (
-            <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] p-5 sm:p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-              <div className="flex items-center justify-between mb-4">
+            <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] p-4 sm:p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+              <div className="flex items-center justify-between mb-3 md:mb-4">
                 <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">Professional Profile</h3>
                 <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold rounded-full uppercase">Basic</span>
               </div>
@@ -319,7 +319,7 @@ export default function BasicProfileDashboard({
 
         {/* RIGHT COLUMN: Quick Actions (Account Options & Logout) ~35% */}
         {isOwner && (
-          <div className="lg:col-span-4 space-y-4 sm:space-y-6">
+          <div className="lg:col-span-4 space-y-3 sm:space-y-6">
             <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] shadow-[0_2px_10px_rgba(0,0,0,0.02)] p-2">
               <div className="px-4 pt-3 pb-2">
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Account Options</h3>
