@@ -7,9 +7,11 @@ import {
   CheckCircle2, Info, Star, ChevronRight, Bookmark, Heart, LogOut
 } from 'lucide-react';
 import { Notification } from '../../types';
+import { analytics } from '../../lib/analytics';
+import UserAvatar from '../common/UserAvatar';
 import OpenCommLogo from '../common/OpenCommLogo';
 
-interface NavbarProps {
+export interface NavbarProps {
   currentView: string;
   setCurrentView: (view: any) => void;
   themeMode?: 'light' | 'dark';
@@ -271,11 +273,10 @@ export default function Navbar({
                     className="relative w-8 h-8 md:w-9 md:h-9 rounded-full border border-slate-200 dark:border-slate-800 hover:scale-105 transition-all cursor-pointer shrink-0"
                     id="profile-avatar-btn"
                   >
-                    <img 
-                      src={userPhoto} 
-                      alt={username} 
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full rounded-full object-cover"
+                    <UserAvatar
+                      avatarUrl={userPhoto}
+                      fullName={username}
+                      size="sm"
                     />
                     {!isEmailVerified && (
                       <span className="absolute -top-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white dark:ring-[#080B18]" />
@@ -296,11 +297,10 @@ export default function Navbar({
                         >
                            {/* Header info card */}
                           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center space-x-3 text-left bg-slate-50/40 dark:bg-slate-900/30">
-                            <img 
-                              src={userPhoto} 
-                              alt={username} 
-                              referrerPolicy="no-referrer"
-                              className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                            <UserAvatar
+                              avatarUrl={userPhoto}
+                              fullName={username}
+                              size="md"
                             />
                             <div className="min-w-0 flex-1">
                               <span className="block font-semibold text-sm text-slate-900 dark:text-white truncate">{username}</span>

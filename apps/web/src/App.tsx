@@ -58,6 +58,7 @@ import Footer from './components/navigation/Footer';
 
 import AdminErrorBoundary from './components/admin/AdminErrorBoundary';
 import AdminLayout from './components/admin/AdminLayout';
+import UserAvatar from './components/common/UserAvatar';
 import AdminDashboard from './components/admin/AdminDashboard';
 import AdminUsers from './components/admin/AdminUsers';
 import AdminWorkers from './components/admin/AdminWorkers';
@@ -129,10 +130,14 @@ export default function App() {
     return (localStorage.getItem('opencomm_user_type') as any) || 'normal';
   });
   const [username, setUsername] = useState(() => {
-    return localStorage.getItem('opencomm_username') || 'Akhil Varma';
+    return localStorage.getItem('opencomm_username') || 'User';
+  });
+  const [userIdState, setUserIdState] = useState(() => {
+    return localStorage.getItem('opencomm_user_id') || null;
   });
   const [userPhoto, setUserPhoto] = useState(() => {
-    return localStorage.getItem('opencomm_user_photo') || '';
+    const id = localStorage.getItem('opencomm_user_id');
+    return id ? (localStorage.getItem(`opencomm_user_photo_${id}`) || '') : '';
   });
 
   // UI Modals & Menus
@@ -855,7 +860,8 @@ export default function App() {
 
     localStorage.setItem('opencomm_is_logged_in', 'true');
     localStorage.setItem('opencomm_username', profile.full_name || userEmail.split('@')[0]);
-    localStorage.setItem('opencomm_user_photo', profile.avatar_url || '');
+    setUserIdState(userId);
+    localStorage.setItem(`opencomm_user_photo_${userId}`, profile.avatar_url || '');
     localStorage.setItem('opencomm_user_type', profile.profile_type || 'normal');
     localStorage.setItem('opencomm_user_id', userId);
 
@@ -993,8 +999,9 @@ export default function App() {
     
     localStorage.removeItem('opencomm_is_logged_in');
     localStorage.removeItem('opencomm_username');
-    localStorage.removeItem('opencomm_user_photo');
-    localStorage.removeItem('opencomm_user_type');
+    if (userIdState) {
+      localStorage.removeItem(`opencomm_user_photo_${userIdState}`);
+    }
     localStorage.removeItem('opencomm_user_id');
 
     // Force public DOM root back to Light Theme immediately
@@ -1037,7 +1044,9 @@ export default function App() {
 
     localStorage.removeItem('opencomm_is_logged_in');
     localStorage.removeItem('opencomm_username');
-    localStorage.removeItem('opencomm_user_photo');
+    if (userIdState) {
+      localStorage.removeItem(`opencomm_user_photo_${userIdState}`);
+    }
 
     triggerToast("App data has been reset.");
   };
@@ -1202,7 +1211,9 @@ export default function App() {
     localStorage.setItem('opencomm_is_logged_in', 'true');
     localStorage.setItem('opencomm_user_type', uType);
     localStorage.setItem('opencomm_username', uName);
-    localStorage.setItem('opencomm_user_photo', pickedPhoto);
+    if (userIdState) {
+      localStorage.setItem(`opencomm_user_photo_${userIdState}`, pickedPhoto);
+    }
     localStorage.setItem('opencomm_onboarding_completed', 'true');
     setIsOnboardingCompleted(true);
 
@@ -1459,7 +1470,9 @@ export default function App() {
         setUserPhoto(finalAvatarUrl);
         setUserType(isWorker ? 'worker' : 'normal');
         localStorage.setItem('opencomm_username', formFullName);
-        localStorage.setItem('opencomm_user_photo', finalAvatarUrl);
+        if (userId) {
+          localStorage.setItem(`opencomm_user_photo_${userId}`, finalAvatarUrl);
+        }
         localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
 
         clearSignupTempState(true);
@@ -1825,9 +1838,10 @@ export default function App() {
 
       localStorage.setItem('opencomm_is_logged_in', 'true');
       localStorage.setItem('opencomm_username', formFullName);
-      localStorage.setItem('opencomm_user_photo', resolvedPhoto);
-      localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
+      localStorage.setItem(`opencomm_user_photo_${verifiedUser.id}`, resolvedPhoto);
       localStorage.setItem('opencomm_user_id', verifiedUser.id);
+      setUserIdState(verifiedUser.id);
+      localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
       localStorage.setItem('opencomm_onboarding_completed', 'true');
 
       // 9. Clear temporary signup state AFTER DB save

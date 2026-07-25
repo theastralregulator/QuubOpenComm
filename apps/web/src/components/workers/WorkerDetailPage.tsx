@@ -9,6 +9,7 @@ import { Worker } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
+import UserAvatar from '../common/UserAvatar';
 
 interface WorkerDetailPageProps {
   workers: Worker[];
@@ -69,7 +70,7 @@ export default function WorkerDetailPage({
             const mappedWorker: Worker = {
               id: data.id,
               name: data.profiles?.full_name || 'Worker',
-              photo: data.profiles?.avatar_url || 'https://api.dicebear.com/7.x/notionists/svg?seed=fallback',
+              photo: data.profiles?.avatar_url || '',
               title: data.professional_title || data.profession || 'Professional',
               experience: data.experience_years || data.years_experience || 0,
               rating: 0, // Fallback to 0 if no real reviews
@@ -219,11 +220,11 @@ export default function WorkerDetailPage({
           {/* Photo & Identity Section */}
           <div className="flex items-start space-x-4 min-w-0">
             <div className="relative shrink-0">
-              <img 
-                src={worker.photo} 
-                alt={worker.name} 
-                referrerPolicy="no-referrer"
-                className="w-16 h-16 rounded-full object-cover border-2 border-white dark:border-[#111827] shadow-md bg-slate-50" 
+              <UserAvatar
+                avatarUrl={worker.photo}
+                fullName={worker.name}
+                size="xl"
+                className="border-2 border-white dark:border-[#111827] shadow-md bg-slate-50"
               />
               <span className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full border-3 border-white dark:border-[#111827] ${availColor} animate-pulse`} />
             </div>

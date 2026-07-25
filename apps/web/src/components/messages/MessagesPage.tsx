@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, MessageSquare, Check, X, ShieldAlert, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { Message, Conversation } from '../../types';
 import { analytics } from '../../lib/analytics';
+import UserAvatar from '../common/UserAvatar';
 
 interface MessagesPageProps {
   messages: Message[];
@@ -195,11 +196,10 @@ export default function MessagesPage({
                         : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                     }`}
                   >
-                    <img 
-                      src={conv.memberAvatar} 
-                      alt={conv.memberName} 
-                      referrerPolicy="no-referrer"
-                      className="w-10 h-10 rounded-full object-cover shrink-0 border border-slate-200/50"
+                    <UserAvatar
+                      avatarUrl={conv.memberAvatar}
+                      fullName={conv.memberName}
+                      size="md"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex justify-between items-center mb-0.5">
@@ -245,11 +245,10 @@ export default function MessagesPage({
                     <ArrowLeft className="w-5 h-5" />
                   </button>
 
-                  <img 
-                    src={activeConv.memberAvatar} 
-                    alt={activeContact} 
-                    referrerPolicy="no-referrer"
-                    className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200/50"
+                  <UserAvatar
+                    avatarUrl={activeConv.memberAvatar}
+                    fullName={activeContact}
+                    size="sm"
                   />
                   <div className="min-w-0">
                     <span className="block font-bold text-sm text-slate-900 dark:text-white truncate">{activeContact}</span>
@@ -278,11 +277,10 @@ export default function MessagesPage({
                     <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} text-left`}>
                       <div className="flex items-start space-x-2.5 max-w-[85%]">
                         {!isMe && (
-                          <img 
-                            src={m.senderAvatar} 
-                            alt={m.senderName} 
-                            referrerPolicy="no-referrer"
-                            className="w-7 h-7 rounded-full object-cover border border-slate-200/50 mt-1 shrink-0"
+                          <UserAvatar
+                            avatarUrl={m.senderAvatar}
+                            fullName={m.senderName}
+                            size="sm"
                           />
                         )}
                         

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Bookmark, Star, MapPin, MessageSquare, CheckCircle2, Share2 } from 'lucide-react';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
+import UserAvatar from '../common/UserAvatar';
 
 export interface WorkerCardProps {
   key?: React.Key;
@@ -89,11 +90,10 @@ export default function WorkerCard({
         <div className="flex justify-between items-start mb-3">
           <div className="flex items-center space-x-2.5 min-w-0">
             <div className="relative shrink-0">
-              <img 
-                src={avatarUrl} 
-                alt={name} 
-                referrerPolicy="no-referrer"
-                className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-800" 
+              <UserAvatar
+                avatarUrl={avatarUrl}
+                fullName={name}
+                size="md"
               />
               <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-[#111827] ${availColor}`} />
             </div>

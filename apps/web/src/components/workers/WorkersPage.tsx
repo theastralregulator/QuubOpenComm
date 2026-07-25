@@ -82,7 +82,7 @@ export default function WorkersPage({
           const mapped = data.map((d: any) => ({
             id: d.id,
             name: d.profiles?.full_name || 'Worker',
-            photo: d.profiles?.avatar_url || 'https://api.dicebear.com/7.x/notionists/svg?seed=fallback',
+            photo: d.profiles?.avatar_url || '',
             title: d.professional_title || d.profession || 'Professional',
             experience: d.experience_years || d.years_experience || 0,
             rating: 0,

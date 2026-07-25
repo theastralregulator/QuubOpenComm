@@ -7,6 +7,7 @@ import {
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
+import UserAvatar from '../common/UserAvatar';
 
 interface ProfilePageProps {
   username: string;
@@ -145,8 +146,8 @@ export default function ProfilePage({
 
   // Connection Requests simulation
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([
-    { id: 'req-1', requesterName: 'Rahul Sharma', requesterPhoto: 'https://api.dicebear.com/7.x/notionists/svg?seed=Rahul', reason: 'Discuss local app development contract escrow setup.', status: 'Pending', timestamp: '2 hours ago' },
-    { id: 'req-2', requesterName: 'Emily Chen', requesterPhoto: 'https://api.dicebear.com/7.x/notionists/svg?seed=Emily', reason: 'Full-time carpentry trim renovation collaboration.', status: 'Approved', timestamp: 'Yesterday' }
+    { id: 'req-1', requesterName: 'Rahul Sharma', requesterPhoto: '', reason: 'Discuss local app development contract escrow setup.', status: 'Pending', timestamp: '2 hours ago' },
+    { id: 'req-2', requesterName: 'Emily Chen', requesterPhoto: '', reason: 'Full-time carpentry trim renovation collaboration.', status: 'Approved', timestamp: 'Yesterday' }
   ]);
 
   // Edit fields temp buffers
@@ -422,11 +423,11 @@ export default function ProfilePage({
             {/* Avatar overlap */}
             <div className="flex flex-col sm:flex-row sm:items-end justify-between -mt-12 sm:-mt-16 mb-4 gap-4">
               <div className="relative group self-start">
-                <img 
-                  src={profile?.avatar_url || userPhoto} 
-                  alt={profile?.full_name || username} 
-                  referrerPolicy="no-referrer"
-                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-white dark:border-[#111827] shadow-lg bg-slate-100"
+                <UserAvatar
+                  avatarUrl={profile?.avatar_url || userPhoto}
+                  fullName={profile?.full_name || username}
+                  size="2xl"
+                  className="sm:w-28 sm:h-28 sm:text-3xl border-4 border-white dark:border-[#111827] shadow-lg bg-slate-100"
                 />
                 {isLoggedIn && (
                   <button 
