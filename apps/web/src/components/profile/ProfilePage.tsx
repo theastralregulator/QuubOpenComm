@@ -8,6 +8,7 @@ import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Con
 import { dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
+import BasicProfileDashboard from './BasicProfileDashboard';
 
 interface ProfilePageProps {
   username: string;
@@ -413,8 +414,53 @@ export default function ProfilePage({
         </div>
       )}
 
-      {/* 2. MAIN HEADER CARD */}
-      {(!loading || profile) && (
+      {/* --- BASIC ACCOUNT DASHBOARD --- */}
+      {isLoggedIn && profile?.profile_type === 'basic' && (
+        <BasicProfileDashboard
+          profile={profile}
+          username={username}
+          userPhoto={userPhoto}
+          joinedYear={joinedYear}
+          formattedLocation={formattedLocation}
+          jobs={jobs}
+          workers={workers}
+          onEditProfile={handleOpenEdit}
+          onCreateWorker={() => {
+            if (setShowCreateProfile) {
+              setShowCreateProfile(true);
+            } else {
+              triggerToast("Please click the Create Profile action in the primary dashboard.");
+            }
+          }}
+          onCreateCompany={() => {
+            if (requireEmailVerification) {
+              requireEmailVerification("Create Company Profile", () => {
+                setShowCompanyModal(true);
+              });
+            } else {
+              setShowCompanyModal(true);
+            }
+          }}
+          onUpdatePhoto={async () => {
+            const nextPhoto = prompt("Enter a valid image URL to update your photo:", profile?.avatar_url || userPhoto);
+            if (nextPhoto) {
+              try {
+                await dbService.updateProfile(loggedInId, { avatar_url: nextPhoto });
+                setUserPhoto(nextPhoto);
+                triggerToast("Profile picture updated in database.");
+                await loadProfileData();
+              } catch (err: any) {
+                triggerToast(err.message || "Failed to update profile photo.");
+              }
+            }
+          }}
+          onLogout={onLogout || (() => {})}
+          triggerToast={triggerToast}
+        />
+      )}
+
+      {/* 2. MAIN HEADER CARD (Only for Worker/Company) */}
+      {(!loading || profile) && profile?.profile_type !== 'basic' && (
         <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm relative text-left">
           {/* Decorative backdrop mesh */}
           <div className={`h-32 sm:h-36 transition-all ${getBannerClass(profile?.banner_id)}`} />
@@ -547,91 +593,7 @@ export default function ProfilePage({
         </div>
       )}
 
-      {/* ACCOUNT OPTIONS (Shown to Basic Users to offer profile updates) */}
-      {isLoggedIn && profile?.profile_type === 'basic' && (
-        <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl text-left space-y-4 shadow-sm">
-          <div>
-            <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Account Options</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Complete your basic profile details, create a worker profile to offer your services, or set up a company profile.
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Upgrade Action 1: Basic Profile */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800/50 flex flex-col justify-between space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">👤</span>
-                  <span className="text-[9px] font-mono text-slate-400 font-semibold uppercase">Profile</span>
-                </div>
-                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">Edit Profile Details</h4>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed font-medium">Configure your bio, name, phone contact details, or active region.</p>
-              </div>
-              <button
-                onClick={handleOpenEdit}
-                className="w-full py-2 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-[10px] font-bold cursor-pointer transition-colors text-center"
-              >
-                Complete Basic Profile
-              </button>
-            </div>
 
-            {/* Upgrade Action 2: Worker Profile */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800/50 flex flex-col justify-between space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🛠️</span>
-                  <span className="text-[9px] font-mono text-slate-400 font-semibold uppercase">Worker</span>
-                </div>
-                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">Become a Worker</h4>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed font-medium">
-                  Register as a worker to receive job matches and submit proposals to clients.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  if (setShowCreateProfile) {
-                    setShowCreateProfile(true);
-                  } else {
-                    triggerToast("Please click the Create Profile action in the primary dashboard.");
-                  }
-                }}
-                className="w-full py-2 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/20 text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-bold cursor-pointer transition-all text-center"
-              >
-                Become a Worker
-              </button>
-            </div>
-
-            {/* Upgrade Action 3: Company Profile */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800/50 flex flex-col justify-between space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🏢</span>
-                  <span className="text-[9px] font-mono text-slate-400 font-semibold uppercase">Company</span>
-                </div>
-                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">Company Profile</h4>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed font-medium">
-                  Flesh out company name and business sector to unlock business options.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  if (requireEmailVerification) {
-                    requireEmailVerification("Create Company Profile", () => {
-                      setShowCompanyModal(true);
-                    });
-                  } else {
-                    setShowCompanyModal(true);
-                  }
-                }}
-                className="w-full py-2 bg-blue-500/10 hover:bg-blue-500/15 border border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-bold cursor-pointer transition-all text-center"
-              >
-                Create Company Profile
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 3. PROFILE SUB-TABS NAVIGATION (Only displayed for Worker/Company accounts; hidden for Basic accounts) */}
       {isLoggedIn && profile && profile.profile_type !== 'basic' && (
@@ -666,7 +628,8 @@ export default function ProfilePage({
         </div>
       )}
 
-      {/* 4. DETAILS ROW LAYOUT */}
+      {/* 4. DETAILS ROW LAYOUT (Only for Worker/Company) */}
+      {(!loading || profile) && profile?.profile_type !== 'basic' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-left">
         
         {/* COLUMN LEFT: Tab Contents */}
@@ -860,6 +823,8 @@ export default function ProfilePage({
         </div>
 
       </div>
+      )}
+
 
       {/* COMPANY PROFILE MODAL */}
       <AnimatePresence>
