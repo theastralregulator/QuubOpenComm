@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
-  Users, UserSquare2, Briefcase, Building2, 
+  Users, User, Briefcase, Building2, 
   CheckCircle, AlertOctagon, Activity, ChevronRight
 } from 'lucide-react';
 import { useAdminSession } from '../../hooks/useAdminSession';
@@ -51,7 +51,7 @@ export default function AdminDashboard() {
 
   const statCards = [
     { title: 'Total Users', value: stats.users, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10' },
-    { title: 'Worker Profiles', value: stats.workers, icon: UserSquare2, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-500/10' },
+    { title: 'Worker Profiles', value: stats.workers, icon: User, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-500/10' },
     { title: 'Published Jobs', value: stats.jobs, icon: Briefcase, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-500/10' },
     { title: 'Companies', value: stats.companies, icon: Building2, color: 'text-violet-500', bg: 'bg-violet-50 dark:bg-violet-500/10' },
     { title: 'Pending Verifications', value: stats.verifications, icon: CheckCircle, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/10' },

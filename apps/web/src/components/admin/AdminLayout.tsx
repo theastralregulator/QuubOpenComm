@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  LayoutDashboard, Users, UserSquare2, Briefcase, Building2, 
+  LayoutDashboard, Users, User, Briefcase, Building2, 
   CheckCircle, AlertOctagon, MessageSquare, LifeBuoy, FileText, 
   Megaphone, Settings, ShieldAlert, Activity, Search, Bell, 
   Menu, X, LogOut, ExternalLink, ShieldCheck
@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 const ADMIN_NAVIGATION = [
   { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, exact: true },
   { name: 'Users', path: '/admin/users', icon: Users },
-  { name: 'Workers', path: '/admin/workers', icon: UserSquare2 },
+  { name: 'Workers', path: '/admin/workers', icon: User },
   { name: 'Jobs', path: '/admin/jobs', icon: Briefcase },
   { name: 'Companies', path: '/admin/companies', icon: Building2 },
   { name: 'Verifications', path: '/admin/verifications', icon: CheckCircle },

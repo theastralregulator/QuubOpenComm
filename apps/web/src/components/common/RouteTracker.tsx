@@ -61,6 +61,10 @@ export default function RouteTracker({ jobs, workers }: RouteTrackerProps) {
       title = 'Onboarding | OpenComm';
     } else if (path === '/settings') {
       title = 'Settings | OpenComm';
+    } else if (path === '/settings') {
+      title = 'Settings | OpenComm';
+    } else if (path.startsWith('/admin')) {
+      title = 'Admin Control Center | OpenComm';
     } else {
       title = 'Page Not Found | OpenComm';
     }

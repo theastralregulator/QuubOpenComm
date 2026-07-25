@@ -56,7 +56,7 @@ import CookiePolicyPage from './components/legal/CookiePolicyPage';
 import GrievancePage from './components/legal/GrievancePage';
 import Footer from './components/navigation/Footer';
 
-// Admin Components
+import AdminErrorBoundary from './components/admin/AdminErrorBoundary';
 import AdminLayout from './components/admin/AdminLayout';
 import AdminDashboard from './components/admin/AdminDashboard';
 import AdminUsers from './components/admin/AdminUsers';
@@ -2941,7 +2941,7 @@ export default function App() {
           <Route path="/grievance" element={<GrievancePage navigate={navigate} triggerToast={triggerToast} />} />
 
           {/* ADMIN ROUTES */}
-          <Route path="/admin" element={<AdminLayout />}>
+          <Route path="/admin" element={<AdminErrorBoundary><AdminLayout /></AdminErrorBoundary>}>
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="workers" element={<AdminWorkers />} />
