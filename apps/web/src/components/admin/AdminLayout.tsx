@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAdminSession } from '../../hooks/useAdminSession';
 import { supabase } from '../../lib/supabase';
+import { getInitials, getDisplayEmail, getDisplayName } from '../../lib/admin-utils';
 
 const ADMIN_NAVIGATION = [
   { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, exact: true },
@@ -123,7 +124,7 @@ export default function AdminLayout() {
             <div className="p-4 border-t border-slate-200 dark:border-zinc-800">
               <div className="mb-4 px-2">
                 <p className="text-xs text-slate-500 mb-1">Logged in as</p>
-                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{adminUser.email}</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{getDisplayEmail(adminUser.email)}</p>
                 <div className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 mt-1">
                   {adminUser.role.replace('_', ' ')}
                 </div>
@@ -170,11 +171,11 @@ export default function AdminLayout() {
             </button>
             <div className="flex items-center space-x-3 pl-6 border-l border-slate-200 dark:border-zinc-800">
               <div className="text-right">
-                <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight">{adminUser.email.split('@')[0]}</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight">{getDisplayName(adminUser)}</p>
                 <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold">{adminUser.role.replace('_', ' ')}</p>
               </div>
               <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-600 dark:text-zinc-300 font-bold uppercase">
-                {adminUser.email.charAt(0)}
+                {getInitials(null, adminUser.email)}
               </div>
             </div>
           </div>

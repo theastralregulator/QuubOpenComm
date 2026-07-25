@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAdminSession } from '../../hooks/useAdminSession';
 import { ShieldCheck, MoreVertical, Search, ShieldAlert, Trash2, UserX } from 'lucide-react';
+import { getInitials, getDisplayEmail, getDisplayName } from '../../lib/admin-utils';
 
 export default function AdminUsers() {
   const { adminUser, hasPermission } = useAdminSession();
@@ -139,11 +140,11 @@ export default function AdminUsers() {
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
                           <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-700 dark:text-indigo-400 font-bold">
-                            {user.full_name?.charAt(0) || 'U'}
+                            {getInitials(user.full_name, user.email)}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900 dark:text-white">{user.full_name || 'No Name'}</p>
-                            <p className="text-xs text-slate-500">@{user.username || user.id.substring(0,8)}</p>
+                            <p className="font-bold text-slate-900 dark:text-white">{getDisplayName(user)}</p>
+                            <p className="text-xs text-slate-500">@{user.username || getDisplayEmail(user.email)}</p>
                           </div>
                         </div>
                       </td>

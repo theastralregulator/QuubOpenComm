@@ -43,7 +43,17 @@ export function useAdminSession() {
           console.log('Admin Auth Check -> final role: null');
           console.log('Admin Auth Check -> final isAdmin boolean: false');
         } else {
-          setAdminUser(member as AdminMember);
+          const adminData = {
+            ...member,
+            email: session.user.email,
+            id: member.id || session.user.id
+          } as AdminMember;
+          
+          if (!adminData.email) {
+            console.warn('[Admin Dashboard] Development Warning: Authenticated admin record is missing an email address.', adminData);
+          }
+
+          setAdminUser(adminData);
           console.log('Admin Auth Check -> final role:', member.role);
           console.log('Admin Auth Check -> final isAdmin boolean:', member.is_active);
         }
