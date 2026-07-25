@@ -21,21 +21,34 @@ export function useAdminSession() {
         return;
       }
 
-      // Query admin_members using RLS (which checks if they are admin anyway, or via standard policy)
+      // Query admin_members
+      console.log('Admin Auth Check -> Current user:', session.user);
+      console.log('Admin Auth Check -> Current user.id:', session.user.id);
+      
       const { data: member, error } = await supabase
         .from('admin_members')
-        .select('*')
-        .eq('id', session.user.id)
-        .eq('is_active', true)
+        .select('role, is_active')
+        .eq('user_id', session.user.id)
         .single();
+
+      console.log('Admin Auth Check -> admin_members query result:', member);
+      console.log('Admin Auth Check -> error state:', error);
 
       if (isMounted) {
         if (error || !member) {
+          if (error) {
+            console.error('Admin Auth Check -> PostgREST Error:', error);
+          }
           setAdminUser(null);
+          console.log('Admin Auth Check -> final role: null');
+          console.log('Admin Auth Check -> final isAdmin boolean: false');
         } else {
           setAdminUser(member as AdminMember);
+          console.log('Admin Auth Check -> final role:', member.role);
+          console.log('Admin Auth Check -> final isAdmin boolean:', member.is_active);
         }
         setIsAdminLoading(false);
+        console.log('Admin Auth Check -> loading state: false');
       }
     }
 
