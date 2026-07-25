@@ -314,7 +314,7 @@ export default function LocationSelector({ value = {}, onChange, className = '' 
           }}
           className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
         >
-          {isManual ? "Switch to Interactive Dropdowns" : "Can't find location? Type custom name"}
+          {isManual ? "" : "Can't find location? Type custom name"}
         </button>
       </div>
 

@@ -254,7 +254,6 @@ export default function App() {
       if (!workerForm.phone.trim()) return "Phone number is required.";
       if (!workerForm.city.trim()) return "City is required.";
       if (!workerForm.preferredLanguage.trim()) return "Preferred language is required.";
-      if (isWorker && !workerForm.bio.trim()) return "Short bio is required.";
     }
     if (step === 'B') {
       if (!workerForm.professionalTitle.trim()) return "Professional title is required.";
@@ -1327,10 +1326,6 @@ export default function App() {
       }
       if (!workerForm.preferredLanguage || !workerForm.preferredLanguage.trim()) {
         setAuthError("Please enter your preferred language.");
-        return;
-      }
-      if (!workerForm.bio || !workerForm.bio.trim()) {
-        setAuthError("Please enter a short bio for your worker profile.");
         return;
       }
     }
@@ -3808,7 +3803,7 @@ export default function App() {
 
                   {/* STEP 1: UNIFIED SINGLE PAGE SIGNUP FORM */}
                   {signupStep === 1 && (
-                    <form onSubmit={handleSinglePageSignUp} className="space-y-4 text-xs text-left animate-fadeIn">
+                    <form onSubmit={handleSinglePageSignUp} noValidate className="space-y-4 text-xs text-left animate-fadeIn">
                       
                       {/* SECTION 1: BASIC PROFILE (REQUIRED FOR EVERY USER) */}
                       <div className="space-y-3.5">
@@ -3825,7 +3820,6 @@ export default function App() {
                           </label>
                           <input 
                             type="text" 
-                            required
                             value={signupForm.name}
                             onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
                             className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
@@ -3840,7 +3834,6 @@ export default function App() {
                           </label>
                           <input 
                             type="email" 
-                            required
                             disabled={isLoggedIn}
                             value={signupForm.email}
                             onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
@@ -3870,7 +3863,6 @@ export default function App() {
                             {/* Phone Input */}
                             <input 
                               type="tel" 
-                              required
                               value={signupForm.phone}
                               onChange={(e) => setSignupForm({...signupForm, phone: e.target.value.replace(/[^\d]/g, '')})}
                               className="flex-1 h-11 px-3.5 bg-transparent text-slate-950 dark:text-white text-xs font-semibold focus:outline-none placeholder-slate-400"
@@ -3910,7 +3902,6 @@ export default function App() {
                               <div className="relative">
                                 <input 
                                   type={showSignupPassword ? "text" : "password"} 
-                                  required
                                   autoComplete="new-password"
                                   value={signupPassword}
                                   onChange={(e) => setSignupPassword(e.target.value)}
@@ -3935,7 +3926,6 @@ export default function App() {
                               <div className="relative">
                                 <input 
                                   type={showSignupConfirmPassword ? "text" : "password"} 
-                                  required
                                   autoComplete="new-password"
                                   value={signupConfirmPassword}
                                   onChange={(e) => setSignupConfirmPassword(e.target.value)}
@@ -4054,25 +4044,25 @@ export default function App() {
                               triggerToast={triggerToast}
                             />
                           ) : (
-                            <div className="flex items-center space-x-3.5 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-200/80 dark:border-zinc-800">
-                              <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-indigo-500/30 bg-white dark:bg-zinc-800 shrink-0 p-0.5 shadow-xs">
+                            <div className="flex items-center space-x-3 p-2.5 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-200/80 dark:border-zinc-800">
+                              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-500/30 bg-white dark:bg-zinc-800 shrink-0 p-0.5 shadow-xs">
                                 <img
                                   src={selectedAvatar || workerForm.avatarUrl || DEFAULT_AVATAR_URL}
                                   alt="Avatar preview"
                                   className="w-full h-full object-cover rounded-full"
                                 />
                               </div>
-                              <div className="space-y-1 text-left flex-1">
-                                <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                              <div className="space-y-0.5 text-left flex-1">
+                                <span className="text-[11px] font-bold text-slate-900 dark:text-white block leading-tight">
                                   {avatarTab === 'skip' ? 'Default Avatar Assigned' : selectedAvatar ? 'Preset Avatar Selected' : 'Choose Preset Avatar'}
                                 </span>
-                                <p className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
+                                <p className="text-[9px] text-slate-500 dark:text-zinc-400 font-medium">
                                   Select from 50+ diverse professional avatars
                                 </p>
                                 <button
                                   type="button"
                                   onClick={() => setShowAvatarGalleryModal(true)}
-                                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all shadow-xs cursor-pointer"
+                                  className="px-2.5 py-1 mt-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs cursor-pointer inline-block"
                                 >
                                   Browse Avatar Gallery (50+)
                                 </button>
@@ -4371,17 +4361,6 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
-
-                      {/* COMPANY ACCOUNT BADGE (DISABLED) */}
-                      <div className="p-3 rounded-2xl border border-slate-200/50 dark:border-zinc-850 bg-slate-50/50 dark:bg-zinc-950/20 opacity-60 cursor-not-allowed flex items-center justify-between mt-2">
-                        <div className="flex items-center space-x-2">
-                          <span className="w-3.5 h-3.5 rounded-full border border-slate-300 bg-slate-100 dark:bg-zinc-800" />
-                          <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">Company Profiles</span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                          Coming Soon
-                        </span>
-                      </div>
 
                       {/* TERMS AND PRIVACY CONSENT */}
                       <div className="flex items-start space-x-2.5 pt-2 text-left">
