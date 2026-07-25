@@ -50,21 +50,17 @@ export default function WorkerDetailPage({
       setLoading(true);
       setError(null);
 
-      // 1. Find in memory
-      const localWorker = workers.find((w) => w.id === workerId);
-      if (localWorker) {
-        setWorker(localWorker);
-        setLoading(false);
-        return;
-      }
-
-      // 2. Try Supabase profiles
+      // 1. Try Supabase worker_profiles
       if (supabase) {
         try {
           const { data, error: sbError } = await supabase
-            .from('profiles')
-            .select('*')
+            .from('worker_profiles')
+            .select(`
+              *,
+              profiles(full_name, avatar_url, city, state, district, account_type)
+            `)
             .eq('id', workerId)
+            .eq('listing_enabled', true)
             .single();
 
           if (sbError) {
@@ -72,18 +68,18 @@ export default function WorkerDetailPage({
           } else if (data) {
             const mappedWorker: Worker = {
               id: data.id,
-              name: data.full_name || 'Verified Worker',
-              photo: data.avatar_url || 'https://api.dicebear.com/7.x/notionists/svg?seed=mock45121',
-              title: data.preferred_language || 'Professional Specialist',
-              experience: 5,
-              rating: 5.0,
-              availability: 'Available Now',
-              location: `${data.city || 'Austin'}, ${data.state || 'TX'}`,
-              bio: data.bio || 'Professional contractor verified on OpenComm.',
-              skills: ['Service', 'Contracting', 'Consulting'],
-              completedWorks: 12,
-              hourlyRate: 75,
-              verified: true,
+              name: data.profiles?.full_name || 'Worker',
+              photo: data.profiles?.avatar_url || 'https://api.dicebear.com/7.x/notionists/svg?seed=fallback',
+              title: data.professional_title || data.profession || 'Professional',
+              experience: data.experience_years || data.years_experience || 0,
+              rating: 0, // Fallback to 0 if no real reviews
+              availability: data.availability_status || data.availability || 'Available Now',
+              location: [data.profiles?.city, data.profiles?.district, data.profiles?.state].filter(Boolean).join(', ') || 'Not provided',
+              bio: data.bio_summary || 'No biography provided.',
+              skills: data.skills || [],
+              completedWorks: 0,
+              hourlyRate: data.hourly_rate || 0,
+              verified: data.verification_status === 'verified',
             };
             setWorker(mappedWorker);
             setLoading(false);
@@ -94,8 +90,8 @@ export default function WorkerDetailPage({
         }
       }
 
-      // 3. Fallback: Not found
-      setError('Worker profile could not be found.');
+      // 2. Fallback: Not found
+      setError('Worker profile could not be found or is not public.');
       setLoading(false);
     }
 

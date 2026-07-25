@@ -171,6 +171,11 @@ export interface LocalWorkerProfile {
   graduation_year?: number;
   resume_path?: string;
   worker_profile_completed?: boolean;
+  listing_enabled?: boolean;
+  verification_status?: string;
+  profile_status?: string;
+  services_offered?: string[];
+  travel_radius_km?: number;
 
   // Normalized relations
   experience?: LocalWorkerExperience[];
@@ -447,7 +452,7 @@ export const dbService = {
             'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
             'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
             'bio', 'account_status', 'profile_type', 'created_at', 'updated_at',
-            'onboarding_completed', 'banner_id'
+            'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
           ];
           
           const filteredUpdates: any = {};
@@ -549,7 +554,12 @@ export const dbService = {
           resume_path: worker.resume_path || '',
           worker_profile_completed: worker.worker_profile_completed || false,
           certificates: worker.certificates || [],
-          languages: worker.languages || []
+          languages: worker.languages || [],
+          listing_enabled: worker.listing_enabled !== undefined ? worker.listing_enabled : true,
+          verification_status: worker.verification_status || 'unverified',
+          profile_status: worker.profile_status || 'active',
+          services_offered: worker.services_offered || [],
+          travel_radius_km: worker.travel_radius_km || null
         });
 
         // Also sync old workers_directory table for complete safety

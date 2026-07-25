@@ -11,6 +11,7 @@ import { Worker } from '../../types';
 import WorkerCard from '../cards/WorkerCard';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
+import { supabase } from '../../lib/supabase';
 
 interface WorkersPageProps {
   workers: Worker[];
@@ -56,11 +57,61 @@ export default function WorkersPage({
   const [selectedWorkerProfile, setSelectedWorkerProfile] = useState<Worker | null>(null);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  
+  const [liveWorkers, setLiveWorkers] = useState<Worker[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch Live Workers
+  useEffect(() => {
+    async function fetchLiveWorkers() {
+      if (!supabase) {
+        setIsLoading(false);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('worker_profiles')
+          .select(`
+            *,
+            profiles(full_name, avatar_url, city, district, state)
+          `)
+          .eq('listing_enabled', true)
+          .eq('profile_status', 'active');
+
+        if (!error && data) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            name: d.profiles?.full_name || 'Worker',
+            photo: d.profiles?.avatar_url || 'https://api.dicebear.com/7.x/notionists/svg?seed=fallback',
+            title: d.professional_title || d.profession || 'Professional',
+            experience: d.experience_years || d.years_experience || 0,
+            rating: 0,
+            availability: d.availability_status || d.availability || 'Available Now',
+            location: [d.profiles?.city, d.profiles?.district, d.profiles?.state].filter(Boolean).join(', ') || 'Not provided',
+            bio: d.bio_summary || 'No biography provided.',
+            skills: d.skills || [],
+            completedWorks: 0,
+            hourlyRate: d.hourly_rate || 0,
+            verified: d.verification_status === 'verified'
+          }));
+          setLiveWorkers(mapped);
+        }
+      } catch (err) {
+        console.error('Failed to load live workers:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchLiveWorkers();
+  }, []);
+
+  // Use live workers if available, fallback to props (which might be empty or demo)
+  const displayWorkers = liveWorkers.length > 0 ? liveWorkers : (isLoading ? [] : workers);
 
   // Sync worker profile state with URL route parameter
   useEffect(() => {
     if (workerId) {
-      const worker = workers.find(w => w.id === workerId);
+      const worker = displayWorkers.find(w => w.id === workerId);
       if (worker) {
         setSelectedWorkerProfile(worker);
       } else {
@@ -71,7 +122,7 @@ export default function WorkersPage({
     } else {
       setSelectedWorkerProfile(null);
     }
-  }, [workerId, workers]);
+  }, [workerId, displayWorkers]);
 
   // Track selected worker profile view in Google Analytics
   useEffect(() => {
@@ -135,7 +186,7 @@ export default function WorkersPage({
   };
 
   // --- FILTER & MATCH LOGIC ---
-  const filteredWorkers = workers.filter(worker => {
+  const filteredWorkers = displayWorkers.filter(worker => {
     // 1. Search filter
     const matchesSearch = !searchQuery || 
       worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -202,7 +253,7 @@ export default function WorkersPage({
     return 0;
   });
 
-  const totalSavedCount = workers.filter(w => (w as any).bookmarked).length;
+  const totalSavedCount = displayWorkers.filter(w => (w as any).bookmarked).length;
 
   return (
     <div className="w-full text-left font-sans max-w-[1600px] mx-auto px-1 sm:px-2 pb-[calc(110px+env(safe-area-inset-bottom))]" id="workers-discovery-container">

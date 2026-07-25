@@ -1390,7 +1390,9 @@ export default function App() {
           account_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
           account_status: 'active' as const,
           email_verified_for_actions: true,
-          onboarding_completed: true
+          onboarding_completed: true,
+          whatsapp_preference: whatsappSameNumber,
+          telegram_username: telegramUsername
         };
 
         const savedProfile = await dbService.updateProfile(userId, profilePayload);
@@ -1401,13 +1403,18 @@ export default function App() {
         if (isWorker) {
           await dbService.createWorkerProfile({
             id: userId,
-            profession: workerForm.professionalTitle || 'Independent Provider',
-            professional_title: workerForm.professionalTitle || 'Independent Provider',
-            primary_category: workerForm.primaryCategory || 'General Work',
-            skills: workerForm.skills.length > 0 ? workerForm.skills : ['Local Care', 'Bespoke Custom Work'],
-            experience_years: 1,
-            years_experience: 1,
+            profession: workerForm.professionalTitle,
+            professional_title: workerForm.professionalTitle,
+            primary_category: workerForm.primaryCategory,
+            skills: workerForm.skills,
+            experience_years: workerForm.experienceLevel === 'Senior' ? 5 : workerForm.experienceLevel === 'Mid' ? 2 : 0,
+            years_experience: workerForm.experienceLevel === 'Senior' ? 5 : workerForm.experienceLevel === 'Mid' ? 2 : 0,
             work_location: `${workerForm.city}, ${workerForm.state}`,
+            listing_enabled: true,
+            verification_status: 'unverified',
+            profile_status: 'active',
+            services_offered: [],
+            travel_radius_km: null,
             availability: 'Available Now',
             availability_status: 'Available Now',
             bio_summary: formBio,
