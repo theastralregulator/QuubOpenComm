@@ -166,7 +166,7 @@ export default function App() {
   const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
   const [whatsappSameNumber, setWhatsappSameNumber] = useState(true);
   const [telegramUsername, setTelegramUsername] = useState('');
-  const [isWorkerDirectoryEnabled, setIsWorkerDirectoryEnabled] = useState(false);
+  const [listInWorkerDirectory, setListInWorkerDirectory] = useState(false);
   const [showOptionalWorkerDetails, setShowOptionalWorkerDetails] = useState(false);
   const [driverLicenceType, setDriverLicenceType] = useState('Commercial (LMV/HMV)');
   const [driverVehicleType, setDriverVehicleType] = useState('Car / Sedan');
@@ -247,7 +247,7 @@ export default function App() {
 
   const validateSubStep = (step: 'A' | 'B' | 'C' | 'D' | 'E' | 'F') => {
     setAuthError('');
-    const isWorker = selectedAccountType === 'worker';
+    const isWorker = listInWorkerDirectory;
     if (step === 'A') {
       if (!workerForm.fullName.trim()) return "Full name is required.";
       if (isWorker && !workerForm.avatarUrl) return "Profile photo is required.";
@@ -596,9 +596,9 @@ export default function App() {
         name: localStorage.getItem('opencomm_pending_signup_name') || prev.name,
         phone: localStorage.getItem('opencomm_pending_signup_phone') || prev.phone,
       }));
-      const savedAccountType = localStorage.getItem('opencomm_pending_signup_account_type');
-      if (savedAccountType === 'worker' || savedAccountType === 'company') {
-        setSelectedAccountType(savedAccountType as any);
+      const savedWorkerDirectory = localStorage.getItem('opencomm_pending_signup_worker_dir') === 'true';
+      if (savedWorkerDirectory) {
+        setListInWorkerDirectory(true);
       }
       
       setWorkerForm(prev => ({
@@ -909,7 +909,7 @@ export default function App() {
     setPhoneCountryCode('+91');
     setWhatsappSameNumber(true);
     setTelegramUsername('');
-    setIsWorkerDirectoryEnabled(false);
+    setListInWorkerDirectory(false);
     setShowOptionalWorkerDetails(false);
     setSelectedAvatar(null);
     setAvatarTab('upload');
@@ -1313,7 +1313,7 @@ export default function App() {
       }
     }
 
-    const isWorker = selectedAccountType === 'worker';
+    const isWorker = listInWorkerDirectory;
 
     // Validate Section 2 if Worker Account is selected
     if (isWorker) {
@@ -1535,7 +1535,7 @@ export default function App() {
       
       localStorage.setItem('opencomm_pending_signup_name', signupForm.name);
       localStorage.setItem('opencomm_pending_signup_phone', signupForm.phone);
-      localStorage.setItem('opencomm_pending_signup_account_type', selectedAccountType || 'normal');
+      localStorage.setItem('opencomm_pending_signup_worker_dir', listInWorkerDirectory ? 'true' : 'false');
       if (isWorker) {
         localStorage.setItem('opencomm_pending_signup_avatar', workerForm.avatarUrl || '');
         localStorage.setItem('opencomm_pending_signup_city', workerForm.city || '');
@@ -1716,7 +1716,7 @@ export default function App() {
       }
 
       // 5. Update core profile with onboarding_completed = true
-      const isWorker = isWorkerDirectoryEnabled;
+      const isWorker = listInWorkerDirectory;
 
       const profilePayload = {
         id: verifiedUser.id,
@@ -1837,6 +1837,7 @@ export default function App() {
       isSavingProfileRef.current = false;
 
       triggerToast("Verification successful! Welcome to OpenComm.");
+      navigate('/', { replace: true });
 
       // 10. Replace navigation to home
       const queryParams = new URLSearchParams(window.location.search);
@@ -3763,29 +3764,6 @@ export default function App() {
               {/* --- CASE C: SINGLE-PAGE SIGN UP & ONBOARDING FORM --- */}
               {showAuthModal === 'signup' && (
                 <div className="space-y-5 text-left">
-                  {/* Header Branding */}
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
-                    <div className="flex items-center space-x-2 cursor-pointer" onClick={() => { _setShowAuthModal(null); navigate('/'); }}>
-                      <OpenCommLogo className="h-6 w-auto" />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { _setShowAuthModal(null); navigate('/'); }}
-                      className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-1">
-                    <h2 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                      Create your OpenComm Account
-                    </h2>
-                    <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
-                      Join the open marketplace for local work & professional services.
-                    </p>
-                  </div>
-
                   {/* Returning Unverified User Banner */}
                   {pendingEmail && signupStep === 1 && (
                     <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-2 text-left animate-fadeIn">
@@ -4130,9 +4108,9 @@ export default function App() {
                         </div>
 
                         <div 
-                          onClick={() => setIsWorkerDirectoryEnabled(!isWorkerDirectoryEnabled)}
+                          onClick={() => setListInWorkerDirectory(!listInWorkerDirectory)}
                           className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                            isWorkerDirectoryEnabled
+                            listInWorkerDirectory
                               ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
                               : 'border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 hover:border-slate-300 dark:hover:border-zinc-700'
                           }`}
@@ -4142,19 +4120,19 @@ export default function App() {
                               List my profile in the Worker Directory
                             </span>
                             <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
-                              {isWorkerDirectoryEnabled ? 'Professional details expanded below' : 'OFF — Normal Basic Account'}
+                              {listInWorkerDirectory ? 'Professional details expanded below' : 'OFF — Normal Basic Account'}
                             </span>
                           </div>
 
-                          <div className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${isWorkerDirectoryEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-zinc-700'}`}>
-                            <div className={`w-5 h-5 rounded-full bg-white transition-transform shadow-xs ${isWorkerDirectoryEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                          <div className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${listInWorkerDirectory ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-zinc-700'}`}>
+                            <div className={`w-5 h-5 rounded-full bg-white transition-transform shadow-xs ${listInWorkerDirectory ? 'translate-x-5' : 'translate-x-0'}`} />
                           </div>
                         </div>
                       </div>
 
                       {/* SECTION 3: PROFESSIONAL DETAILS (EXPANDABLE WHEN TOGGLE IS ON) */}
                       <AnimatePresence>
-                        {isWorkerDirectoryEnabled && (
+                        {listInWorkerDirectory && (
                           <motion.div
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
