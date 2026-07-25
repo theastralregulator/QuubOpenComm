@@ -61,7 +61,7 @@ export default function BasicProfileDashboard({
       initial="hidden"
       animate="show"
       variants={containerVariants}
-      className="max-w-4xl mx-auto space-y-6 sm:space-y-8 py-4 sm:py-8 px-2 sm:px-4"
+      className="max-w-4xl mx-auto space-y-5 sm:space-y-8 py-6 sm:py-8 px-4 sm:px-6 pb-28 sm:pb-12"
     >
       {/* 1. Hero Profile Card */}
       <motion.div 
@@ -73,7 +73,7 @@ export default function BasicProfileDashboard({
             avatarUrl={profile?.avatar_url || userPhoto}
             fullName={profile?.full_name || username}
             size="3xl"
-            className="w-24 h-24 sm:w-32 sm:h-32 border-[4px] sm:border-[6px] border-white dark:border-[#111827] shadow-xl bg-slate-100"
+            className="w-28 h-28 sm:w-32 sm:h-32 border-[4px] sm:border-[6px] border-white dark:border-[#111827] shadow-xl bg-slate-100"
           />
           <button 
             onClick={onUpdatePhoto}
@@ -84,9 +84,9 @@ export default function BasicProfileDashboard({
           </button>
         </div>
 
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex-1 min-w-0 space-y-3 pt-2 md:pt-0">
           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight truncate">
+            <h1 className="text-[26px] sm:text-[32px] font-bold text-slate-900 dark:text-white tracking-tight truncate leading-tight">
               {profile?.full_name || username}
             </h1>
             <span className="inline-flex items-center justify-center px-3 py-1 bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 rounded-full text-xs font-bold w-max mx-auto md:mx-0">
@@ -94,7 +94,7 @@ export default function BasicProfileDashboard({
             </span>
           </div>
 
-          <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 font-medium max-w-2xl">
+          <p className="text-[14px] sm:text-[15px] text-slate-600 dark:text-slate-300 font-medium max-w-2xl leading-relaxed">
             {profile?.bio || "Welcome to OpenComm. Update your profile to get started."}
           </p>
 
@@ -114,26 +114,26 @@ export default function BasicProfileDashboard({
           </div>
         </div>
 
-        {/* Floating Actions for Desktop */}
-        <div className="hidden md:flex absolute top-6 right-6 space-x-2">
-          <button onClick={() => triggerToast("Profile link copied to clipboard!")} className="p-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-full text-slate-600 dark:text-slate-300 shadow-sm transition-all hover:scale-105 active:scale-95">
-            <Share2 className="w-4 h-4" />
+        {/* Floating Actions */}
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex space-x-2">
+          <button onClick={() => triggerToast("Profile link copied to clipboard!")} className="p-2 sm:p-2.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-full text-slate-600 dark:text-slate-300 shadow-sm transition-all hover:scale-105 active:scale-95">
+            <Share2 className="w-4 h-4 sm:w-4 sm:h-4" />
           </button>
         </div>
       </motion.div>
 
       {/* 2. Primary Actions */}
-      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-4">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-4">
         <button
           onClick={onEditProfile}
-          className="flex items-center justify-center space-x-2 py-3.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-[20px] text-sm font-bold text-slate-700 dark:text-slate-200 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+          className="flex items-center justify-center space-x-2 min-h-[48px] py-3.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-[20px] text-sm font-bold text-slate-700 dark:text-slate-200 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
         >
           <Edit2 className="w-4 h-4" />
           <span>Edit Profile</span>
         </button>
         <button
           onClick={() => triggerToast("Account Settings coming soon")}
-          className="flex items-center justify-center space-x-2 py-3.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-[20px] text-sm font-bold text-slate-700 dark:text-slate-200 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+          className="flex items-center justify-center space-x-2 min-h-[48px] py-3.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-[20px] text-sm font-bold text-slate-700 dark:text-slate-200 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
         >
           <Settings className="w-4 h-4" />
           <span>Account Settings</span>
@@ -142,7 +142,7 @@ export default function BasicProfileDashboard({
 
       {/* 3. Statistics Card */}
       <motion.div variants={itemVariants} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-[28px] p-6 sm:p-8 shadow-[0_10px_40px_rgba(0,0,0,0.06)]">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 divide-x-0 md:divide-x divide-slate-100 dark:divide-slate-800">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-y-8 gap-x-4 sm:gap-6 md:divide-x divide-slate-100 dark:divide-slate-800">
           {[
             { label: 'Jobs Applied', value: '0', icon: Briefcase, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/10' },
             { label: 'Saved Jobs', value: jobs.filter(j => j.bookmarked).length.toString(), icon: Bookmark, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-500/10' },
@@ -152,13 +152,13 @@ export default function BasicProfileDashboard({
             <motion.div 
               key={i}
               whileHover={{ y: -2 }}
-              className="flex flex-col items-center text-center p-2 sm:px-4"
+              className={`flex flex-col items-center text-center px-2 sm:px-4 ${i % 2 === 0 ? 'border-r border-slate-100 dark:border-slate-800 md:border-r-0' : ''}`}
             >
               <div className={`w-10 h-10 sm:w-12 sm:h-12 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center mb-3`}>
                 <stat.icon className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <span className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">{stat.value}</span>
-              <span className="text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">{stat.label}</span>
+              <span className="text-[22px] sm:text-[26px] md:text-3xl font-bold text-slate-900 dark:text-white leading-none mb-1">{stat.value}</span>
+              <span className="text-[12px] sm:text-[14px] font-medium text-slate-500 dark:text-slate-400">{stat.label}</span>
             </motion.div>
           ))}
         </div>
@@ -219,21 +219,21 @@ export default function BasicProfileDashboard({
               onClick={row.onClick}
               className="group flex items-center p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-[20px] cursor-pointer transition-all duration-200"
             >
-              <div className={`w-12 h-12 rounded-2xl ${row.bg} ${row.color} flex items-center justify-center shrink-0 mr-4 transition-transform group-hover:scale-105`}>
-                <row.icon className="w-6 h-6" />
+              <div className={`w-12 h-12 rounded-2xl ${row.bg} ${row.color} flex items-center justify-center shrink-0 mr-3 sm:mr-4 transition-transform group-hover:scale-105`}>
+                <row.icon className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div className="flex-1 min-w-0 pr-4">
+              <div className="flex-1 min-w-0 pr-2 sm:pr-4">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">{row.title}</h4>
+                  <h4 className="text-[16px] sm:text-[18px] font-bold text-slate-900 dark:text-white truncate">{row.title}</h4>
                   {row.badge && (
                     <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold rounded-full uppercase tracking-wider shrink-0">
                       {row.badge}
                     </span>
                   )}
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 truncate mt-0.5 font-medium">{row.subtitle}</p>
+                <p className="text-[13px] sm:text-[15px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium line-clamp-2 leading-relaxed whitespace-normal">{row.subtitle}</p>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-transform group-hover:translate-x-1" />
+              <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-transform group-hover:translate-x-1 shrink-0" />
             </div>
           ))}
         </div>
@@ -243,7 +243,7 @@ export default function BasicProfileDashboard({
       <motion.div variants={itemVariants}>
         <button
           onClick={onLogout}
-          className="w-full flex items-center justify-center space-x-2 py-4 bg-white dark:bg-[#111827] border border-rose-500/30 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:border-rose-500/50 rounded-[20px] text-sm font-bold text-rose-600 dark:text-rose-400 transition-all shadow-[0_10px_40px_rgba(0,0,0,0.06)] hover:shadow-[0_10px_40px_rgba(244,63,94,0.15)] active:scale-[0.98]"
+          className="w-full flex items-center justify-center space-x-2 py-4 min-h-[48px] bg-rose-50/50 dark:bg-[#111827] border border-rose-200 dark:border-rose-500/30 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:border-rose-300 dark:hover:border-rose-500/50 rounded-[20px] text-sm font-bold text-rose-600 dark:text-rose-400 transition-all shadow-[0_10px_40px_rgba(0,0,0,0.06)] hover:shadow-[0_10px_40px_rgba(244,63,94,0.15)] active:scale-[0.98]"
         >
           <LogOut className="w-5 h-5" />
           <span>Log Out Securely</span>
