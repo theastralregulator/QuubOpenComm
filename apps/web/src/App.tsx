@@ -2763,6 +2763,60 @@ export default function App() {
             </ProtectedRoute>
           } />
 
+          {/* Public Profile View */}
+          <Route path="/profile/:usernameParam" element={
+            <motion.div
+              key="public-profile-view"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+            >
+              <ProfilePage 
+                  username={username}
+                  setUsername={setUsername}
+                  userPhoto={userPhoto}
+                  setUserPhoto={setUserPhoto}
+                  activities={activities}
+                  setActivities={setActivities}
+                  triggerToast={triggerToast}
+                  jobs={jobs}
+                  setJobs={setJobs}
+                  workers={workers}
+                  setWorkers={setWorkers}
+                  messages={messages}
+                  setMessages={setMessages}
+                  conversations={conversations}
+                  setConversations={setConversations}
+                  applications={applications}
+                  setApplications={setApplications}
+                  appMessages={appMessages}
+                  setAppMessages={setAppMessages}
+                  setCurrentView={setCurrentView}
+                  setShowPostJob={(val) => {
+                    if (val) {
+                      requireEmailVerification('Post Jobs', () => setShowPostJob(true));
+                    } else {
+                      setShowPostJob(false);
+                    }
+                  }}
+                  setShowCreateProfile={(val) => {
+                    if (val) {
+                      requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true));
+                    } else {
+                      setShowCreateProfile(false);
+                    }
+                  }}
+                  isLoggedIn={isLoggedIn}
+                  userType={userType}
+                  setUserType={setUserType}
+                  onLogout={handleLogout}
+                  isEmailVerified={isEmailVerified}
+                  requireEmailVerification={requireEmailVerification}
+                />
+              </motion.div>
+          } />
+
           {/* Saved Jobs Shortcut */}
           <Route path="/profile/saved-jobs" element={
             <ProtectedRoute>

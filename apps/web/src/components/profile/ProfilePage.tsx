@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
@@ -134,6 +135,10 @@ export default function ProfilePage({
   const [loading, setLoading] = useState(false);
   const [errorState, setErrorState] = useState<string | null>(null);
 
+  const { usernameParam } = useParams<{ usernameParam: string }>();
+  const [isOwner, setIsOwner] = useState(true);
+  const [isPublic, setIsPublic] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'overview' | 'experience' | 'skills' | 'reviews'>('overview');
   const [isEditing, setIsEditing] = useState(false);
   
@@ -161,68 +166,97 @@ export default function ProfilePage({
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editBannerId, setEditBannerId] = useState('banner_01');
+  const [editLocationVisibility, setEditLocationVisibility] = useState(true);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
   const loggedInId = localStorage.getItem('opencomm_user_id') || 'user-demo-id';
 
   // --- REFRESH PROFILE DATA ON LOAD OR ACTIONS ---
   const loadProfileData = async () => {
-    if (!isLoggedIn) {
-      setProfile(null);
-      setWorkerProfile(null);
-      setCompanyProfile(null);
-      return;
-    }
     setLoading(true);
     setErrorState(null);
     try {
-      const p = await dbService.getProfile(loggedInId);
+      let p: LocalProfile | null = null;
+      let isOwnerCheck = true;
+
+      if (usernameParam) {
+        // Public View logic (or owner viewing their own public link)
+        p = await dbService.getProfileByUsername(usernameParam);
+        if (p && p.id === loggedInId) {
+          isOwnerCheck = true;
+        } else {
+          isOwnerCheck = false;
+        }
+      } else {
+        // Owner accessing /profile directly
+        if (!isLoggedIn) {
+          setProfile(null);
+          setWorkerProfile(null);
+          setCompanyProfile(null);
+          setLoading(false);
+          return;
+        }
+        p = await dbService.getProfile(loggedInId);
+        isOwnerCheck = true;
+      }
+
       if (p) {
         setProfile(p);
+        setIsOwner(isOwnerCheck);
+        setIsPublic(!isOwnerCheck);
         
-        // Sync global app header states
-        if (p.full_name && p.full_name !== username) {
-          setUsername(p.full_name);
-        }
-        if (p.avatar_url && p.avatar_url !== userPhoto) {
-          setUserPhoto(p.avatar_url);
-        }
-        if (setUserType && p.profile_type !== userType) {
-          setUserType(p.profile_type as any || 'normal');
+        // Sync global app header states only if owner
+        if (isOwnerCheck) {
+          if (p.full_name && p.full_name !== username) {
+            setUsername(p.full_name);
+          }
+          if (p.avatar_url && p.avatar_url !== userPhoto) {
+            setUserPhoto(p.avatar_url);
+          }
+          if (setUserType && p.profile_type !== userType) {
+            setUserType(p.profile_type as any || 'normal');
+          }
         }
 
         if (p.profile_type === 'worker') {
-          const w = await dbService.getWorkerProfile(loggedInId);
+          const w = await dbService.getWorkerProfile(p.id);
           setWorkerProfile(w);
         } else if (p.profile_type === 'company') {
-          const c = await dbService.getCompanyProfile(loggedInId);
+          const c = await dbService.getCompanyProfile(p.id);
           setCompanyProfile(c);
         }
       } else {
-        // Construct fallback local object
-        const fallback: LocalProfile = {
-          id: loggedInId,
-          full_name: username,
-          username: username.toLowerCase().replace(/\s+/g, ''),
-          avatar_url: userPhoto,
-          bio: '',
-          phone: '',
-          phone_verified: false,
-          email: '',
-          city: '',
-          state: '',
-          country: '',
-          preferred_language: '',
-          account_status: 'active',
-          profile_type: 'basic',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          email_verified_for_actions: isEmailVerified
-        };
-        setProfile(fallback);
+        // Construct fallback local object for owners only
+        if (isOwnerCheck && isLoggedIn) {
+          const fallback: LocalProfile = {
+            id: loggedInId,
+            full_name: username,
+            username: username.toLowerCase().replace(/\s+/g, ''),
+            avatar_url: userPhoto,
+            bio: '',
+            phone: '',
+            phone_verified: false,
+            email: '',
+            city: '',
+            state: '',
+            country: '',
+            preferred_language: '',
+            account_status: 'active',
+            profile_type: 'basic',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            email_verified_for_actions: isEmailVerified,
+            location_visibility: true
+          };
+          setProfile(fallback);
+        } else {
+          setErrorState("Profile not found");
+        }
       }
     } catch (err: any) {
-      console.error("Error fetching matching profiles row:", err);
-      setErrorState(err.message || "Failed to load actual stored values from public.profiles table.");
+      console.error("Error fetching profiles:", err);
+      setErrorState(err.message || "Failed to load profile data.");
     } finally {
       setLoading(false);
     }
@@ -230,13 +264,20 @@ export default function ProfilePage({
 
   useEffect(() => {
     loadProfileData();
-    analytics.trackProfileViewed('own', loggedInId, username || 'Own User');
-  }, [isLoggedIn, loggedInId, userType]);
+    analytics.trackProfileViewed(usernameParam ? 'public' : 'own', loggedInId, usernameParam || username || 'User');
+  }, [isLoggedIn, loggedInId, usernameParam, userType]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
+      let finalBannerUrl = profile?.banner_url;
+      if (bannerFile) {
+        finalBannerUrl = await dbService.uploadBanner(loggedInId, bannerFile);
+      } else if (editBannerId && editBannerId !== 'custom') {
+        finalBannerUrl = undefined;
+      }
+
       const updated = await dbService.updateProfile(loggedInId, {
         full_name: editName,
         bio: editBio,
@@ -246,7 +287,9 @@ export default function ProfilePage({
         preferred_language: editLang,
         email: editEmail,
         phone: editPhone,
-        banner_id: editBannerId
+        banner_id: editBannerId === 'custom' ? undefined : editBannerId,
+        banner_url: finalBannerUrl,
+        location_visibility: editLocationVisibility
       });
       setProfile(updated);
       setUsername(editName);
@@ -280,7 +323,14 @@ export default function ProfilePage({
       setEditLang(profile.preferred_language || '');
       setEditEmail(profile.email || '');
       setEditPhone(profile.phone || '');
-      setEditBannerId(profile.banner_id || 'banner_01');
+      if (profile.banner_url) {
+        setEditBannerId('custom');
+        setBannerPreview(profile.banner_url);
+      } else {
+        setEditBannerId(profile.banner_id || 'banner_01');
+        setBannerPreview(null);
+      }
+      setEditLocationVisibility(profile.location_visibility ?? true);
     } else {
       setEditName(username || '');
       setEditBio('');
@@ -291,7 +341,10 @@ export default function ProfilePage({
       setEditEmail('');
       setEditPhone('');
       setEditBannerId('banner_01');
+      setBannerPreview(null);
+      setEditLocationVisibility(true);
     }
+    setBannerFile(null);
     setIsEditing(true);
   };
 
@@ -305,7 +358,9 @@ export default function ProfilePage({
       editLang !== (profile?.preferred_language || '') ||
       editEmail !== (profile?.email || '') ||
       editPhone !== (profile?.phone || '') ||
-      editBannerId !== (profile?.banner_id || 'banner_01');
+      editLocationVisibility !== (profile?.location_visibility ?? true) ||
+      bannerFile !== null ||
+      (editBannerId !== 'custom' && editBannerId !== (profile?.banner_id || 'banner_01'));
 
     if (isUnsaved) {
       if (window.confirm("Discard unsaved changes?")) {
@@ -445,6 +500,7 @@ export default function ProfilePage({
           formattedLocation={formattedLocation}
           jobs={jobs}
           workers={workers}
+          isOwner={isOwner}
           onEditProfile={handleOpenEdit}
           onUpdateBanner={() => setIsSelectingBanner(true)}
           onCreateWorker={() => {
@@ -995,6 +1051,15 @@ export default function ProfilePage({
                       className="col-span-2 sm:col-span-1 w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
+                  <label className="flex items-center gap-2 cursor-pointer mt-3">
+                    <input 
+                      type="checkbox" 
+                      checked={editLocationVisibility}
+                      onChange={(e) => setEditLocationVisibility(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 dark:bg-slate-900"
+                    />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Show my general location on my public profile</span>
+                  </label>
                 </div>
 
                 {/* 3. Privacy / Meta */}
@@ -1030,9 +1095,65 @@ export default function ProfilePage({
                   />
                 </div>
 
-                {/* Built-in Banner Picker */}
+                {/* Custom Banner Upload */}
                 <div className="space-y-3">
                   <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Profile Banner</label>
+                  
+                  <div className="flex flex-col gap-3">
+                    {/* Custom Upload Preview */}
+                    {(bannerPreview || editBannerId === 'custom') && (
+                      <div className="relative h-24 sm:h-32 w-full rounded-xl overflow-hidden border border-indigo-500 ring-2 ring-indigo-500/20">
+                        <img 
+                          src={bannerPreview || undefined} 
+                          alt="Custom Banner" 
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBannerPreview(null);
+                            setBannerFile(null);
+                            setEditBannerId('banner_01');
+                          }}
+                          className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 backdrop-blur-md rounded-full text-white transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                        <div className="absolute bottom-2 right-2 bg-indigo-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow">
+                          Custom Banner
+                        </div>
+                      </div>
+                    )}
+
+                    {!bannerPreview && editBannerId !== 'custom' && (
+                      <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group">
+                        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                          <Camera className="w-5 h-5" />
+                          <span className="text-xs font-bold">Upload Custom Banner</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1">JPG, PNG, WEBP (Max 5MB)</span>
+                        <input 
+                          type="file" 
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              if (file.size > 5 * 1024 * 1024) {
+                                triggerToast("Image must be smaller than 5MB");
+                                return;
+                              }
+                              setBannerFile(file);
+                              setBannerPreview(URL.createObjectURL(file));
+                              setEditBannerId('custom');
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Built-in Banner Picker */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-48 overflow-y-auto p-3 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl">
                     {BUILTIN_BANNERS.map((banner) => (
                       <button

@@ -103,6 +103,8 @@ export interface LocalProfile {
   email_verified_for_actions?: boolean;
   onboarding_completed?: boolean;
   banner_id?: string;
+  banner_url?: string;
+  location_visibility?: boolean;
 }
 
 export interface LocalWorkerExperience {
@@ -424,6 +426,53 @@ export const dbService = {
     return localProfile;
   },
 
+  async getProfileByUsername(username: string): Promise<LocalProfile | null> {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', username)
+        .maybeSingle();
+
+      if (!error && data) {
+        return data as LocalProfile;
+      }
+    }
+    // Fallback to local emulation
+    const profiles = openCommDb.getProfiles();
+    return profiles.find(p => p.username === username) || null;
+  },
+
+  async uploadBanner(userId: string, file: File): Promise<string> {
+    if (!supabase) throw new Error("Supabase is not initialized.");
+    
+    const fileExt = file.name.split('.').pop();
+    const fileName = `banner_${Date.now()}.${fileExt}`;
+    const filePath = `${userId}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('profile-banners')
+      .upload(filePath, file, {
+        upsert: true
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from('profile-banners')
+      .getPublicUrl(filePath);
+
+    if (data && data.publicUrl) {
+      // Also update profile row with this URL
+      await this.updateProfile(userId, { banner_url: data.publicUrl, banner_id: '' });
+      return data.publicUrl;
+    }
+    
+    throw new Error("Failed to get public URL for uploaded banner.");
+  },
+
   async updateProfile(userId: string, updates: Partial<LocalProfile>): Promise<LocalProfile> {
     // 1. First, save to local profiles emulation so local data is always up-to-date
     const profiles = openCommDb.getProfiles();
@@ -452,7 +501,7 @@ export const dbService = {
             'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
             'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
             'bio', 'account_status', 'profile_type', 'created_at', 'updated_at',
-            'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
+            'onboarding_completed', 'banner_id', 'banner_url', 'location_visibility', 'whatsapp_preference', 'telegram_username'
           ];
           
           const filteredUpdates: any = {};
