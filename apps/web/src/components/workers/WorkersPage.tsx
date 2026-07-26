@@ -70,24 +70,19 @@ export default function WorkersPage({
       }
       try {
         const { data, error } = await supabase
-          .from('worker_profiles')
-          .select(`
-            *,
-            profiles!inner(full_name, avatar_url, city, district, state, profile_type, account_status)
-          `)
-          .eq('profiles.profile_type', 'worker')
-          .eq('profiles.account_status', 'active');
+          .from('worker_directory')
+          .select('*');
 
         if (!error && data) {
           const mapped = data.map((d: any) => ({
             id: d.id,
-            name: d.profiles?.full_name || 'Worker',
-            photo: d.profiles?.avatar_url || '',
+            name: d.full_name || 'Worker',
+            photo: d.avatar_url || '',
             title: d.professional_title || d.profession || 'Professional',
             experience: d.experience_years || d.years_experience || 0,
             rating: 0,
             availability: d.availability_status || d.availability || 'Available Now',
-            location: [d.profiles?.city, d.profiles?.district, d.profiles?.state].filter(Boolean).join(', ') || 'Not provided',
+            location: [d.city, d.district, d.state].filter(Boolean).join(', ') || 'Not provided',
             bio: d.bio_summary || 'No biography provided.',
             skills: d.skills || [],
             completedWorks: 0,

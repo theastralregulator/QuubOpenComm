@@ -405,7 +405,7 @@ export const dbService = {
   async getProfileByUsername(username: string): Promise<LocalProfile | null> {
     if (supabase) {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('profile_directory')
         .select('*')
         .ilike('username', username)
         .maybeSingle();
@@ -452,56 +452,30 @@ export const dbService = {
 
   async updateProfile(userId: string, updates: Partial<LocalProfile>): Promise<LocalProfile> {
     if (supabase) {
-      const allowedRemoteColumns = [
-        'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
-        'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
-        'bio', 'headline', 'location', 'location_visibility', 'account_status', 'profile_type', 'created_at', 'updated_at',
-        'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
-      ];
-      
-      const filteredUpdates: any = {};
-      for (const [key, val] of Object.entries(updates)) {
-        if (allowedRemoteColumns.includes(key)) {
-          filteredUpdates[key] = val;
-        }
-      }
-      filteredUpdates.updated_at = new Date().toISOString();
+      const { data, error } = await supabase.rpc('update_my_basic_profile', {
+        p_username: updates.username,
+        p_full_name: updates.full_name,
+        p_avatar_url: updates.avatar_url,
+        p_banner_url: updates.banner_url || updates.banner_id,
+        p_phone: updates.phone,
+        p_city: updates.city,
+        p_state: updates.state,
+        p_country: updates.country,
+        p_preferred_language: updates.preferred_language,
+        p_bio: updates.bio,
+        p_onboarding_completed: updates.onboarding_completed
+      });
 
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', userId)
-        .maybeSingle();
-
-      let result;
-      if (existing) {
-        result = await supabase
-          .from('profiles')
-          .update(filteredUpdates)
-          .eq('id', userId)
-          .select()
-          .single();
-      } else {
-        result = await supabase
-          .from('profiles')
-          .insert({
-            id: userId,
-            ...filteredUpdates
-          })
-          .select()
-          .single();
-      }
-
-      if (result.error) {
-        console.error('updateProfile Supabase error returned:', result.error.message);
-        throw new Error(result.error.message);
+      if (error) {
+        console.error('updateProfile RPC error returned:', error.message);
+        throw new Error(error.message);
       }
       
-      if (!result.data) {
-        throw new Error("No profile data returned from Supabase after update.");
+      if (!data) {
+        throw new Error("Update returned no data.");
       }
 
-      return result.data as LocalProfile;
+      return data as LocalProfile;
     }
 
     // Local fallback only if no Supabase instance
