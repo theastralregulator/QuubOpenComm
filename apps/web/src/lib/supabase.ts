@@ -1354,6 +1354,48 @@ export const dbService = {
       }
     }
     return null;
+  },
+
+  // My Job Posts
+  async getMyJobPostsCount(userId: string): Promise<number> {
+    if (supabase) {
+      const { count, error } = await supabase
+        .from('jobs')
+        .select('*', { count: 'exact', head: true })
+        .eq('posted_by', userId);
+      if (!error && count !== null) return count;
+    }
+    return 0;
+  },
+
+  async updateMyJobStatus(jobId: string, isActive: boolean): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase.rpc('update_my_job_status', {
+        p_job_id: jobId,
+        p_is_active: isActive
+      });
+      if (error) {
+        console.error("updateMyJobStatus error:", error);
+        throw new Error(error.message);
+      }
+      return true;
+    }
+    return false;
+  },
+
+  async deleteMyJob(jobId: string): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase
+        .from('jobs')
+        .delete()
+        .eq('id', jobId);
+      if (error) {
+        console.error("deleteMyJob error:", error);
+        throw new Error(error.message);
+      }
+      return true;
+    }
+    return false;
   }
 };
 

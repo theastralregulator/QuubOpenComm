@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
-  BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2
+  BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
@@ -136,8 +136,10 @@ export default function ProfilePage({
   const [errorState, setErrorState] = useState<string | null>(null);
 
   const { usernameParam } = useParams<{ usernameParam: string }>();
+  const navigate = useNavigate();
   const [isOwner, setIsOwner] = useState(true);
   const [isPublic, setIsPublic] = useState(false);
+  const [myJobPostsCount, setMyJobPostsCount] = useState(0);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'experience' | 'skills' | 'reviews'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -205,6 +207,11 @@ export default function ProfilePage({
         setProfile(p);
         setIsOwner(isOwnerCheck);
         setIsPublic(!isOwnerCheck);
+
+        if (isOwnerCheck) {
+          const jobCount = await dbService.getMyJobPostsCount(p.id);
+          setMyJobPostsCount(jobCount);
+        }
         
         // Sync global app header states only if owner
         if (isOwnerCheck) {
@@ -497,6 +504,7 @@ export default function ProfilePage({
           formattedLocation={formattedLocation}
           jobs={jobs}
           workers={workers}
+          myJobPostsCount={myJobPostsCount}
           isOwner={isOwner}
           onEditProfile={handleOpenEdit}
           onUpdateBanner={handleOpenEdit}
@@ -895,6 +903,41 @@ export default function ProfilePage({
               )}
             </div>
           </div>
+          
+          {/* Worker/Company Statistics Grid (Only shown if owner) */}
+          {isOwner && (
+            <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-6 rounded-3xl space-y-4 shadow-xs text-left">
+              <div className="pb-2 border-b border-slate-100 dark:border-slate-800/80">
+                <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Profile Statistics</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div 
+                  onClick={() => navigate('/profile/my-job-posts')}
+                  className="flex flex-col items-center justify-center p-3 bg-indigo-50/50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-2xl cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
+                >
+                  <Briefcase className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mb-2" />
+                  <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">{myJobPostsCount}</span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">My Job Posts</span>
+                </div>
+                <div className="flex flex-col items-center justify-center p-3 bg-blue-50/50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 rounded-2xl">
+                  <Briefcase className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-2" />
+                  <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">0</span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Jobs Applied</span>
+                </div>
+                <div className="flex flex-col items-center justify-center p-3 bg-purple-50/50 dark:bg-purple-500/10 border border-purple-100 dark:border-purple-500/20 rounded-2xl">
+                  <Bookmark className="w-5 h-5 text-purple-600 dark:text-purple-400 mb-2" />
+                  <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">{jobs.filter(j => j.bookmarked).length}</span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Saved Jobs</span>
+                </div>
+                <div className="flex flex-col items-center justify-center p-3 bg-emerald-50/50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-2xl">
+                  <Users className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-2" />
+                  <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">{workers.filter(w => w.bookmarked).length}</span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Saved Workers</span>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
 
       </div>

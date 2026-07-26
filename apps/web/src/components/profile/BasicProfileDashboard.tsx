@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   MapPin, Calendar, Camera, Edit2,
@@ -57,6 +58,7 @@ interface BasicProfileDashboardProps {
   formattedLocation: string;
   jobs?: Job[];
   workers?: Worker[];
+  myJobPostsCount?: number;
   isOwner?: boolean;
   onEditProfile: () => void;
   onCreateWorker: () => void;
@@ -75,6 +77,7 @@ export default function BasicProfileDashboard({
   formattedLocation,
   jobs = [],
   workers = [],
+  myJobPostsCount = 0,
   isOwner = true,
   onEditProfile,
   onCreateWorker,
@@ -84,6 +87,7 @@ export default function BasicProfileDashboard({
   onLogout,
   triggerToast
 }: BasicProfileDashboardProps) {
+  const navigate = useNavigate();
   
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isBioExpanded, setIsBioExpanded] = useState(false);
@@ -106,9 +110,10 @@ export default function BasicProfileDashboard({
   
   // Conditionally hide stats for public users
   const stats = [
+    { label: 'My Job Posts', value: myJobPostsCount.toString(), icon: Briefcase, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-500/10', private: true, onClick: () => navigate('/profile/my-job-posts') },
     { label: 'Jobs Applied', value: '0', icon: Briefcase, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', private: true },
     { label: 'Saved Jobs', value: jobs.filter(j => j.bookmarked).length.toString(), icon: Bookmark, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-500/10', private: true },
-    { label: 'Saved Workers', value: workers.filter(w => w.bookmarked).length.toString(), icon: Users, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-500/10', private: true },
+    { label: 'Saved Workers', value: workers.filter(w => w.bookmarked).length.toString(), icon: Users, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10', private: true },
     { label: 'Reviews', value: '0', icon: Star, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-500/10', private: false }
   ].filter(s => isOwner ? true : !s.private);
 
@@ -276,7 +281,8 @@ export default function BasicProfileDashboard({
                 {stats.map((stat, i) => (
                   <div 
                     key={i}
-                    className={`flex items-center justify-center sm:justify-start gap-3 sm:gap-4 p-3 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors cursor-pointer ${
+                    onClick={stat.onClick}
+                    className={`flex items-center justify-center sm:justify-start gap-3 sm:gap-4 p-3 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors ${stat.onClick ? 'cursor-pointer' : ''} ${
                       i % 2 === 0 ? 'border-r border-slate-100 dark:border-slate-800/80 md:border-r-0' : ''
                     } ${i < 2 ? 'border-b md:border-b-0 border-slate-100 dark:border-slate-800/80' : ''}`}
                   >
