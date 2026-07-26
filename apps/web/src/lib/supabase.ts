@@ -1086,24 +1086,35 @@ export const dbService = {
   async getJobsFromDb(): Promise<any[]> {
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('jobs').select('*, companies(*)').order('created_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('jobs')
+          .select('*, companies(*), profiles(full_name, avatar_url)')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false });
+
         if (!error && data) {
-          return data.map(job => ({
-            id: job.id,
-            title: job.title,
-            company: job.companies?.name || 'Verified Employer',
-            companyLogo: job.companies?.logo_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
-            salary: job.salary_range || 'Contract',
-            location: job.location || 'Remote',
-            category: job.category || 'Professional',
-            description: job.description || '',
-            requirements: Array.isArray(job.requirements) ? job.requirements : [],
-            verified: true,
-            bookmarked: false,
-            applied: false,
-            datePosted: new Date(job.created_at).toLocaleDateString(),
-            posted_by: job.posted_by
-          }));
+          return data.map(job => {
+            const companyName = job.companies?.name || job.profiles?.full_name || 'Individual Employer';
+            const companyLogo = job.companies?.logo_url || job.profiles?.avatar_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80';
+            
+            return {
+              id: job.id,
+              title: job.title,
+              company: companyName,
+              companyLogo: companyLogo,
+              salary: job.salary_range || 'Contract',
+              location: job.location || 'Remote',
+              category: job.category || 'Professional',
+              description: job.description || '',
+              requirements: Array.isArray(job.requirements) ? job.requirements : [],
+              verified: true,
+              bookmarked: false,
+              applied: false,
+              datePosted: new Date(job.created_at).toLocaleDateString(),
+              posted_by: job.posted_by,
+              created_at: job.created_at
+            };
+          });
         }
       } catch (err) {
         console.error('getJobsFromDb Supabase error:', err);

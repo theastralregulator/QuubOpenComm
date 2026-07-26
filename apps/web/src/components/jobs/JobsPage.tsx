@@ -39,6 +39,10 @@ export default function JobsPage({
   const { jobId } = useParams();
   const navigate = useNavigate();
 
+  // Local fetch state
+  const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
+  const [isFetching, setIsFetching] = useState(false);
+
   // Filters state
   const [locationFilter, setLocationFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('All'); // All, Full-time, Part-time, Freelance, Remote
@@ -51,10 +55,32 @@ export default function JobsPage({
   const [bidRate, setBidRate] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
 
+  // Fetch jobs on page refresh / mount
+  useEffect(() => {
+    let active = true;
+    const fetchJobs = async () => {
+      setIsFetching(true);
+      try {
+        const { dbService } = await import('../../lib/supabase');
+        const data = await dbService.getJobsFromDb();
+        if (active && data) {
+          setLocalJobs(data);
+        }
+      } catch (err) {
+        console.error("Error fetching jobs in JobsPage:", err);
+      } finally {
+        if (active) setIsFetching(false);
+      }
+    };
+    fetchJobs();
+    
+    return () => { active = false; };
+  }, []);
+
   // Handle setting active job from jobId in route parameter
   useEffect(() => {
     if (jobId) {
-      const job = jobs.find(j => j.id === jobId);
+      const job = localJobs.find(j => j.id === jobId);
       if (job) {
         setApplyingJob(job);
         setBidRate(job.salary);
@@ -67,7 +93,7 @@ export default function JobsPage({
     } else {
       setApplyingJob(null);
     }
-  }, [jobId, jobs]);
+  }, [jobId, localJobs]);
 
   // Hardcode some categories for the quick chips
   const categoriesList = ['All', 'Developer', 'Designer', 'Electrician', 'Carpenter', 'Driver', 'Chef', 'Teacher', 'Photographer', 'Mechanic', 'Cleaner'];
@@ -88,7 +114,7 @@ export default function JobsPage({
   };
 
   // Filter & sort logic
-  const filteredJobs = jobs.filter(job => {
+  const filteredJobs = localJobs.filter(job => {
     // Search
     const matchesSearch = !searchQuery || 
       job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||

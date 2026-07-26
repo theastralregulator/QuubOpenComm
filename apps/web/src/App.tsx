@@ -76,7 +76,7 @@ import AdminAuditLogs from './components/admin/AdminAuditLogs';
 
 export default function App() {
   // --- CORE SYSTEM STATES ---
-  const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [isJobsLoaded, setIsJobsLoaded] = useState(false);
 
   useEffect(() => {
