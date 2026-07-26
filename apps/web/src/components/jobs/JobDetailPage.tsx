@@ -199,6 +199,11 @@ export default function JobDetailPage({
 
   const deadlineInfo = getDeadlineInfo(job.applicationDeadline);
 
+  const createdDate = new Date(job.created_at || new Date());
+  const now = new Date();
+  const diffHours = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60);
+  const isEditable = isOwner && diffHours <= 5;
+
   return (
     <div className="w-full max-w-4xl mx-auto py-6 px-3.5 sm:px-4 space-y-4 sm:space-y-6 text-left pb-[calc(110px+env(safe-area-inset-bottom))]" id="job-detail-page">
       
@@ -242,6 +247,23 @@ export default function JobDetailPage({
                 </div>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
+                {isOwner && (
+                  <div className="relative">
+                    {isEditable ? (
+                      <button
+                        onClick={() => triggerToast('Edit Job feature is coming soon.')}
+                        className="p-2.5 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 transition-all cursor-pointer shadow-sm hover:shadow"
+                        title="Edit Job (Editable for 5 hours)"
+                      >
+                        <Briefcase className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                      </button>
+                    ) : (
+                      <span className="px-2.5 py-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/50 rounded border border-slate-200 dark:border-slate-800">
+                        Editing window closed
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="relative">
                   <button
                     onClick={handleShare}

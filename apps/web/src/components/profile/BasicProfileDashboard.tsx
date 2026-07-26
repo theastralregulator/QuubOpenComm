@@ -122,9 +122,9 @@ export default function BasicProfileDashboard({
       {/* 1 & 2. HERO SECTION */}
       <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] overflow-hidden shadow-[0_2px_10px_rgba(0,0,0,0.02)] relative w-full">
         {/* Banner Area */}
-        <div className={`h-[130px] md:h-[200px] w-full relative transition-all ${!profile?.banner_url ? getBannerClass(profile?.banner_id) : ''}`}>
-          {profile?.banner_url ? (
-            <img src={profile.banner_url} alt="Profile Banner" className="w-full h-full object-cover" />
+        <div className={`h-[130px] md:h-[200px] w-full relative transition-all ${!profile?.banner_id?.startsWith('http') ? getBannerClass(profile?.banner_id) : ''}`}>
+          {profile?.banner_id?.startsWith('http') ? (
+            <img src={profile.banner_id} alt="Profile Banner" className="w-full h-full object-cover" />
           ) : (
             <div className="absolute inset-0 bg-black/5 dark:bg-black/20" />
           )}

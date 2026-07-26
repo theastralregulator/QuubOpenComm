@@ -362,6 +362,15 @@ export async function assertUserEmailConfirmed() {
       .single();
       
     if (profileErr || !profile || !profile.email_verified_for_actions) {
+      if (user.email_confirmed_at) {
+        // Native auth says confirmed, but profile is out of sync. Sync it using RPC.
+        const { error: syncErr } = await supabase.rpc('sync_email_verification');
+        if (!syncErr) {
+          return; // Synced successfully, proceed.
+        } else {
+          console.error("Failed to sync email verification:", syncErr);
+        }
+      }
       throw new Error("Email verification is required for applications, job posting, hiring requests, and professional messaging.");
     }
   } else {
@@ -466,7 +475,7 @@ export const dbService = {
 
     if (data && data.publicUrl) {
       // Also update profile row with this URL
-      await this.updateProfile(userId, { banner_url: data.publicUrl, banner_id: '' });
+      await this.updateProfile(userId, { banner_id: data.publicUrl });
       return data.publicUrl;
     }
     
@@ -500,7 +509,7 @@ export const dbService = {
           const allowedRemoteColumns = [
             'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
             'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
-            'bio', 'account_status', 'profile_type', 'created_at', 'updated_at',
+            'bio', 'headline', 'location', 'location_visibility', 'account_status', 'profile_type', 'account_type', 'created_at', 'updated_at',
             'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
           ];
           
@@ -543,6 +552,7 @@ export const dbService = {
 
           if (result.error) {
             console.error('updateProfile Supabase error returned:', result.error.message);
+            throw new Error(result.error.message);
           } else if (result.data) {
             // Merge data from remote back into local cache
             const freshProfiles = openCommDb.getProfiles();
@@ -553,13 +563,16 @@ export const dbService = {
                 ...result.data
               };
               openCommDb.saveProfiles(freshProfiles);
+              // Ensure we return the exact DB row
+              return freshProfiles[freshIdx];
             }
           }
         } else {
           console.log(`[dbService] Bypassed Supabase remote sync for local/unauthenticated user profile update (userId: ${userId})`);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('updateProfile Supabase exception:', err);
+        throw err;
       }
     }
 

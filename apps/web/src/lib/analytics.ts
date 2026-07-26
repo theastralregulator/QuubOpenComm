@@ -178,7 +178,7 @@ class AnalyticsService {
   /**
    * Profile Viewed
    */
-  trackProfileViewed(profileType: 'own' | 'worker', profileId: string, profileName: string) {
+  trackProfileViewed(profileType: 'own' | 'worker' | 'public', profileId: string, profileName: string) {
     this.trackEvent('view_profile', {
       profile_type: profileType,
       profile_id: profileId,

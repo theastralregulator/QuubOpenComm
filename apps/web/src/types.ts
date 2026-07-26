@@ -30,6 +30,7 @@ export interface Worker {
   completedWorks: number;
   hourlyRate: number;
   verified: boolean;
+  bookmarked?: boolean;
 }
 
 export interface Message {

@@ -271,11 +271,9 @@ export default function ProfilePage({
     e.preventDefault();
     setLoading(true);
     try {
-      let finalBannerUrl = profile?.banner_url;
+      let finalBannerId = editBannerId === 'custom' ? undefined : editBannerId;
       if (bannerFile) {
-        finalBannerUrl = await dbService.uploadBanner(loggedInId, bannerFile);
-      } else if (editBannerId && editBannerId !== 'custom') {
-        finalBannerUrl = undefined;
+        finalBannerId = await dbService.uploadBanner(loggedInId, bannerFile);
       }
 
       const updated = await dbService.updateProfile(loggedInId, {
@@ -287,8 +285,7 @@ export default function ProfilePage({
         preferred_language: editLang,
         email: editEmail,
         phone: editPhone,
-        banner_id: editBannerId === 'custom' ? undefined : editBannerId,
-        banner_url: finalBannerUrl,
+        banner_id: finalBannerId,
         location_visibility: editLocationVisibility
       });
       setProfile(updated);
@@ -323,9 +320,9 @@ export default function ProfilePage({
       setEditLang(profile.preferred_language || '');
       setEditEmail(profile.email || '');
       setEditPhone(profile.phone || '');
-      if (profile.banner_url) {
+      if (profile.banner_id?.startsWith('http')) {
         setEditBannerId('custom');
-        setBannerPreview(profile.banner_url);
+        setBannerPreview(profile.banner_id);
       } else {
         setEditBannerId(profile.banner_id || 'banner_01');
         setBannerPreview(null);
@@ -435,7 +432,8 @@ export default function ProfilePage({
   };
 
   // --- LOCATION PRETTIER STRING BUILDER ---
-  const locationParts = [profile?.city, profile?.state, profile?.country].filter(Boolean);
+  const showLocation = isOwner || profile?.location_visibility !== false;
+  const locationParts = showLocation ? [profile?.city, profile?.state, profile?.country].filter(Boolean) : [];
   const formattedLocation = locationParts.join(', ');
 
   // --- JOINED YEAR ---
@@ -502,7 +500,7 @@ export default function ProfilePage({
           workers={workers}
           isOwner={isOwner}
           onEditProfile={handleOpenEdit}
-          onUpdateBanner={() => setIsSelectingBanner(true)}
+          onUpdateBanner={handleOpenEdit}
           onCreateWorker={() => {
             if (setShowCreateProfile) {
               setShowCreateProfile(true);
