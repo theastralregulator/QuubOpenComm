@@ -73,10 +73,10 @@ export default function WorkersPage({
           .from('worker_profiles')
           .select(`
             *,
-            profiles(full_name, avatar_url, city, district, state)
+            profiles!inner(full_name, avatar_url, city, district, state, profile_type, account_status)
           `)
-          .eq('listing_enabled', true)
-          .eq('profile_status', 'active');
+          .eq('profiles.profile_type', 'worker')
+          .eq('profiles.account_status', 'active');
 
         if (!error && data) {
           const mapped = data.map((d: any) => ({

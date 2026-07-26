@@ -1,8 +1,7 @@
 -- Migration 202607260002: Exact Account Architecture, Worker RPC & Security Advisor Fixes
 
--- Ensure banner columns exist on profiles
+-- Ensure banner_url column exists on profiles
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS banner_url text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS banner_id text DEFAULT 'banner_01';
 
 -- =========================================================================
 -- 1. ATOMIC WORKER PROFILE CREATION RPC FUNCTION
@@ -37,7 +36,28 @@ BEGIN
     RAISE EXCEPTION 'Authentication required to create a worker profile.' USING ERRCODE = '42501';
   END IF;
 
-  -- 2. Confirm linked profile exists and is active
+  -- 2. Validations
+  IF p_profession IS NULL OR trim(p_profession) = '' THEN
+    RAISE EXCEPTION 'Profession title is required.' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_skills IS NULL OR array_length(p_skills, 1) IS NULL OR array_length(p_skills, 1) = 0 THEN
+    RAISE EXCEPTION 'At least one skill is required.' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_experience_years IS NULL OR p_experience_years < 0 THEN
+    RAISE EXCEPTION 'Experience years must be non-negative.' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_hourly_rate IS NOT NULL AND p_hourly_rate < 0 THEN
+    RAISE EXCEPTION 'Hourly rate must be non-negative.' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_availability NOT IN ('Available Now', 'Busy', 'On Vacation') THEN
+    RAISE EXCEPTION 'Invalid availability status.' USING ERRCODE = '22023';
+  END IF;
+
+  -- 3. Confirm linked profile exists and is active
   SELECT * INTO v_profile
   FROM public.profiles
   WHERE id = v_user_id;
@@ -50,7 +70,7 @@ BEGIN
     RAISE EXCEPTION 'Only active accounts can create a worker profile.' USING ERRCODE = '42501';
   END IF;
 
-  -- 3. Upsert into worker_profiles (using only existing table columns)
+  -- 4. Upsert into worker_profiles (using only real table columns)
   INSERT INTO public.worker_profiles (
     id,
     profession,
@@ -69,11 +89,11 @@ BEGIN
   )
   VALUES (
     v_user_id,
-    p_profession,
-    COALESCE(p_skills, '{}'::text[]),
-    COALESCE(p_experience_years, 0),
+    trim(p_profession),
+    p_skills,
+    p_experience_years,
     p_work_location,
-    COALESCE(p_availability, 'Available Now'),
+    p_availability,
     p_bio_summary,
     p_hourly_rate,
     p_expected_salary,
@@ -98,7 +118,7 @@ BEGIN
     updated_at = now()
   RETURNING * INTO v_worker;
 
-  -- 4. Atomic update of profiles.profile_type to 'worker'
+  -- 5. Atomic update of profiles.profile_type to 'worker'
   UPDATE public.profiles
   SET profile_type = 'worker',
       updated_at = now()
@@ -123,8 +143,7 @@ SELECT
   username, 
   full_name, 
   avatar_url, 
-  COALESCE(banner_url, banner_id) AS banner_url,
-  banner_id, 
+  banner_url,
   bio, 
   city, 
   state, 
@@ -155,16 +174,16 @@ DROP POLICY IF EXISTS "Authenticated users can update own profile" ON public.pro
 DROP POLICY IF EXISTS "Authenticated users can insert own profile" ON public.profiles;
 
 CREATE POLICY "Authenticated users can read own profile" ON public.profiles
-  FOR SELECT TO authenticated USING (auth.uid() = id);
+  FOR SELECT TO authenticated USING ((select auth.uid()) = id);
 
 CREATE POLICY "Authenticated users can update own profile" ON public.profiles
   FOR UPDATE TO authenticated
-  USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
+  USING ((select auth.uid()) = id)
+  WITH CHECK ((select auth.uid()) = id);
 
 CREATE POLICY "Authenticated users can insert own profile" ON public.profiles
   FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK ((select auth.uid()) = id);
 
 -- --- WORKER PROFILES RLS ---
 ALTER TABLE public.worker_profiles ENABLE ROW LEVEL SECURITY;
@@ -183,12 +202,12 @@ CREATE POLICY "Public can view directory worker data" ON public.worker_profiles
 
 CREATE POLICY "Authenticated users insert own worker profile" ON public.worker_profiles
   FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK ((select auth.uid()) = id);
 
 CREATE POLICY "Authenticated users update own worker profile" ON public.worker_profiles
   FOR UPDATE TO authenticated
-  USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
+  USING ((select auth.uid()) = id)
+  WITH CHECK ((select auth.uid()) = id);
 
 -- --- JOBS RLS ---
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
@@ -210,21 +229,28 @@ CREATE POLICY "Anyone can read active jobs" ON public.jobs
 
 CREATE POLICY "Authenticated users can post jobs" ON public.jobs
   FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = posted_by);
+  WITH CHECK ((select auth.uid()) = posted_by);
 
-CREATE POLICY "Job owners can update own jobs" ON public.jobs
+CREATE POLICY "Job owners can update own jobs within 5 hours" ON public.jobs
   FOR UPDATE TO authenticated
-  USING (auth.uid() = posted_by)
-  WITH CHECK (auth.uid() = posted_by);
+  USING (
+    (select auth.uid()) = posted_by
+    AND now() <= created_at + interval '5 hours'
+  )
+  WITH CHECK (
+    (select auth.uid()) = posted_by
+    AND now() <= created_at + interval '5 hours'
+  );
 
 CREATE POLICY "Job owners can delete own jobs" ON public.jobs
   FOR DELETE TO authenticated
-  USING (auth.uid() = posted_by);
+  USING ((select auth.uid()) = posted_by);
 
 -- =========================================================================
--- 4. SECURITY ADVISOR FIXES FOR EXISTING FUNCTIONS
+-- 4. SECURITY ADVISOR FIXES FOR EXISTING FUNCTIONS & TRIGGERS
 -- =========================================================================
 
+-- Preserve exact handle_new_user behavior
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -233,62 +259,33 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   INSERT INTO public.profiles (
-    id,
+    id, 
+    username, 
+    full_name, 
+    avatar_url, 
     email,
-    full_name,
-    username,
-    avatar_url,
+    phone,
     profile_type,
-    account_status,
-    created_at,
-    updated_at
+    account_status
   )
   VALUES (
     new.id,
+    COALESCE(new.raw_user_meta_data->>'username', substring(new.email from '([^@]+)')),
+    COALESCE(new.raw_user_meta_data->>'full_name', substring(new.email from '([^@]+)')),
+    COALESCE(new.raw_user_meta_data->>'avatar_url', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80'),
     new.email,
-    COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    LOWER(COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1))),
-    COALESCE(new.raw_user_meta_data->>'avatar_url', ''),
+    COALESCE(new.raw_user_meta_data->>'phone', ''),
     'basic',
-    'active',
-    now(),
-    now()
-  )
-  ON CONFLICT (id) DO NOTHING;
+    'active'
+  );
   RETURN new;
 END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon;
 
-CREATE OR REPLACE FUNCTION public.sync_email_verification(p_user_id uuid)
-RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  v_confirmed_at timestamptz;
-BEGIN
-  SELECT email_confirmed_at INTO v_confirmed_at
-  FROM auth.users
-  WHERE id = p_user_id;
-
-  IF v_confirmed_at IS NOT NULL THEN
-    UPDATE public.profiles
-    SET updated_at = now()
-    WHERE id = p_user_id;
-    RETURN true;
-  END IF;
-
-  RETURN false;
-END;
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.sync_email_verification(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.sync_email_verification(uuid) TO authenticated;
-
-CREATE OR REPLACE FUNCTION public.is_admin()
+-- Preserve exact admin helper function signatures & queries
+CREATE OR REPLACE FUNCTION public.is_admin(requested_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -297,22 +294,49 @@ AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.admin_members 
-    WHERE id = auth.uid() AND is_active = true
+    WHERE (user_id = requested_user_id OR id = requested_user_id)
+      AND is_active = true
   );
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_admin_role()
-RETURNS text
+CREATE OR REPLACE FUNCTION public.is_staff(requested_user_id uuid DEFAULT auth.uid())
+RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-DECLARE
-  v_role text;
 BEGIN
-  SELECT role INTO v_role FROM public.admin_members 
-  WHERE id = auth.uid() AND is_active = true;
-  RETURN v_role;
+  RETURN EXISTS (
+    SELECT 1 FROM public.admin_members 
+    WHERE (user_id = requested_user_id OR id = requested_user_id)
+      AND is_active = true
+      AND role IN ('staff', 'admin', 'super_admin')
+  );
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin(requested_user_id uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.admin_members 
+    WHERE (user_id = requested_user_id OR id = requested_user_id)
+      AND is_active = true
+      AND role = 'super_admin'
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.is_admin(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_admin(uuid) TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.is_staff(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_staff(uuid) TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.is_super_admin(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_super_admin(uuid) TO authenticated;

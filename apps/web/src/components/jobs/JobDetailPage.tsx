@@ -258,8 +258,8 @@ export default function JobDetailPage({
                         <Briefcase className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                       </button>
                     ) : (
-                      <span className="px-2.5 py-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/50 rounded border border-slate-200 dark:border-slate-800">
-                        Editing window closed
+                      <span className="px-3 py-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+                        This job can no longer be edited because the 5-hour editing period has ended.
                       </span>
                     )}
                   </div>
