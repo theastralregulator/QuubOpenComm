@@ -1536,7 +1536,16 @@ export default function App() {
       setIsAuthSubmitting(false);
 
       if (error) {
-        const errMsg = error.message.toLowerCase();
+        console.error("SIGNUP API ERROR:", error);
+        
+        let errorText = "Registration failed.";
+        if (typeof error === 'object' && error !== null) {
+          errorText = error.message || (error as any).error_description || JSON.stringify(error);
+        } else if (typeof error === 'string') {
+          errorText = error;
+        }
+
+        const errMsg = String(errorText).toLowerCase();
         if (errMsg.includes('already registered') || errMsg.includes('already exists')) {
           setAuthError("This email address is already registered. Please sign in instead.");
         } else if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
@@ -1544,7 +1553,7 @@ export default function App() {
         } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
           setAuthError("Network error. Please check your connection and try again.");
         } else {
-          setAuthError(error.message);
+          setAuthError(errorText === "{}" ? "An unknown database error occurred during signup." : errorText);
         }
         return;
       }
@@ -1580,14 +1589,23 @@ export default function App() {
       analytics.trackSignUp('email', user.id);
 
     } catch (err: any) {
+      console.error("SIGNUP EXCEPTION:", err);
       setIsAuthSubmitting(false);
-      const errMsg = (err.message || "").toLowerCase();
+      
+      let errorText = "Registration failed.";
+      if (typeof err === 'object' && err !== null) {
+        errorText = err.message || (err as any).error_description || JSON.stringify(err);
+      } else if (typeof err === 'string') {
+        errorText = err;
+      }
+
+      const errMsg = String(errorText).toLowerCase();
       if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
         setAuthError("Rate limit reached. Please wait a moment before trying again.");
       } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
         setAuthError("Network error. Please check your connection and try again.");
       } else {
-        setAuthError(err.message || "Registration failed.");
+        setAuthError(errorText === "{}" ? "Registration failed due to an unknown database error." : errorText);
       }
     }
   };
@@ -1875,10 +1893,19 @@ export default function App() {
       }
 
     } catch (err: any) {
+      console.error("VERIFY OTP EXCEPTION:", err);
       isSavingProfileRef.current = false;
       setIsAuthSubmitting(false);
       setVerificationCodeInput('');
-      setAuthError(err.message || "Invalid or expired verification code.");
+      
+      let errorText = "Invalid or expired verification code.";
+      if (typeof err === 'object' && err !== null) {
+        errorText = err.message || (err as any).error_description || JSON.stringify(err);
+      } else if (typeof err === 'string') {
+        errorText = err;
+      }
+      
+      setAuthError(errorText === "{}" ? "Verification failed due to an unknown database error." : errorText);
     }
   };
 
