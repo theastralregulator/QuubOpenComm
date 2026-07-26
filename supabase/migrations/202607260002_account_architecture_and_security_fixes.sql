@@ -30,13 +30,13 @@ DECLARE
   v_profile RECORD;
   v_worker RECORD;
 BEGIN
-  -- 1. Use auth.uid()
+  -- 1. Obtain authenticated user ID
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required to create a worker profile.' USING ERRCODE = '42501';
   END IF;
 
-  -- 2. Validations
+  -- 2. Validate input constraints
   IF p_profession IS NULL OR trim(p_profession) = '' THEN
     RAISE EXCEPTION 'Profession title is required.' USING ERRCODE = '22023';
   END IF;
@@ -132,12 +132,17 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) TO authenticated;
 
+
 -- =========================================================================
--- 2. PUBLIC PROFILES VIEW
+-- 2. SECURE PUBLIC PROFILES VIEW
 -- =========================================================================
 
-CREATE OR REPLACE VIEW public.public_profiles 
-WITH (security_invoker = true) AS 
+-- By omitting security_invoker = true, this view executes with the privileges 
+-- of the view creator (admin bypass), safely bypassing the strict RLS on the 
+-- profiles table. This correctly exposes non-sensitive profile data for the 
+-- directory while fully protecting sensitive columns (email, phone, role) 
+-- from direct table access by anon or other users.
+CREATE OR REPLACE VIEW public.public_profiles AS 
 SELECT 
   id, 
   username, 
@@ -154,6 +159,9 @@ SELECT
   created_at 
 FROM public.profiles
 WHERE account_status = 'active';
+
+GRANT SELECT ON public.public_profiles TO anon, authenticated;
+
 
 -- =========================================================================
 -- 3. RLS POLICIES FOR PROFILES, WORKER_PROFILES AND JOBS
@@ -246,56 +254,39 @@ CREATE POLICY "Job owners can delete own jobs" ON public.jobs
   FOR DELETE TO authenticated
   USING ((select auth.uid()) = posted_by);
 
+
 -- =========================================================================
 -- 4. SECURITY ADVISOR FIXES FOR EXISTING FUNCTIONS & TRIGGERS
 -- =========================================================================
 
--- Preserve exact handle_new_user behavior
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-BEGIN
-  INSERT INTO public.profiles (
-    id, 
-    username, 
-    full_name, 
-    avatar_url, 
-    email,
-    phone,
-    profile_type,
-    account_status
-  )
-  VALUES (
-    new.id,
-    COALESCE(new.raw_user_meta_data->>'username', substring(new.email from '([^@]+)')),
-    COALESCE(new.raw_user_meta_data->>'full_name', substring(new.email from '([^@]+)')),
-    COALESCE(new.raw_user_meta_data->>'avatar_url', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80'),
-    new.email,
-    COALESCE(new.raw_user_meta_data->>'phone', ''),
-    'basic',
-    'active'
-  );
-  RETURN new;
-END;
-$$;
+-- Secure existing trigger-only functions without replacing their bodies
+ALTER FUNCTION public.handle_updated_at() SET search_path = public, pg_temp;
+REVOKE EXECUTE ON FUNCTION public.handle_updated_at() FROM PUBLIC, anon, authenticated;
 
-REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon;
+ALTER FUNCTION public.sync_profile_email_verification() SET search_path = public, pg_temp;
+REVOKE EXECUTE ON FUNCTION public.sync_profile_email_verification() FROM PUBLIC, anon, authenticated;
 
--- Preserve exact admin helper function signatures & queries
+ALTER FUNCTION public.handle_new_user() SET search_path = public, pg_temp;
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+
+
+-- =========================================================================
+-- 5. PRESERVED & SECURED ADMIN HELPER FUNCTIONS
+-- =========================================================================
+
 CREATE OR REPLACE FUNCTION public.is_admin(requested_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
 LANGUAGE plpgsql
+STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.admin_members 
-    WHERE (user_id = requested_user_id OR id = requested_user_id)
+    WHERE user_id = requested_user_id
       AND is_active = true
+      AND role IN ('admin', 'super_admin')
   );
 END;
 $$;
@@ -303,15 +294,15 @@ $$;
 CREATE OR REPLACE FUNCTION public.is_staff(requested_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
 LANGUAGE plpgsql
+STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.admin_members 
-    WHERE (user_id = requested_user_id OR id = requested_user_id)
+    WHERE user_id = requested_user_id
       AND is_active = true
-      AND role IN ('staff', 'admin', 'super_admin')
   );
 END;
 $$;
@@ -319,13 +310,14 @@ $$;
 CREATE OR REPLACE FUNCTION public.is_super_admin(requested_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
 LANGUAGE plpgsql
+STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.admin_members 
-    WHERE (user_id = requested_user_id OR id = requested_user_id)
+    WHERE user_id = requested_user_id
       AND is_active = true
       AND role = 'super_admin'
   );
