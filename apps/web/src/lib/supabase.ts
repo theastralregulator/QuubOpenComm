@@ -95,7 +95,6 @@ export interface LocalProfile {
   preferred_language: string;
   account_status: 'active' | 'disabled';
   profile_type: 'basic' | 'worker' | 'company';
-  account_type?: 'basic' | 'worker' | 'company';
   is_worker_listed?: boolean;
   signup_status?: 'pending_verification' | 'completed';
   created_at: string;
@@ -456,7 +455,7 @@ export const dbService = {
       const allowedRemoteColumns = [
         'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
         'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
-        'bio', 'headline', 'location', 'location_visibility', 'account_status', 'profile_type', 'account_type', 'created_at', 'updated_at',
+        'bio', 'headline', 'location', 'location_visibility', 'account_status', 'profile_type', 'created_at', 'updated_at',
         'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
       ];
       
@@ -661,7 +660,7 @@ export const dbService = {
     }
 
     // Sync user profile type
-    await this.updateProfile(worker.id, { profile_type: 'worker', account_type: 'worker' });
+    await this.updateProfile(worker.id, { profile_type: 'worker' });
     
     // Track worker profile creation in Google Analytics
     analytics.trackWorkerProfileCreated({

@@ -58,7 +58,7 @@ export default function WorkerDetailPage({
             .from('worker_profiles')
             .select(`
               *,
-              profiles(full_name, avatar_url, city, state, district, account_type)
+              profiles(full_name, avatar_url, city, state, district, profile_type)
             `)
             .eq('id', workerId)
             .eq('listing_enabled', true)

@@ -1410,7 +1410,6 @@ export default function App() {
           bio: formBio,
           avatar_url: finalAvatarUrl,
           profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
-          account_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
           account_status: 'active' as const,
           email_verified_for_actions: true,
           onboarding_completed: true,
@@ -1769,7 +1768,6 @@ export default function App() {
         profile_image_url: finalAvatarUrl || undefined,
         avatar_id: finalAvatarId || undefined,
         profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
-        account_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
         is_worker_listed: isWorker,
         account_status: 'active' as const,
         email_verified_for_actions: true,
@@ -2173,7 +2171,6 @@ export default function App() {
         latitude: newWorkerLocationData.latitude,
         longitude: newWorkerLocationData.longitude,
         profile_type: 'worker',
-        account_type: 'worker',
         email_verified_for_actions: true,
         onboarding_completed: true
       });
