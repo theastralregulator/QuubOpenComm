@@ -283,7 +283,6 @@ export default function ProfilePage({
         state: editState,
         country: editCountry,
         preferred_language: editLang,
-        email: editEmail,
         phone: editPhone,
         banner_id: finalBannerId,
         location_visibility: editLocationVisibility
@@ -1084,13 +1083,17 @@ export default function ProfilePage({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Private Email <span className="text-slate-400 font-normal">(Hidden)</span></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Account Email <span className="text-slate-400 font-normal">(Read-only)</span></label>
                   <input 
                     type="email" 
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    value={profile?.email || editEmail || ''}
+                    disabled
+                    readOnly
+                    className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-slate-500 dark:text-slate-400 cursor-not-allowed text-xs font-mono"
                   />
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                    Your account email cannot be changed from Edit Profile.
+                  </p>
                 </div>
 
                 {/* Custom Banner Upload */}

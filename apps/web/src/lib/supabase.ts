@@ -661,7 +661,7 @@ export const dbService = {
 
     // Sync user profile type
     await this.updateProfile(worker.id, { profile_type: 'worker' });
-    
+
     // Track worker profile creation in Google Analytics
     analytics.trackWorkerProfileCreated({
       profession: worker.professional_title || worker.profession,
@@ -670,6 +670,66 @@ export const dbService = {
     });
 
     return worker;
+  },
+
+  async createMyWorkerProfile(params: {
+    profession: string;
+    skills: string[];
+    experience_years?: number;
+    work_location?: string;
+    availability?: string;
+    bio_summary?: string;
+    hourly_rate?: number;
+    expected_salary?: string;
+    portfolio_url?: string;
+    linkedin_url?: string;
+    github_url?: string;
+    highest_qualification?: string;
+    course_specialization?: string;
+    institution?: string;
+    graduation_year?: number;
+    resume_path?: string;
+    languages?: string[];
+  }): Promise<any> {
+    if (supabase) {
+      const { data, error } = await supabase.rpc('create_my_worker_profile', {
+        p_profession: params.profession,
+        p_skills: params.skills,
+        p_experience_years: params.experience_years || 0,
+        p_work_location: params.work_location || null,
+        p_availability: params.availability || 'Available Now',
+        p_bio_summary: params.bio_summary || null,
+        p_hourly_rate: params.hourly_rate || null,
+        p_expected_salary: params.expected_salary || null,
+        p_portfolio_url: params.portfolio_url || null,
+        p_linkedin_url: params.linkedin_url || null,
+        p_github_url: params.github_url || null,
+        p_highest_qualification: params.highest_qualification || null,
+        p_course_specialization: params.course_specialization || null,
+        p_institution: params.institution || null,
+        p_graduation_year: params.graduation_year || null,
+        p_resume_path: params.resume_path || null,
+        p_languages: params.languages || []
+      });
+
+      if (error) {
+        console.error("create_my_worker_profile RPC error:", error.message);
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
+    const userId = localStorage.getItem('opencomm_user_id') || 'temp-id';
+    await this.updateProfile(userId, { profile_type: 'worker' });
+    return this.createWorkerProfile({
+      id: userId,
+      profession: params.profession,
+      skills: params.skills,
+      experience_years: params.experience_years || 0,
+      hourly_rate: params.hourly_rate,
+      bio_summary: params.bio_summary,
+      work_location: params.work_location
+    });
   },
 
   async getWorkerProfile(userId: string): Promise<LocalWorkerProfile | null> {
@@ -997,6 +1057,9 @@ export const dbService = {
     await assertUserEmailConfirmed();
     if (supabase) {
       try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const authenticatedUserId = user?.id || postedBy;
+
         const { data, error } = await supabase.from('jobs').insert({
           title: job.title,
           description: job.description,
@@ -1004,7 +1067,7 @@ export const dbService = {
           location: job.location,
           category: job.category,
           requirements: job.requirements || [],
-          posted_by: postedBy,
+          posted_by: authenticatedUserId,
           is_active: true
         }).select().single();
         if (!error && data) {

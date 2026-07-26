@@ -2149,102 +2149,45 @@ export default function App() {
 
   const handleCreateWorker = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkerName || !newWorkerTitle) {
-      alert("Please provide a name and professional title.");
+    if (!newWorkerTitle.trim()) {
+      triggerToast("Please provide a professional title.");
       return;
     }
 
-    const userId = localStorage.getItem('opencomm_user_id') || 'temp-user-id';
-
     try {
-      // 1. Update the core profile to make them a worker
-      await dbService.updateProfile(userId, {
-        id: userId,
-        full_name: newWorkerName,
-        bio: newWorkerBio,
-        city: newWorkerLocationData.city,
-        state: newWorkerLocationData.state,
-        country: newWorkerLocationData.country,
-        country_code: newWorkerLocationData.country_code,
-        state_code: newWorkerLocationData.state_code,
-        district: newWorkerLocationData.district,
-        latitude: newWorkerLocationData.latitude,
-        longitude: newWorkerLocationData.longitude,
-        profile_type: 'worker',
-        email_verified_for_actions: true,
-        onboarding_completed: true
+      const skillsArray = newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()).filter(Boolean) : ['Professional'];
+      
+      await dbService.createMyWorkerProfile({
+        profession: newWorkerTitle.trim(),
+        skills: skillsArray,
+        experience_years: 2,
+        work_location: newWorkerLocation.trim() || undefined,
+        availability: 'Available Now',
+        bio_summary: newWorkerBio.trim() || undefined,
+        hourly_rate: Number(newWorkerRate) || 75
       });
 
-      // 2. Create/upsert their worker profile details
-      await dbService.createWorkerProfile({
-        id: userId,
-        profession: newWorkerTitle,
-        professional_title: newWorkerTitle,
-        skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : [],
-        experience_years: 0,
-        hourly_rate: Number(newWorkerRate) || 75,
-        bio_summary: newWorkerBio,
-        work_location: newWorkerLocation,
-        availability: 'Available Now',
-        availability_status: 'Available Now',
-        worker_profile_completed: true
-      });
-
-      // 3. Add to local state
-      const createdWorker: Worker = {
-        id: userId,
-        name: newWorkerName,
-        photo: userPhoto || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
-        title: newWorkerTitle,
-        experience: 4,
-        rating: 5.0,
-        availability: 'Available Now',
-        location: newWorkerLocation || 'Remote',
-        bio: newWorkerBio || 'Professional contractor ready to assist with local and remote briefs.',
-        skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : ['Tailwind CSS', 'Framer Motion', 'Customer Sync'],
-        completedWorks: 0,
-        hourlyRate: Number(newWorkerRate) || 75,
-        verified: true
-      };
-
-      setWorkers(prev => [createdWorker, ...prev]);
-
-      // Track worker profile creation in Google Analytics
       analytics.trackWorkerProfileCreated({
         profession: newWorkerTitle,
-        skills: newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()) : [],
+        skills: skillsArray,
         rate: Number(newWorkerRate) || 75
       });
 
-      const newAct: Activity = {
-        id: `act-${Date.now()}`,
-        type: 'post',
-        title: `Created active Worker Profile: "${newWorkerTitle}"`,
-        status: 'Listed',
-        statusType: 'success',
-        timestamp: 'Just now'
-      };
-      setActivities(prev => [newAct, ...prev]);
-
-      triggerToast(`Congratulations! Professional profile listed under "${newWorkerTitle}".`);
+      triggerToast("Worker profile created successfully.");
       
-      // Update global states
       setUserType('worker');
       localStorage.setItem('opencomm_user_type', 'worker');
-
       setShowCreateProfile(false);
 
-      // Reset form fields
       setNewWorkerName('');
       setNewWorkerTitle('');
       setNewWorkerRate(75);
       setNewWorkerLocation('');
-      setNewWorkerLocationData({ city: '', state: '', country: '', country_code: '', state_code: '', district: '', latitude: 30.2672, longitude: -97.7431 });
       setNewWorkerSkills('');
       setNewWorkerBio('');
-
     } catch (err: any) {
-      alert("Failed to save worker profile in database: " + err.message);
+      console.error("Worker creation failed:", err);
+      triggerToast(err.message || "Failed to create worker profile. Please try again.");
     }
   };
 
@@ -4208,281 +4151,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* WORKER DIRECTORY TOGGLE */}
-                      <div className="space-y-2 border-t border-slate-100 dark:border-zinc-800 pt-4 mt-2">
-                        <div className="space-y-0.5">
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                            Would you like employers and clients to discover your profile?
-                          </h4>
-                          <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                            Add professional details so clients can find and contact you through OpenComm.
-                          </p>
-                        </div>
 
-                        <div 
-                          onClick={() => setListInWorkerDirectory(!listInWorkerDirectory)}
-                          className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                            listInWorkerDirectory
-                              ? 'border-indigo-600 bg-indigo-500/5 dark:bg-indigo-500/10 ring-2 ring-indigo-500/20'
-                              : 'border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 hover:border-slate-300 dark:hover:border-zinc-700'
-                          }`}
-                        >
-                          <div className="space-y-0.5">
-                            <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                              List my profile in the Worker Directory
-                            </span>
-                            <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
-                              {listInWorkerDirectory ? 'Professional details expanded below' : 'OFF — Normal Basic Account'}
-                            </span>
-                          </div>
-
-                          <div className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${listInWorkerDirectory ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-zinc-700'}`}>
-                            <div className={`w-5 h-5 rounded-full bg-white transition-transform shadow-xs ${listInWorkerDirectory ? 'translate-x-5' : 'translate-x-0'}`} />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* SECTION 3: PROFESSIONAL DETAILS (EXPANDABLE WHEN TOGGLE IS ON) */}
-                      <AnimatePresence>
-                        {listInWorkerDirectory && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.25, ease: 'easeInOut' }}
-                            className="overflow-hidden space-y-4 border-t border-slate-100 dark:border-zinc-800 pt-4"
-                          >
-                            <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
-                              <h3 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                                Professional Details
-                              </h3>
-                            </div>
-
-                            {/* Primary Profession / Category (Required) */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Primary Profession / Category <span className="text-rose-500">*</span>
-                              </label>
-                              <select
-                                value={workerForm.primaryCategory}
-                                onChange={(e) => setWorkerForm({ ...workerForm, primaryCategory: e.target.value })}
-                                className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
-                              >
-                                <option value="Driver">Driver</option>
-                                <option value="Electrician">Electrician</option>
-                                <option value="Plumber">Plumber</option>
-                                <option value="Carpenter">Carpenter</option>
-                                <option value="Mason">Mason</option>
-                                <option value="Welder">Welder</option>
-                                <option value="Cleaner">Cleaner</option>
-                                <option value="Cook / Chef">Cook / Chef</option>
-                                <option value="Teacher">Teacher</option>
-                                <option value="Photographer">Photographer</option>
-                                <option value="Designer">Designer</option>
-                                <option value="Developer">Developer</option>
-                                <option value="Accountant">Accountant</option>
-                                <option value="Technician">Technician</option>
-                                <option value="Healthcare">Healthcare</option>
-                                <option value="Other">Other</option>
-                              </select>
-                            </div>
-
-                            {/* Category-Specific Form Fields */}
-                            {workerForm.primaryCategory === 'Driver' && (
-                              <div className="grid grid-cols-2 gap-3 p-3 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/15 rounded-2xl">
-                                <div className="space-y-1">
-                                  <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-300">Licence Type</label>
-                                  <select
-                                    value={driverLicenceType}
-                                    onChange={(e) => setDriverLicenceType(e.target.value)}
-                                    className="w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold"
-                                  >
-                                    <option value="Commercial (LMV/HMV)">Commercial (LMV/HMV)</option>
-                                    <option value="Private (LMV)">Private (LMV)</option>
-                                    <option value="Two Wheeler">Two Wheeler</option>
-                                  </select>
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-300">Vehicle Type</label>
-                                  <select
-                                    value={driverVehicleType}
-                                    onChange={(e) => setDriverVehicleType(e.target.value)}
-                                    className="w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold"
-                                  >
-                                    <option value="Car / Sedan">Car / Sedan</option>
-                                    <option value="SUV / Van">SUV / Van</option>
-                                    <option value="Auto / Rickshaw">Auto / Rickshaw</option>
-                                    <option value="Truck / Heavy Vehicle">Truck / Heavy Vehicle</option>
-                                  </select>
-                                </div>
-                              </div>
-                            )}
-
-                            {workerForm.primaryCategory === 'Electrician' && (
-                              <div className="p-3 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/15 rounded-2xl space-y-2">
-                                <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-300">Work Specialty</label>
-                                <select
-                                  value={electricianWorkType}
-                                  onChange={(e) => setElectricianWorkType(e.target.value)}
-                                  className="w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold"
-                                >
-                                  <option value="Domestic & Residential">Domestic & Residential</option>
-                                  <option value="Commercial & Industrial">Commercial & Industrial</option>
-                                  <option value="Domestic & Commercial">Domestic & Commercial</option>
-                                </select>
-                              </div>
-                            )}
-
-                            {/* Skills Tag Input */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Skills <span className="text-slate-400 font-normal">(optional)</span>
-                              </label>
-                              <div className="flex space-x-2">
-                                <input
-                                  type="text"
-                                  value={newSkillInput}
-                                  onChange={(e) => setNewSkillInput(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      if (newSkillInput.trim() && !workerForm.skills.includes(newSkillInput.trim())) {
-                                        setWorkerForm(prev => ({ ...prev, skills: [...prev.skills, newSkillInput.trim()] }));
-                                        setNewSkillInput('');
-                                      }
-                                    }
-                                  }}
-                                  placeholder="Type skill e.g. Driving, Wiring & press Enter"
-                                  className="flex-1 h-10 px-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (newSkillInput.trim() && !workerForm.skills.includes(newSkillInput.trim())) {
-                                      setWorkerForm(prev => ({ ...prev, skills: [...prev.skills, newSkillInput.trim()] }));
-                                      setNewSkillInput('');
-                                    }
-                                  }}
-                                  className="px-3 bg-slate-900 dark:bg-white text-white dark:text-slate-950 rounded-xl font-bold text-xs cursor-pointer"
-                                >
-                                  Add
-                                </button>
-                              </div>
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                {workerForm.skills.map(skill => (
-                                  <span key={skill} className="inline-flex items-center px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/15 font-bold text-[10px]">
-                                    {skill}
-                                    <button
-                                      type="button"
-                                      onClick={() => setWorkerForm(prev => ({ ...prev, skills: prev.skills.filter(s => s !== skill) }))}
-                                      className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
-                                    >
-                                      &times;
-                                    </button>
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* Experience Level & Availability */}
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                  Experience Level
-                                </label>
-                                <select
-                                  value={workerForm.experienceLevel}
-                                  onChange={(e) => setWorkerForm({ ...workerForm, experienceLevel: e.target.value as any })}
-                                  className="w-full h-10 px-2.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
-                                >
-                                  <option value="Entry">Entry (0-2 yrs)</option>
-                                  <option value="Mid">Mid (2-5 yrs)</option>
-                                  <option value="Senior">Senior (5+ yrs)</option>
-                                  <option value="Expert">Expert (8+ yrs)</option>
-                                </select>
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                  Work Availability
-                                </label>
-                                <select
-                                  value={workerForm.availabilityStatus}
-                                  onChange={(e) => setWorkerForm({ ...workerForm, availabilityStatus: e.target.value as any })}
-                                  className="w-full h-10 px-2.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none"
-                                >
-                                  <option value="Available Now">Available Now</option>
-                                  <option value="Open to Offers">Open to Offers</option>
-                                  <option value="Busy">Busy</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* Section B: Optional Details Collapsible Accordion */}
-                            <div className="border border-slate-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
-                              <button
-                                type="button"
-                                onClick={() => setShowOptionalWorkerDetails(!showOptionalWorkerDetails)}
-                                className="w-full p-3 bg-slate-50 dark:bg-zinc-950/40 flex justify-between items-center text-xs font-bold text-slate-700 dark:text-zinc-300 cursor-pointer"
-                              >
-                                <span>Optional Details (Qualifications, Resume PDF)</span>
-                                <ChevronDown className={`w-4 h-4 transition-transform ${showOptionalWorkerDetails ? 'rotate-180' : ''}`} />
-                              </button>
-
-                              {showOptionalWorkerDetails && (
-                                <div className="p-3.5 space-y-3 bg-white dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800">
-                                  <div className="space-y-1">
-                                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-zinc-300">
-                                      Qualification
-                                    </label>
-                                    <input
-                                      type="text"
-                                      value={workerForm.highestQualification}
-                                      onChange={(e) => setWorkerForm({ ...workerForm, highestQualification: e.target.value })}
-                                      placeholder="e.g. Higher Secondary, Bachelor Degree"
-                                      className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-xs font-semibold focus:outline-none"
-                                    />
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-zinc-300">
-                                      Resume / CV (PDF, max 5MB)
-                                    </label>
-                                    <input
-                                      type="file"
-                                      accept=".pdf"
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) {
-                                          if (file.type !== 'application/pdf') {
-                                            setResumeUploadError("Only PDF files are supported.");
-                                            setResumeFile(null);
-                                            return;
-                                          }
-                                          if (file.size > 5 * 1024 * 1024) {
-                                            setResumeUploadError("File size must be under 5 MB.");
-                                            setResumeFile(null);
-                                            return;
-                                          }
-                                          setResumeFile(file);
-                                          setResumeUploadError('');
-                                          triggerToast("Resume attached!");
-                                        }
-                                      }}
-                                      className="w-full text-xs text-slate-500 cursor-pointer"
-                                    />
-                                    {resumeFile && (
-                                      <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-                                        Attached: {resumeFile.name} ({(resumeFile.size / 1024 / 1024).toFixed(2)} MB)
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
 
                       {/* TERMS AND PRIVACY CONSENT */}
                       <div className="flex items-start space-x-2.5 pt-2 text-left">
