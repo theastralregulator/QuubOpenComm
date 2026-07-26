@@ -3,14 +3,14 @@
 -- =========================================================================
 -- 1. DROP OLD INSECURE VIEW
 -- =========================================================================
-DROP VIEW IF EXISTS public.public_profiles CASCADE;
+DROP VIEW IF EXISTS public.public_profiles;
 
 
 -- =========================================================================
 -- 2. CREATE SECURE PROFILE_DIRECTORY TABLE & VIEWS
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS public.profile_directory (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   username text,
   full_name text,
   avatar_url text,
@@ -25,15 +25,19 @@ CREATE TABLE IF NOT EXISTS public.profile_directory (
   created_at timestamptz
 );
 
--- Enable RLS and grant public SELECT
+-- Enable RLS and grant explicit privileges
 ALTER TABLE public.profile_directory ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT ON public.profile_directory TO anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.profile_directory FROM anon, authenticated;
 
 DROP POLICY IF EXISTS "Public can view directory" ON public.profile_directory;
 CREATE POLICY "Public can view directory" ON public.profile_directory
   FOR SELECT USING (true);
 
 -- Create a dedicated secure view for the Workers Directory
-CREATE OR REPLACE VIEW public.worker_directory AS
+CREATE OR REPLACE VIEW public.worker_directory
+WITH (security_invoker = true) AS
 SELECT 
   w.id, w.profession, w.skills, w.experience_years, w.work_location, w.availability, 
   w.bio_summary, w.hourly_rate, w.expected_salary, w.portfolio_url, w.certificates, 
@@ -96,12 +100,14 @@ BEGIN
 END;
 $$;
 
+REVOKE EXECUTE ON FUNCTION public.sync_profile_directory() FROM PUBLIC, anon, authenticated;
+
 DROP TRIGGER IF EXISTS trg_sync_profile_directory ON public.profiles;
 CREATE TRIGGER trg_sync_profile_directory
   AFTER INSERT OR UPDATE OR DELETE ON public.profiles
   FOR EACH ROW EXECUTE PROCEDURE public.sync_profile_directory();
 
--- Sync existing data immediately
+-- Sync existing data immediately (idempotent backfill)
 INSERT INTO public.profile_directory (
   id, username, full_name, avatar_url, banner_url, bio, 
   city, state, country, preferred_language, profile_type, 
@@ -113,7 +119,24 @@ SELECT
   onboarding_completed, created_at
 FROM public.profiles
 WHERE account_status = 'active'
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+  username = EXCLUDED.username,
+  full_name = EXCLUDED.full_name,
+  avatar_url = EXCLUDED.avatar_url,
+  banner_url = EXCLUDED.banner_url,
+  bio = EXCLUDED.bio,
+  city = EXCLUDED.city,
+  state = EXCLUDED.state,
+  country = EXCLUDED.country,
+  preferred_language = EXCLUDED.preferred_language,
+  profile_type = EXCLUDED.profile_type,
+  onboarding_completed = EXCLUDED.onboarding_completed;
+
+-- Delete stale directory rows for profiles that are no longer active
+DELETE FROM public.profile_directory 
+WHERE id IN (
+  SELECT id FROM public.profiles WHERE account_status != 'active'
+);
 
 
 -- =========================================================================
@@ -122,11 +145,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Lock down direct updates
 DROP POLICY IF EXISTS "Authenticated users can update own profile" ON public.profiles;
-
-CREATE POLICY "Authenticated users can update own profile" ON public.profiles
-  FOR UPDATE TO authenticated
-  USING (false)
-  WITH CHECK (false);
+REVOKE UPDATE ON public.profiles FROM authenticated;
 
 -- The RPC to safely update basic details
 CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
@@ -150,17 +169,34 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_user_id uuid;
+  v_username text;
+  v_full_name text;
   v_updated RECORD;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
+  
+  -- Trim and validate required inputs if they are provided
+  IF p_username IS NOT NULL THEN
+    v_username := trim(p_username);
+    IF v_username = '' THEN
+      RAISE EXCEPTION 'Username cannot be empty or whitespace';
+    END IF;
+  END IF;
+
+  IF p_full_name IS NOT NULL THEN
+    v_full_name := trim(p_full_name);
+    IF v_full_name = '' THEN
+      RAISE EXCEPTION 'Full name cannot be empty or whitespace';
+    END IF;
+  END IF;
 
   UPDATE public.profiles
   SET 
-    username = COALESCE(trim(p_username), username),
-    full_name = COALESCE(trim(p_full_name), full_name),
+    username = COALESCE(v_username, username),
+    full_name = COALESCE(v_full_name, full_name),
     avatar_url = COALESCE(trim(p_avatar_url), avatar_url),
     banner_url = COALESCE(trim(p_banner_url), banner_url),
     phone = COALESCE(trim(p_phone), phone),
@@ -173,7 +209,11 @@ BEGIN
     onboarding_completed = COALESCE(p_onboarding_completed, onboarding_completed),
     updated_at = now()
   WHERE id = v_user_id
-  RETURNING * INTO v_updated;
+  RETURNING 
+    id, username, full_name, avatar_url, banner_url, phone, city, state, country, 
+    preferred_language, bio, show_location_publicly, onboarding_completed, 
+    profile_type, created_at, updated_at 
+  INTO v_updated;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Profile not found';
@@ -183,8 +223,15 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.update_my_basic_profile FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.update_my_basic_profile TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.update_my_basic_profile(
+  text, text, text, text, text, text,
+  text, text, text, text, boolean, boolean
+) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.update_my_basic_profile(
+  text, text, text, text, text, text,
+  text, text, text, text, boolean, boolean
+) TO authenticated;
 
 
 -- =========================================================================
@@ -226,9 +273,9 @@ BEGIN
   p_expected_salary := trim(p_expected_salary);
   p_portfolio_url := trim(p_portfolio_url);
   
-  -- Clean skills array (remove empty strings or whitespace-only elements)
+  -- Clean skills array (distinct, non-empty, trimmed)
   IF p_skills IS NOT NULL THEN
-    SELECT array_agg(trim(s)) INTO v_clean_skills
+    SELECT array_agg(DISTINCT trim(s)) INTO v_clean_skills
     FROM unnest(p_skills) s
     WHERE trim(s) <> '';
   END IF;
@@ -238,7 +285,7 @@ BEGIN
   END IF;
 
   IF v_clean_skills IS NULL OR array_length(v_clean_skills, 1) IS NULL OR array_length(v_clean_skills, 1) = 0 THEN
-    RAISE EXCEPTION 'At least one skill is required.' USING ERRCODE = '22023';
+    RAISE EXCEPTION 'At least one valid skill is required.' USING ERRCODE = '22023';
   END IF;
 
   IF p_experience_years IS NULL OR p_experience_years < 0 THEN
@@ -320,6 +367,16 @@ BEGIN
   RETURN to_jsonb(v_worker);
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.create_my_worker_profile(
+  text, text[], integer, text, text, text,
+  numeric, text, text, text[], text[]
+) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(
+  text, text[], integer, text, text, text,
+  numeric, text, text, text[], text[]
+) TO authenticated;
 
 
 -- =========================================================================
