@@ -682,13 +682,7 @@ export const dbService = {
     hourly_rate?: number;
     expected_salary?: string;
     portfolio_url?: string;
-    linkedin_url?: string;
-    github_url?: string;
-    highest_qualification?: string;
-    course_specialization?: string;
-    institution?: string;
-    graduation_year?: number;
-    resume_path?: string;
+    certificates?: string[];
     languages?: string[];
   }): Promise<any> {
     if (supabase) {
@@ -702,13 +696,7 @@ export const dbService = {
         p_hourly_rate: params.hourly_rate || null,
         p_expected_salary: params.expected_salary || null,
         p_portfolio_url: params.portfolio_url || null,
-        p_linkedin_url: params.linkedin_url || null,
-        p_github_url: params.github_url || null,
-        p_highest_qualification: params.highest_qualification || null,
-        p_course_specialization: params.course_specialization || null,
-        p_institution: params.institution || null,
-        p_graduation_year: params.graduation_year || null,
-        p_resume_path: params.resume_path || null,
+        p_certificates: params.certificates || [],
         p_languages: params.languages || []
       });
 
