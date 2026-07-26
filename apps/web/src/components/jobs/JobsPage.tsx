@@ -43,6 +43,12 @@ export default function JobsPage({
   const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
   const [isFetching, setIsFetching] = useState(false);
 
+  useEffect(() => {
+    if (jobs && jobs.length > 0) {
+      setLocalJobs(jobs);
+    }
+  }, [jobs]);
+
   // Filters state
   const [locationFilter, setLocationFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('All'); // All, Full-time, Part-time, Freelance, Remote

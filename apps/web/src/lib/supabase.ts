@@ -386,53 +386,21 @@ export async function assertUserEmailConfirmed() {
 
 export const dbService = {
   async getProfile(userId: string): Promise<LocalProfile | null> {
-    let remoteProfile: any = null;
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-        if (!error && data) {
-          remoteProfile = data;
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+        if (error) {
+          console.error('getProfile Supabase error:', error.message);
+          return null;
         }
+        return data as LocalProfile | null;
       } catch (err) {
-        console.error('getProfile Supabase error:', err);
+        console.error('getProfile Supabase exception:', err);
+        return null;
       }
     }
     const profiles = openCommDb.getProfiles();
-    const localProfile = profiles.find(p => p.id === userId) || null;
-
-    if (remoteProfile) {
-      // Merge remote profile with local profile to preserve fields that cannot be saved on remote (e.g. onboarding_completed)
-      const merged = {
-        ...localProfile,
-        ...remoteProfile,
-        city: remoteProfile.city || localProfile?.city || '',
-        state: remoteProfile.state || localProfile?.state || '',
-        country: remoteProfile.country || localProfile?.country || '',
-        country_code: remoteProfile.country_code || localProfile?.country_code || '',
-        state_code: remoteProfile.state_code || localProfile?.state_code || '',
-        district: remoteProfile.district || localProfile?.district || '',
-        latitude: remoteProfile.latitude !== undefined ? remoteProfile.latitude : localProfile?.latitude,
-        longitude: remoteProfile.longitude !== undefined ? remoteProfile.longitude : localProfile?.longitude,
-        preferred_language: remoteProfile.preferred_language || localProfile?.preferred_language || '',
-        bio: remoteProfile.bio || localProfile?.bio || '',
-        avatar_url: remoteProfile.avatar_url || localProfile?.avatar_url || '',
-        banner_id: remoteProfile.banner_id || localProfile?.banner_id || 'banner_01',
-        onboarding_completed: remoteProfile.onboarding_completed ?? localProfile?.onboarding_completed ?? (remoteProfile.city ? true : false),
-        email_verified_for_actions: remoteProfile.email_verified_for_actions ?? localProfile?.email_verified_for_actions ?? false,
-      } as LocalProfile;
-
-      // Update the local cache with the merged profile
-      const idx = profiles.findIndex(p => p.id === userId);
-      if (idx >= 0) {
-        profiles[idx] = merged;
-      } else {
-        profiles.push(merged);
-      }
-      openCommDb.saveProfiles(profiles);
-
-      return merged;
-    }
-    return localProfile;
+    return profiles.find(p => p.id === userId) || null;
   },
 
   async getProfileByUsername(username: string): Promise<LocalProfile | null> {
@@ -440,16 +408,17 @@ export const dbService = {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('username', username)
+        .ilike('username', username)
         .maybeSingle();
 
       if (!error && data) {
         return data as LocalProfile;
       }
+      return null;
     }
     // Fallback to local emulation
     const profiles = openCommDb.getProfiles();
-    return profiles.find(p => p.username === username) || null;
+    return profiles.find(p => p.username.toLowerCase() === username.toLowerCase()) || null;
   },
 
   async uploadBanner(userId: string, file: File): Promise<string> {
@@ -483,7 +452,60 @@ export const dbService = {
   },
 
   async updateProfile(userId: string, updates: Partial<LocalProfile>): Promise<LocalProfile> {
-    // 1. First, save to local profiles emulation so local data is always up-to-date
+    if (supabase) {
+      const allowedRemoteColumns = [
+        'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
+        'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
+        'bio', 'headline', 'location', 'location_visibility', 'account_status', 'profile_type', 'account_type', 'created_at', 'updated_at',
+        'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
+      ];
+      
+      const filteredUpdates: any = {};
+      for (const [key, val] of Object.entries(updates)) {
+        if (allowedRemoteColumns.includes(key)) {
+          filteredUpdates[key] = val;
+        }
+      }
+      filteredUpdates.updated_at = new Date().toISOString();
+
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      let result;
+      if (existing) {
+        result = await supabase
+          .from('profiles')
+          .update(filteredUpdates)
+          .eq('id', userId)
+          .select()
+          .single();
+      } else {
+        result = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            ...filteredUpdates
+          })
+          .select()
+          .single();
+      }
+
+      if (result.error) {
+        console.error('updateProfile Supabase error returned:', result.error.message);
+        throw new Error(result.error.message);
+      }
+      
+      if (!result.data) {
+        throw new Error("No profile data returned from Supabase after update.");
+      }
+
+      return result.data as LocalProfile;
+    }
+
+    // Local fallback only if no Supabase instance
     const profiles = openCommDb.getProfiles();
     const idx = profiles.findIndex(p => p.id === userId);
     const updated = {
@@ -491,90 +513,10 @@ export const dbService = {
       ...updates,
       updated_at: new Date().toISOString()
     } as LocalProfile;
-    
-    // Explicitly update onboarding_completed if updates contains it, or if bio/city is provided
-    if (updates.city || updates.onboarding_completed) {
-      updated.onboarding_completed = true;
-    }
 
     if (idx >= 0) profiles[idx] = updated;
     else profiles.push(updated);
     openCommDb.saveProfiles(profiles);
-
-    // 2. Next, save to remote Supabase, filtering out non-existent columns (onboarding_completed, email_verified_for_actions)
-    if (supabase) {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user && user.id === userId) {
-          const allowedRemoteColumns = [
-            'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
-            'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
-            'bio', 'headline', 'location', 'location_visibility', 'account_status', 'profile_type', 'account_type', 'created_at', 'updated_at',
-            'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
-          ];
-          
-          const filteredUpdates: any = {};
-          for (const [key, val] of Object.entries(updates)) {
-            if (allowedRemoteColumns.includes(key)) {
-              filteredUpdates[key] = val;
-            }
-          }
-
-          // Check if profile exists to prevent any potential RLS upsert anomalies
-          const { data: existing } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('id', userId)
-            .maybeSingle();
-
-          let result;
-          if (existing) {
-            result = await supabase
-              .from('profiles')
-              .update({
-                ...filteredUpdates,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', userId)
-              .select()
-              .maybeSingle();
-          } else {
-            result = await supabase
-              .from('profiles')
-              .insert({
-                id: userId,
-                ...filteredUpdates,
-                updated_at: new Date().toISOString()
-              })
-              .select()
-              .maybeSingle();
-          }
-
-          if (result.error) {
-            console.error('updateProfile Supabase error returned:', result.error.message);
-            throw new Error(result.error.message);
-          } else if (result.data) {
-            // Merge data from remote back into local cache
-            const freshProfiles = openCommDb.getProfiles();
-            const freshIdx = freshProfiles.findIndex(p => p.id === userId);
-            if (freshIdx >= 0) {
-              freshProfiles[freshIdx] = {
-                ...freshProfiles[freshIdx],
-                ...result.data
-              };
-              openCommDb.saveProfiles(freshProfiles);
-              // Ensure we return the exact DB row
-              return freshProfiles[freshIdx];
-            }
-          }
-        } else {
-          console.log(`[dbService] Bypassed Supabase remote sync for local/unauthenticated user profile update (userId: ${userId})`);
-        }
-      } catch (err: any) {
-        console.error('updateProfile Supabase exception:', err);
-        throw err;
-      }
-    }
 
     return updated;
   },
@@ -1086,16 +1028,28 @@ export const dbService = {
   async getJobsFromDb(): Promise<any[]> {
     if (supabase) {
       try {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('jobs')
-          .select('*, companies(*), profiles(full_name, avatar_url)')
+          .select('*, companies(*), poster:profiles!posted_by(full_name, avatar_url)')
           .eq('is_active', true)
           .order('created_at', { ascending: false });
 
+        if (error) {
+          console.warn('Primary jobs query error, attempting simple query:', error.message);
+          const fallbackRes = await supabase
+            .from('jobs')
+            .select('*, companies(*)')
+            .eq('is_active', true)
+            .order('created_at', { ascending: false });
+          data = fallbackRes.data;
+          error = fallbackRes.error;
+        }
+
         if (!error && data) {
           return data.map(job => {
-            const companyName = job.companies?.name || job.profiles?.full_name || 'Individual Employer';
-            const companyLogo = job.companies?.logo_url || job.profiles?.avatar_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80';
+            const posterObj = job.poster || job.profiles;
+            const companyName = job.companies?.name || posterObj?.full_name || 'Individual Employer';
+            const companyLogo = job.companies?.logo_url || posterObj?.avatar_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80';
             
             return {
               id: job.id,
