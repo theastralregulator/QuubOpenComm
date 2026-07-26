@@ -1062,10 +1062,12 @@ export const dbService = {
           return data;
         }
       } catch (err) {
-        console.error('createJobInDb Supabase error:', err);
+        console.error('[Audit] createJobInDb Supabase error:', err);
+        throw err;
       }
+    } else {
+      throw new Error("Supabase client is not initialized.");
     }
-    return job;
   },
 
   async getJobsFromDb(): Promise<any[]> {

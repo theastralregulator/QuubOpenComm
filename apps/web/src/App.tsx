@@ -542,11 +542,9 @@ export default function App() {
   const [newJobCategory, setNewJobCategory] = useState('Developer');
   const [newJobDesc, setNewJobDesc] = useState('');
   const [newJobReqs, setNewJobReqs] = useState('');
-  const [newJobDeadline, setNewJobDeadline] = useState(() => {
-    const future = new Date();
-    future.setDate(future.getDate() + 14);
-    return future.toISOString().split('T')[0];
-  });
+  const [newJobDeadline, setNewJobDeadline] = useState('');
+  const [jobFormError, setJobFormError] = useState<string | null>(null);
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
 
   // Form states for Create Worker Profile
   const [newWorkerName, setNewWorkerName] = useState('');
@@ -2073,91 +2071,82 @@ export default function App() {
 
   const handleCreateJob = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newJobTitle || !newJobCompany || !newJobSalary || !newJobDeadline) {
-      triggerToast("Please fill in the title, company, salary rate, and application deadline.");
+    console.log('[Audit] Submit clicked');
+    setJobFormError(null);
+
+    const loggedInId = localStorage.getItem('opencomm_user_id');
+
+    // Validation
+    const missingFields = [];
+    if (!newJobTitle.trim()) missingFields.push('Job Title');
+    if (!newJobCompany.trim()) missingFields.push('Company');
+    if (!newJobSalary.trim()) missingFields.push('Salary or Budget');
+    if (!newJobDeadline.trim()) missingFields.push('Application Deadline');
+    if (!newJobLocation.trim()) missingFields.push('Location');
+    if (!newJobCategory.trim()) missingFields.push('Category');
+    if (!newJobDesc.trim()) missingFields.push('Description');
+
+    if (missingFields.length > 0) {
+      const errorMsg = `Please fill out required fields: ${missingFields.join(', ')}`;
+      setJobFormError(errorMsg);
+      console.log('[Audit] Validation failed:', missingFields);
       return;
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
     if (newJobDeadline < todayStr) {
-      triggerToast("Application deadline cannot be earlier than today.");
+      setJobFormError("Application deadline cannot be earlier than today.");
+      console.log('[Audit] Validation failed: Deadline in past');
       return;
     }
 
     if (!isLoggedIn || !loggedInId) {
-      triggerToast("You must be logged in to post a job.");
+      setJobFormError("You must be logged in to post a job.");
+      console.log('[Audit] Validation failed: Not logged in');
       return;
     }
 
+    console.log('[Audit] Validation passed');
+    console.log('[Audit] Current user ID:', loggedInId);
+
     const createdJob = {
-      title: newJobTitle,
-      company: newJobCompany,
+      title: newJobTitle.trim(),
+      company: newJobCompany.trim(),
       salary: newJobSalary.includes('₹') ? newJobSalary : `₹${newJobSalary}`,
-      location: newJobLocation || 'Remote',
+      location: newJobLocation.trim(),
       category: newJobCategory,
-      description: newJobDesc || 'No custom description provided.',
-      requirements: newJobReqs ? newJobReqs.split(',').map(r => r.trim()) : ['Immediate availability']
+      description: newJobDesc.trim(),
+      requirements: newJobReqs ? newJobReqs.split(',').map(r => r.trim()).filter(Boolean) : ['Immediate availability']
     };
+
+    console.log('[Audit] Payload prepared:', createdJob);
+
+    setIsSubmittingJob(true);
+    console.log('[Audit] Insert started');
 
     try {
       const finalJob = await dbService.createJobInDb(createdJob, loggedInId);
+      console.log('[Audit] Insert finished successfully. Supabase returned:', finalJob);
       
       if (finalJob) {
-        // Optimistically add to UI, but map it to match Job interface
-        const mappedFinalJob: Job = {
-          id: finalJob.id,
-          title: finalJob.title,
-          company: newJobCompany, // Fallback since company might not be fully linked in mock UI
-          companyLogo: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
-          salary: finalJob.salary_range,
-          location: finalJob.location,
-          category: finalJob.category,
-          description: finalJob.description,
-          requirements: Array.isArray(finalJob.requirements) ? finalJob.requirements : [],
-          verified: true,
-          bookmarked: false,
-          applied: false,
-          datePosted: 'Just now',
-          posted_by: loggedInId
-        };
-        
-        setJobs(prev => [mappedFinalJob, ...prev]);
-
-        // Track job posted in Google Analytics
-        analytics.trackJobPosted({
-          title: newJobTitle,
-          category: newJobCategory,
-          salary: newJobSalary
-        });
-
-        const newAct: Activity = {
-          id: `act-${Date.now()}`,
-          type: 'post',
-          title: `Posted job: "${newJobTitle}"`,
-          status: 'Active (0 offers)',
-          statusType: 'success',
-          timestamp: 'Just now'
-        };
-        setActivities(prev => [newAct, ...prev]);
-
-        triggerToast(`Job "${newJobTitle}" posted to marketplace!`);
+        triggerToast(`Job "${newJobTitle}" published successfully!`);
         setShowPostJob(false);
+        setJobFormError(null);
         
         // Refetch fully to ensure data consistency
         const freshJobs = await dbService.getJobsFromDb();
         if (freshJobs && freshJobs.length > 0) setJobs(freshJobs);
+
+        // Redirect to new job page
+        console.log('[Audit] Redirecting to /jobs/', finalJob.id);
+        navigate(`/jobs/${finalJob.id}`);
       }
     } catch (err: any) {
-      triggerToast(err.message || "Failed to post job to the database.");
+      console.error('[Audit] Catch block error:', err);
+      setJobFormError(err.message || "Failed to post job to the database.");
+    } finally {
+      setIsSubmittingJob(false);
     }
-
-    // Reset Form
-    setNewJobTitle('');
-    setNewJobCompany('');
-    setNewJobSalary('');
-    setNewJobLocation('');
-    setNewJobDesc('');
-    setNewJobReqs('');
   };
 
   const handleCreateWorker = async (e: React.FormEvent) => {
@@ -3222,12 +3211,20 @@ export default function App() {
 
               {/* Form */}
               <form id="post-job-form" onSubmit={handleCreateJob} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
+                
+                {jobFormError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 rounded-xl flex items-start space-x-2">
+                    <span className="text-rose-600 dark:text-rose-400 font-bold">Error:</span>
+                    <span className="text-rose-600 dark:text-rose-400 font-medium">{jobFormError}</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Title</label>
                     <input 
                       type="text" 
-                      required
+                      
                       placeholder="e.g. Senior Figma Designer"
                       value={newJobTitle}
                       onChange={(e) => setNewJobTitle(e.target.value)}
@@ -3238,7 +3235,7 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Company / Household Name</label>
                     <input 
                       type="text" 
-                      required
+                      
                       placeholder="e.g. OpenComm Labs"
                       value={newJobCompany}
                       onChange={(e) => setNewJobCompany(e.target.value)}
@@ -3251,7 +3248,7 @@ export default function App() {
                   <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (₹) (e.g. ₹650/hr, ₹45,000/mo)</label>
                   <input 
                     type="text" 
-                    required
+                    
                     placeholder="e.g. ₹850/hr"
                     value={newJobSalary}
                     onChange={(e) => setNewJobSalary(e.target.value)}
@@ -3287,7 +3284,7 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Application Deadline</label>
                     <input 
                       type="date" 
-                      required
+                      
                       min={new Date().toISOString().split('T')[0]}
                       value={newJobDeadline}
                       onChange={(e) => setNewJobDeadline(e.target.value)}
@@ -3332,9 +3329,17 @@ export default function App() {
                 <button 
                   type="submit"
                   form="post-job-form"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer hover:scale-102 active:scale-98"
+                  disabled={isSubmittingJob}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                 >
-                  Publish Listing
+                  {isSubmittingJob ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      <span>Publishing...</span>
+                    </>
+                  ) : (
+                    <span>Publish Listing</span>
+                  )}
                 </button>
               </div>
             </motion.div>
