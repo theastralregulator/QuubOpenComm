@@ -13,6 +13,7 @@ export interface Job {
   applied: boolean;
   datePosted: string;
   applicationDeadline?: string;
+  posted_by?: string;
 }
 
 export interface Worker {

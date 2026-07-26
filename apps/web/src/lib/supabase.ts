@@ -501,7 +501,7 @@ export const dbService = {
             'id', 'username', 'full_name', 'avatar_url', 'email', 'phone', 
             'phone_verified', 'city', 'state', 'country', 'country_code', 'state_code', 'district', 'latitude', 'longitude', 'preferred_language', 
             'bio', 'account_status', 'profile_type', 'created_at', 'updated_at',
-            'onboarding_completed', 'banner_id', 'banner_url', 'location_visibility', 'whatsapp_preference', 'telegram_username'
+            'onboarding_completed', 'banner_id', 'whatsapp_preference', 'telegram_username'
           ];
           
           const filteredUpdates: any = {};
@@ -1071,8 +1071,25 @@ export const dbService = {
   async getJobsFromDb(): Promise<any[]> {
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('jobs').select('*, companies(*)');
-        if (!error && data) return data;
+        const { data, error } = await supabase.from('jobs').select('*, companies(*)').order('created_at', { ascending: false });
+        if (!error && data) {
+          return data.map(job => ({
+            id: job.id,
+            title: job.title,
+            company: job.companies?.name || 'Verified Employer',
+            companyLogo: job.companies?.logo_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
+            salary: job.salary_range || 'Contract',
+            location: job.location || 'Remote',
+            category: job.category || 'Professional',
+            description: job.description || '',
+            requirements: Array.isArray(job.requirements) ? job.requirements : [],
+            verified: true,
+            bookmarked: false,
+            applied: false,
+            datePosted: new Date(job.created_at).toLocaleDateString(),
+            posted_by: job.posted_by
+          }));
+        }
       } catch (err) {
         console.error('getJobsFromDb Supabase error:', err);
       }

@@ -77,6 +77,20 @@ import AdminAuditLogs from './components/admin/AdminAuditLogs';
 export default function App() {
   // --- CORE SYSTEM STATES ---
   const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
+  const [isJobsLoaded, setIsJobsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!isJobsLoaded) {
+      dbService.getJobsFromDb().then(fetchedJobs => {
+        if (fetchedJobs && fetchedJobs.length > 0) {
+          setJobs(fetchedJobs);
+        } else {
+          setJobs([]); // Remove demo jobs if empty in DB
+        }
+        setIsJobsLoaded(true);
+      });
+    }
+  }, [isJobsLoaded]);
   const [workers, setWorkers] = useState<Worker[]>(INITIAL_WORKERS);
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -2057,7 +2071,7 @@ export default function App() {
     });
   };
 
-  const handleCreateJob = (e: React.FormEvent) => {
+  const handleCreateJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newJobTitle || !newJobCompany || !newJobSalary || !newJobDeadline) {
       triggerToast("Please fill in the title, company, salary rate, and application deadline.");
@@ -2070,44 +2084,72 @@ export default function App() {
       return;
     }
 
-    const createdJob: Job = {
-      id: `job-${Date.now()}`,
+    if (!isLoggedIn || !loggedInId) {
+      triggerToast("You must be logged in to post a job.");
+      return;
+    }
+
+    const createdJob = {
       title: newJobTitle,
       company: newJobCompany,
-      companyLogo: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
       salary: newJobSalary.includes('₹') ? newJobSalary : `₹${newJobSalary}`,
       location: newJobLocation || 'Remote',
       category: newJobCategory,
       description: newJobDesc || 'No custom description provided.',
-      requirements: newJobReqs ? newJobReqs.split(',').map(r => r.trim()) : ['React/TypeScript', 'Tailwind', 'Immediate availability'],
-      verified: true,
-      bookmarked: false,
-      applied: false,
-      datePosted: 'Just now',
-      applicationDeadline: newJobDeadline
+      requirements: newJobReqs ? newJobReqs.split(',').map(r => r.trim()) : ['Immediate availability']
     };
 
-    setJobs(prev => [createdJob, ...prev]);
+    try {
+      const finalJob = await dbService.createJobInDb(createdJob, loggedInId);
+      
+      if (finalJob) {
+        // Optimistically add to UI, but map it to match Job interface
+        const mappedFinalJob: Job = {
+          id: finalJob.id,
+          title: finalJob.title,
+          company: newJobCompany, // Fallback since company might not be fully linked in mock UI
+          companyLogo: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
+          salary: finalJob.salary_range,
+          location: finalJob.location,
+          category: finalJob.category,
+          description: finalJob.description,
+          requirements: Array.isArray(finalJob.requirements) ? finalJob.requirements : [],
+          verified: true,
+          bookmarked: false,
+          applied: false,
+          datePosted: 'Just now',
+          posted_by: loggedInId
+        };
+        
+        setJobs(prev => [mappedFinalJob, ...prev]);
 
-    // Track job posted in Google Analytics
-    analytics.trackJobPosted({
-      title: newJobTitle,
-      category: newJobCategory,
-      salary: newJobSalary
-    });
+        // Track job posted in Google Analytics
+        analytics.trackJobPosted({
+          title: newJobTitle,
+          category: newJobCategory,
+          salary: newJobSalary
+        });
 
-    const newAct: Activity = {
-      id: `act-${Date.now()}`,
-      type: 'post',
-      title: `Posted job: "${newJobTitle}"`,
-      status: 'Active (0 offers)',
-      statusType: 'success',
-      timestamp: 'Just now'
-    };
-    setActivities(prev => [newAct, ...prev]);
+        const newAct: Activity = {
+          id: `act-${Date.now()}`,
+          type: 'post',
+          title: `Posted job: "${newJobTitle}"`,
+          status: 'Active (0 offers)',
+          statusType: 'success',
+          timestamp: 'Just now'
+        };
+        setActivities(prev => [newAct, ...prev]);
 
-    triggerToast(`Job "${newJobTitle}" posted to marketplace!`);
-    setShowPostJob(false);
+        triggerToast(`Job "${newJobTitle}" posted to marketplace!`);
+        setShowPostJob(false);
+        
+        // Refetch fully to ensure data consistency
+        const freshJobs = await dbService.getJobsFromDb();
+        if (freshJobs && freshJobs.length > 0) setJobs(freshJobs);
+      }
+    } catch (err: any) {
+      triggerToast(err.message || "Failed to post job to the database.");
+    }
 
     // Reset Form
     setNewJobTitle('');
