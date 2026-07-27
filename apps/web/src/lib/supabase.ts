@@ -420,6 +420,35 @@ export const dbService = {
     return profiles.find(p => p.username.toLowerCase() === username.toLowerCase()) || null;
   },
 
+  async uploadAvatar(userId: string, file: File): Promise<string> {
+    if (!supabase) throw new Error("Supabase is not initialized.");
+    
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileName = `${Date.now()}-profile.${fileExt}`;
+    const filePath = `${userId}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, file, {
+        upsert: true
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(filePath);
+
+    if (data && data.publicUrl) {
+      await this.updateProfile(userId, { avatar_url: data.publicUrl });
+      return data.publicUrl;
+    }
+    
+    throw new Error("Failed to get public URL for uploaded avatar.");
+  },
+
   async uploadBanner(userId: string, file: File): Promise<string> {
     if (!supabase) throw new Error("Supabase is not initialized.");
     

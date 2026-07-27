@@ -10,7 +10,7 @@ import { dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from
 import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
-
+import AvatarUploadMenu from './AvatarUploadMenu';
 interface ProfilePageProps {
   username: string;
   setUsername: (name: string) => void;
@@ -132,6 +132,7 @@ export default function ProfilePage({
   const [profile, setProfile] = useState<LocalProfile | null>(null);
   const [workerProfile, setWorkerProfile] = useState<LocalWorkerProfile | null>(null);
   const [companyProfile, setCompanyProfile] = useState<LocalCompanyProfile | null>(null);
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorState, setErrorState] = useState<string | null>(null);
 
@@ -524,19 +525,7 @@ export default function ProfilePage({
               setShowCompanyModal(true);
             }
           }}
-          onUpdatePhoto={async () => {
-            const nextPhoto = prompt("Enter a valid image URL to update your photo:", profile?.avatar_url || userPhoto);
-            if (nextPhoto) {
-              try {
-                await dbService.updateProfile(loggedInId, { avatar_url: nextPhoto });
-                setUserPhoto(nextPhoto);
-                triggerToast("Profile picture updated in database.");
-                await loadProfileData();
-              } catch (err: any) {
-                triggerToast(err.message || "Failed to update profile photo.");
-              }
-            }
-          }}
+          onUpdatePhoto={() => setShowAvatarMenu(true)}
           onLogout={onLogout || (() => {})}
           triggerToast={triggerToast}
         />
@@ -560,19 +549,7 @@ export default function ProfilePage({
                 />
                 {isLoggedIn && (
                   <button 
-                    onClick={async () => {
-                      const nextPhoto = prompt("Enter a valid image URL to update your photo:", profile?.avatar_url || userPhoto);
-                      if (nextPhoto) {
-                        try {
-                          await dbService.updateProfile(loggedInId, { avatar_url: nextPhoto });
-                          setUserPhoto(nextPhoto);
-                          triggerToast("Profile picture updated in database.");
-                          await loadProfileData();
-                        } catch (err: any) {
-                          triggerToast(err.message || "Failed to update profile photo.");
-                        }
-                      }
-                    }}
+                    onClick={() => setShowAvatarMenu(true)}
                     className="absolute bottom-1 right-1 p-2 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full transition-all cursor-pointer border border-white/20"
                     title="Update profile photo"
                   >
@@ -1028,6 +1005,22 @@ export default function ProfilePage({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modals */}
+      <AvatarUploadMenu 
+        isOpen={showAvatarMenu}
+        onClose={() => setShowAvatarMenu(false)}
+        userId={loggedInId || ''}
+        currentAvatarUrl={profile?.avatar_url || userPhoto}
+        onSuccess={async (newUrl) => {
+          if (newUrl !== undefined) {
+            setUserPhoto(newUrl || '');
+            triggerToast("Profile picture updated successfully.");
+            await loadProfileData();
+          }
+        }}
+        onError={(msg) => triggerToast(msg)}
+      />
 
       {/* 5. EDIT MODAL OVERLAY */}
       <AnimatePresence>
