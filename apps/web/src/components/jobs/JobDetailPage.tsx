@@ -44,6 +44,7 @@ export default function JobDetailPage({
 
   const loggedInId = localStorage.getItem('opencomm_user_id');
   const isOwner = job?.posted_by && loggedInId === job.posted_by;
+  const [dbApplied, setDbApplied] = useState(false);
 
   useEffect(() => {
     async function fetchJob() {
@@ -63,6 +64,17 @@ export default function JobDetailPage({
       // 2. Query real Supabase if connected
       if (supabase) {
         try {
+          // Check if user has already applied
+          if (loggedInId) {
+            const { data: appData } = await supabase
+              .from('job_applications')
+              .select('id')
+              .eq('job_id', jobId)
+              .eq('applicant_id', loggedInId)
+              .single();
+            if (appData) setDbApplied(true);
+          }
+
           const { data, error: sbError } = await supabase
             .from('jobs')
             .select('*, companies(*)')
@@ -84,7 +96,7 @@ export default function JobDetailPage({
               requirements: Array.isArray(data.requirements) ? data.requirements : [],
               verified: data.verified !== undefined ? data.verified : true,
               bookmarked: false,
-              applied: false,
+              applied: dbApplied,
               datePosted: new Date(data.created_at).toLocaleDateString(),
               posted_by: data.posted_by
             };
@@ -142,23 +154,40 @@ export default function JobDetailPage({
     }
   };
 
-  const handleApplySubmit = (e: React.FormEvent) => {
+  const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!job) return;
 
-    if (!isLoggedIn) {
+    if (!isLoggedIn || !loggedInId) {
       onOpenAuth('locked');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      handleApplyJob(job.id, bidRate, coverLetter);
+      const { error: applyError } = await supabase
+        .from('job_applications')
+        .insert({
+          job_id: job.id,
+          applicant_id: loggedInId,
+          proposed_rate: bidRate,
+          cover_letter: coverLetter,
+          status: 'pending'
+        });
+
+      if (applyError) throw applyError;
+
+      // Update both local states so UI re-renders immediately
+      setDbApplied(true);
+      setJob(prev => prev ? { ...prev, applied: true } : null);
+      
+      triggerToast('Application submitted successfully!');
+      
       setIsSubmitting(false);
       setShowApplyForm(false);
-      setJob(prev => prev ? { ...prev, applied: true } : null);
-    } catch (err) {
-      triggerToast('Failed to submit application.');
+    } catch (err: any) {
+      console.error('Apply error:', err);
+      triggerToast(err.message || 'Failed to submit application.');
       setIsSubmitting(false);
     }
   };

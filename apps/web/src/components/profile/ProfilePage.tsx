@@ -141,6 +141,7 @@ export default function ProfilePage({
   const [isOwner, setIsOwner] = useState(true);
   const [isPublic, setIsPublic] = useState(false);
   const [myJobPostsCount, setMyJobPostsCount] = useState(0);
+  const [jobsAppliedCount, setJobsAppliedCount] = useState(0);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'experience' | 'skills' | 'reviews'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -212,6 +213,8 @@ export default function ProfilePage({
         if (isOwnerCheck) {
           const jobCount = await dbService.getMyJobPostsCount(p.id);
           setMyJobPostsCount(jobCount);
+          const appliedCount = await dbService.getMyJobsAppliedCount(p.id);
+          setJobsAppliedCount(appliedCount);
         }
         
         // Sync global app header states only if owner
@@ -896,9 +899,12 @@ export default function ProfilePage({
                   <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">{myJobPostsCount}</span>
                   <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">My Job Posts</span>
                 </div>
-                <div className="flex flex-col items-center justify-center p-3 bg-blue-50/50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 rounded-2xl">
+                <div 
+                  onClick={() => navigate('/profile/jobs-applied')}
+                  className="flex flex-col items-center justify-center p-3 bg-blue-50/50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 rounded-2xl cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
+                >
                   <Briefcase className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-2" />
-                  <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">0</span>
+                  <span className="text-xl font-bold text-slate-900 dark:text-white leading-none mb-1">{jobsAppliedCount}</span>
                   <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Jobs Applied</span>
                 </div>
                 <div className="flex flex-col items-center justify-center p-3 bg-purple-50/50 dark:bg-purple-500/10 border border-purple-100 dark:border-purple-500/20 rounded-2xl">

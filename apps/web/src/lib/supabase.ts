@@ -1387,14 +1387,29 @@ export const dbService = {
 
   // My Job Posts
   async getMyJobPostsCount(userId: string): Promise<number> {
-    if (supabase) {
-      const { count, error } = await supabase
-        .from('jobs')
-        .select('*', { count: 'exact', head: true })
-        .eq('posted_by', userId);
-      if (!error && count !== null) return count;
+    const { count, error } = await supabase
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('posted_by', userId);
+    
+    if (error) {
+      console.error('Error fetching job posts count:', error);
+      return 0;
     }
-    return 0;
+    return count || 0;
+  },
+
+  async getMyJobsAppliedCount(userId: string): Promise<number> {
+    const { count, error } = await supabase
+      .from('job_applications')
+      .select('*', { count: 'exact', head: true })
+      .eq('applicant_id', userId);
+    
+    if (error) {
+      console.error('Error fetching jobs applied count:', error);
+      return 0;
+    }
+    return count || 0;
   },
 
   async updateMyJobStatus(jobId: string, isActive: boolean): Promise<boolean> {

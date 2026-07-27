@@ -40,6 +40,7 @@ import SavedWorkersPage from './components/saved/SavedWorkersPage';
 import MessagesPage from './components/messages/MessagesPage';
 import ProfilePage from './components/profile/ProfilePage';
 import MyJobPostsPage from './components/profile/MyJobPostsPage';
+import MyJobsAppliedPage from './components/profile/MyJobsAppliedPage';
 import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
@@ -2723,6 +2724,12 @@ export default function App() {
           <Route path="/profile/my-job-posts" element={
             <ProtectedRoute>
               <MyJobPostsPage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/profile/jobs-applied" element={
+            <ProtectedRoute>
+              <MyJobsAppliedPage />
             </ProtectedRoute>
           } />
 
