@@ -158,6 +158,19 @@ export default function App() {
   // UI Modals & Menus
   const [showPostJob, setShowPostJob] = useState(false);
   const [showCreateProfile, setShowCreateProfile] = useState(false);
+
+  // Prevent background scroll when Worker Modal is open
+  useEffect(() => {
+    if (showCreateProfile) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showCreateProfile]);
+
   const [showHireModal, setShowHireModal] = useState<Worker | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
   
@@ -3326,30 +3339,34 @@ export default function App() {
          ==================================================== */}
       <AnimatePresence>
         {showCreateProfile && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-xs">
             <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full max-w-xl overflow-hidden shadow-2xl text-left"
+              initial={{ y: '100%', opacity: 1 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: '100%', opacity: 1 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="bg-white dark:bg-[#111827] flex flex-col w-full h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[90dvh] sm:max-w-xl sm:rounded-3xl border-0 sm:border border-slate-200 dark:border-[#273449] overflow-hidden shadow-2xl text-left"
             >
               {/* Header */}
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
-                <div className="flex items-center space-x-2">
-                  <UserPlus className="w-5 h-5 text-purple-500" />
-                  <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Create Certified Pro Profile</span>
+              <div className="shrink-0 pt-[env(safe-area-inset-top)] bg-white dark:bg-[#111827] border-b border-slate-100 dark:border-slate-800/80 sticky top-0 z-10">
+                <div className="px-6 py-4 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
+                  <div className="flex items-center space-x-2">
+                    <UserPlus className="w-5 h-5 text-purple-500" />
+                    <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Create Certified Pro Profile</span>
+                  </div>
+                  <button 
+                    onClick={() => setShowCreateProfile(false)}
+                    className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
-                <button 
-                  onClick={() => setShowCreateProfile(false)}
-                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
               </div>
 
               {/* Form */}
-              <form onSubmit={handleCreateWorker} className="p-6 space-y-4 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <form onSubmit={handleCreateWorker} className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-4 text-xs" style={{ scrollPaddingBottom: '100px' }}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Full Name</label>
                     <input 
@@ -3419,7 +3436,9 @@ export default function App() {
                   />
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end space-x-2.5">
+                </div>
+                
+                <div className="shrink-0 bg-white dark:bg-[#111827] pt-4 pb-[calc(16px+env(safe-area-inset-bottom))] px-6 border-t border-slate-100 dark:border-slate-800 flex justify-end space-x-2.5 sticky bottom-0 z-10">
                   <button 
                     type="button"
                     onClick={() => setShowCreateProfile(false)}
