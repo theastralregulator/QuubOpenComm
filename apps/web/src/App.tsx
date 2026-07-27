@@ -41,6 +41,7 @@ import MessagesPage from './components/messages/MessagesPage';
 import ProfilePage from './components/profile/ProfilePage';
 import MyJobPostsPage from './components/profile/MyJobPostsPage';
 import MyJobsAppliedPage from './components/profile/MyJobsAppliedPage';
+import ManageApplicationsPage from './components/profile/ManageApplicationsPage';
 import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
@@ -109,6 +110,25 @@ export default function App() {
   // Router Hooks
   const location = useLocation();
   const navigate = useNavigate();
+
+  const handleStartConversation = (contactId: string, contactName: string, contactPhoto: string) => {
+    let conv = conversations.find(c => c.memberName === contactName || c.id === contactId);
+    if (!conv) {
+      const newConvId = `conv-${Date.now()}`;
+      conv = {
+        id: newConvId,
+        memberName: contactName,
+        memberAvatar: contactPhoto || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
+        lastMessageText: 'Say hi!',
+        lastMessageTime: 'Just now',
+        unreadCount: 0,
+        online: true
+      };
+      setConversations(prev => [conv!, ...prev]);
+    }
+    navigate(`/messages/${conv.id}`);
+  };
+
   const path = location.pathname;
 
   // Derive currentView from path
@@ -2729,7 +2749,13 @@ export default function App() {
 
           <Route path="/profile/jobs-applied" element={
             <ProtectedRoute>
-              <MyJobsAppliedPage />
+              <MyJobsAppliedPage handleStartConversation={handleStartConversation} />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/jobs/:jobId/applications" element={
+            <ProtectedRoute>
+              <ManageApplicationsPage handleStartConversation={handleStartConversation} />
             </ProtectedRoute>
           } />
 

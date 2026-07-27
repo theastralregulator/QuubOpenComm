@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Briefcase, Search, ExternalLink, IndianRupee, MapPin, Building, AlertCircle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Briefcase, Search, ExternalLink, IndianRupee, MapPin, Building, AlertCircle, MessageSquare } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatSalaryRange } from '../../lib/currency';
 
@@ -24,7 +24,11 @@ interface AppliedJob {
   };
 }
 
-export default function MyJobsAppliedPage() {
+interface MyJobsAppliedPageProps {
+  handleStartConversation: (contactId: string, contactName: string, contactPhoto: string) => void;
+}
+
+export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsAppliedPageProps) {
   const navigate = useNavigate();
   const [applications, setApplications] = useState<AppliedJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +105,25 @@ export default function MyJobsAppliedPage() {
 
   useEffect(() => {
     fetchApplications();
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      
+      const channel = supabase.channel(`public:job_applications:applicant_id=${user.id}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'job_applications',
+          filter: `applicant_id=eq.${user.id}`
+        }, () => {
+          fetchApplications();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    });
   }, []);
 
   const handleViewJob = (jobId: string) => {
@@ -134,6 +157,8 @@ export default function MyJobsAppliedPage() {
         return <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">Accepted</span>;
       case 'rejected':
         return <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400">Rejected</span>;
+      case 'shortlisted':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400">Shortlisted</span>;
       case 'under_review':
         return <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">Reviewed</span>;
       case 'withdrawn':
@@ -253,6 +278,15 @@ export default function MyJobsAppliedPage() {
                     </div>
                     
                     <div className="flex items-center gap-2">
+                      {app.status === 'accepted' && (
+                        <button
+                          onClick={() => handleStartConversation(app.job?.posted_by, employerName, app.employer?.avatar_url || '')}
+                          className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-sm font-bold rounded-lg transition-colors"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Message Employer</span>
+                        </button>
+                      )}
                       {(app.status === 'pending' || app.status === 'under_review') && (
                         <button
                           onClick={() => handleWithdraw(app.id)}

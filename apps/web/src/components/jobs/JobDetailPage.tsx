@@ -45,6 +45,7 @@ export default function JobDetailPage({
   const loggedInId = localStorage.getItem('opencomm_user_id');
   const isOwner = job?.posted_by && loggedInId === job.posted_by;
   const [dbApplied, setDbApplied] = useState(false);
+  const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchJob() {
@@ -68,11 +69,14 @@ export default function JobDetailPage({
           if (loggedInId) {
             const { data: appData } = await supabase
               .from('job_applications')
-              .select('id')
+              .select('id, status')
               .eq('job_id', jobId)
               .eq('applicant_id', loggedInId)
               .single();
-            if (appData) setDbApplied(true);
+            if (appData) {
+              setDbApplied(true);
+              setApplicationStatus(appData.status);
+            }
           }
 
           const { data, error: sbError } = await supabase
@@ -179,6 +183,7 @@ export default function JobDetailPage({
 
       // Update both local states so UI re-renders immediately
       setDbApplied(true);
+      setApplicationStatus('pending');
       setJob(prev => prev ? { ...prev, applied: true } : null);
       
       triggerToast('Application submitted successfully!');
@@ -357,6 +362,25 @@ export default function JobDetailPage({
               <span className="text-sm font-extrabold text-slate-900 dark:text-white">{job.salary}</span>
             </div>
           </div>
+          {dbApplied ? (
+            <div className="col-span-1 sm:col-span-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-[20px] p-5 flex items-center justify-between shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+              <div className="space-y-0.5 text-left">
+                <h3 className="font-bold text-amber-800 dark:text-amber-400 text-sm">Application Submitted</h3>
+                <p className="text-xs text-amber-700 dark:text-amber-500">
+                  You have applied for this job. Your application status is currently: 
+                  {applicationStatus === 'accepted' ? (
+                    <span className="ml-1.5 font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider text-[10px]">ACCEPTED</span>
+                  ) : applicationStatus === 'rejected' ? (
+                    <span className="ml-1.5 font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider text-[10px]">REJECTED</span>
+                  ) : applicationStatus === 'shortlisted' ? (
+                    <span className="ml-1.5 font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider text-[10px]">SHORTLISTED</span>
+                  ) : (
+                    <span className="ml-1.5 font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider text-[10px]">PENDING</span>
+                  )}
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[20px] p-4 flex items-center space-x-3 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
             <div className="p-2.5 bg-purple-500/10 dark:bg-purple-500/5 rounded-xl text-purple-600 dark:text-purple-400 shrink-0">
