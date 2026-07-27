@@ -24,39 +24,47 @@ export default function AvatarUploadMenu({
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState<string>('');
   const [localPreview, setLocalPreview] = useState<string | null>(null);
 
   const MAX_SIZE_MB = 5;
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('[Avatar] onChange fired', e.target.files);
+    
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      console.warn('[Avatar] No file selected');
+      return;
+    }
+    console.log('[Avatar] selected file received', file.name);
 
     // Validate type
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     if (!validTypes.includes(file.type)) {
       onError('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      e.target.value = '';
       return;
     }
 
     // Validate size
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
       onError(`File size exceeds the ${MAX_SIZE_MB} MB limit.`);
+      e.target.value = '';
       return;
     }
 
     // Generate local preview immediately
+    console.log('[Avatar] Preparing image preview');
+    setUploadStep('Preparing image...');
     const objectUrl = URL.createObjectURL(file);
     setLocalPreview(objectUrl);
     setIsUploading(true);
 
     try {
-      console.log('Avatar Upload: Starting upload for', file.name);
+      console.log('[Avatar] Starting upload for', file.name);
+      setUploadStep('Uploading photo...');
       
-      // We still use dbService to upload because it handles the storage API correctly
-      // But we will intercept it to NOT call updateProfile by creating a raw upload.
-      
-      // 2. Upload to avatars bucket directly to avoid the buggy updateProfile
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${Date.now()}-profile.${fileExt}`;
       const filePath = `${userId}/${fileName}`;
@@ -69,7 +77,7 @@ export default function AvatarUploadMenu({
         throw uploadError;
       }
 
-      // retrieve the public URL
+      console.log('[Avatar] Upload complete');
       const { data: urlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(filePath);
@@ -79,10 +87,10 @@ export default function AvatarUploadMenu({
       }
       
       const publicUrl = urlData.publicUrl;
-      console.log('Avatar Upload: Public URL retrieved:', publicUrl);
+      console.log('[Avatar] Public URL:', publicUrl);
 
-      // 3. Call the existing RPC and await it fully
-      console.log('Avatar Upload: Calling update_my_basic_profile with', { p_avatar_url: publicUrl });
+      setUploadStep('Saving profile...');
+      console.log('[Avatar] Calling update_my_basic_profile with', { p_avatar_url: publicUrl });
       const { data, error } = await supabase.rpc('update_my_basic_profile', {
         p_avatar_url: publicUrl
       });
@@ -93,23 +101,25 @@ export default function AvatarUploadMenu({
         throw error;
       }
 
-      console.log('Avatar Upload: RPC response data:', data);
+      console.log('[Avatar] RPC complete. Response data:', data);
 
       if (!data || data.avatar_url !== publicUrl) {
-        console.error('Avatar Upload: Mismatch! Expected', publicUrl, 'but got', data?.avatar_url);
+        console.error('[Avatar] Mismatch! Expected', publicUrl, 'but got', data?.avatar_url);
         throw new Error("Database failed to persist the new avatar URL.");
       }
 
-      console.log('Avatar Upload: Success! Database confirmed the new URL:', data.avatar_url);
+      console.log('[Avatar] Profile refreshed! Success! Database confirmed the new URL:', data.avatar_url);
 
       // 5. After the RPC succeeds, pass the new URL up
       onSuccess(publicUrl);
     } catch (err: any) {
-      console.error('Avatar Upload: Exception caught:', err);
+      console.error('[Avatar] Exception caught:', err);
       onError(err.message || "Failed to upload profile picture.");
       setLocalPreview(null);
     } finally {
       setIsUploading(false);
+      setUploadStep('');
+      e.target.value = '';
       URL.revokeObjectURL(objectUrl);
       onClose();
     }
@@ -140,9 +150,27 @@ export default function AvatarUploadMenu({
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
+    <div>
+      <input
+        key="camera-input-ref"
+        ref={cameraInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+      <input
+        key="gallery-input-ref"
+        ref={galleryInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+      
+      <AnimatePresence>
+        {isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -178,12 +206,24 @@ export default function AvatarUploadMenu({
                     ) : (
                       <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
                     )}
-                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Uploading photo...</span>
+                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                      {uploadStep || 'Uploading photo...'}
+                    </span>
                   </div>
                 ) : (
                   <>
                     <button
-                      onClick={() => cameraInputRef.current?.click()}
+                      type="button"
+                      onClick={() => {
+                        console.log('[Avatar] camera button clicked');
+                        if (cameraInputRef.current) {
+                          cameraInputRef.current.value = '';
+                          console.log('[Avatar] input.click called');
+                          cameraInputRef.current.click();
+                        } else {
+                          console.error('[Avatar] cameraInputRef is null');
+                        }
+                      }}
                       className="w-full flex items-center space-x-3 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left"
                     >
                       <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
@@ -196,7 +236,17 @@ export default function AvatarUploadMenu({
                     </button>
 
                     <button
-                      onClick={() => galleryInputRef.current?.click()}
+                      type="button"
+                      onClick={() => {
+                        console.log('[Avatar] gallery button clicked');
+                        if (galleryInputRef.current) {
+                          galleryInputRef.current.value = '';
+                          console.log('[Avatar] input.click called');
+                          galleryInputRef.current.click();
+                        } else {
+                          console.error('[Avatar] galleryInputRef is null');
+                        }
+                      }}
                       className="w-full flex items-center space-x-3 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left"
                     >
                       <div className="w-10 h-10 rounded-full bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
@@ -210,6 +260,7 @@ export default function AvatarUploadMenu({
 
                     {currentAvatarUrl && (
                       <button
+                        type="button"
                         onClick={handleRemove}
                         className="w-full flex items-center space-x-3 p-4 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors text-left"
                       >
@@ -225,27 +276,10 @@ export default function AvatarUploadMenu({
                   </>
                 )}
               </div>
-
-              {/* Hidden inputs */}
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                capture="environment"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
-              <input
-                ref={galleryInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
             </motion.div>
           </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
