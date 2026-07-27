@@ -64,16 +64,30 @@ export default function AvatarUploadMenu({
     try {
       console.log('[Avatar] Starting upload for', file.name);
       setUploadStep('Uploading photo...');
+      // 1. Get the confirmed auth.uid()
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        throw new Error('Not authenticated properly: ' + (authError?.message || 'No user'));
+      }
+      
+      const authUid = user.id;
+      console.log('[Avatar] Authenticated User ID:', authUid);
       
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${Date.now()}-profile.${fileExt}`;
-      const filePath = `${userId}/${fileName}`;
+      const filePath = `${authUid}/${fileName}`;
+      
+      console.log('[Avatar] Exact filePath for upload:', filePath);
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, file, { 
+          cacheControl: '3600',
+          upsert: false 
+        });
 
       if (uploadError) {
+        console.error('[Avatar] Upload Error from Supabase:', uploadError);
         throw uploadError;
       }
 
