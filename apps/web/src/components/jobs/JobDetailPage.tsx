@@ -187,7 +187,7 @@ export default function JobDetailPage({
       setShowApplyForm(false);
     } catch (err: any) {
       console.error('Apply error:', err);
-      triggerToast(err.message || 'Failed to submit application.');
+      triggerToast('Unable to submit your application. Please try again.');
       setIsSubmitting(false);
     }
   };

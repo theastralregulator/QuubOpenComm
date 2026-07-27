@@ -14,12 +14,13 @@ interface AppliedJob {
   job: {
     id: string;
     title: string;
-    company_name: string;
     location: string;
     salary_range: string;
-    companies?: {
-      name: string;
-    };
+    posted_by: string;
+  };
+  employer?: {
+    full_name: string;
+    avatar_url: string;
   };
 }
 
@@ -44,15 +45,53 @@ export default function MyJobsAppliedPage() {
         .from('job_applications')
         .select(`
           id, job_id, proposed_rate, cover_letter, status, created_at,
-          job:jobs(id, title, company_name, location, salary_range, companies(name))
+          job:jobs(id, title, location, salary_range, posted_by, is_active, created_at)
         `)
         .eq('applicant_id', user.id)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
 
-      // Type assertion because postgrest nested selects return unknown formats
-      setApplications(data as any as AppliedJob[]);
+      const rawApps = data as any[];
+
+      // Two-step fetch: collect posted_by IDs to get employer details
+      const employerIds = [...new Set(rawApps.filter(a => a.job?.posted_by).map(a => a.job.posted_by))];
+      
+      let directoryMap: Record<string, any> = {};
+      
+      if (employerIds.length > 0) {
+        const { data: dirData, error: dirError } = await supabase
+          .from('profile_directory')
+          .select('id, full_name, avatar_url')
+          .in('id', employerIds);
+          
+        if (!dirError && dirData) {
+          directoryMap = dirData.reduce((acc, curr) => {
+            acc[curr.id] = curr;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      }
+
+      // Merge data
+      const mergedApplications: AppliedJob[] = rawApps.map(app => ({
+        id: app.id,
+        job_id: app.job_id,
+        proposed_rate: app.proposed_rate,
+        cover_letter: app.cover_letter,
+        status: app.status,
+        created_at: app.created_at,
+        job: {
+          id: app.job?.id || '',
+          title: app.job?.title || 'Unknown Job',
+          location: app.job?.location || 'Remote',
+          salary_range: app.job?.salary_range || 'Contract',
+          posted_by: app.job?.posted_by || ''
+        },
+        employer: app.job?.posted_by ? directoryMap[app.job.posted_by] : undefined
+      }));
+
+      setApplications(mergedApplications);
     } catch (err: any) {
       setError(err.message || "An error occurred while fetching your applications.");
     } finally {
@@ -172,7 +211,7 @@ export default function MyJobsAppliedPage() {
         ) : (
           <div className="space-y-4">
             {applications.map(app => {
-              const companyName = app.job?.companies?.name || app.job?.company_name || 'Verified Employer';
+              const employerName = app.employer?.full_name || 'Verified Employer';
               
               return (
                 <div key={app.id} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 md:p-6 transition-all shadow-sm hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -189,7 +228,7 @@ export default function MyJobsAppliedPage() {
                     <div className="flex flex-wrap items-center gap-3 text-sm font-medium text-slate-500 dark:text-slate-400">
                       <div className="flex items-center space-x-1.5">
                         <Building className="w-4 h-4 shrink-0" />
-                        <span className="truncate max-w-[120px]">{companyName}</span>
+                        <span className="truncate max-w-[120px]">{employerName}</span>
                       </div>
                       <div className="flex items-center space-x-1.5">
                         <MapPin className="w-4 h-4 shrink-0" />
