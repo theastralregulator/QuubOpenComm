@@ -254,7 +254,6 @@ export default function ProfilePage({
           } else {
             setEmployerJobStats([]);
           }
-        }
         
         // Sync global app header states only if owner
         if (isOwnerCheck) {
