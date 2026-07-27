@@ -46,6 +46,7 @@ export default function JobDetailPage({
   const isOwner = job?.posted_by && loggedInId === job.posted_by;
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
+  const [existingApp, setExistingApp] = useState<any>(null);
 
   useEffect(() => {
     async function fetchJob() {
@@ -69,13 +70,14 @@ export default function JobDetailPage({
           if (loggedInId) {
             const { data: appData } = await supabase
               .from('job_applications')
-              .select('id, status')
+              .select('id, status, proposed_rate, created_at')
               .eq('job_id', jobId)
               .eq('applicant_id', loggedInId)
-              .single();
+              .maybeSingle();
             if (appData) {
               setDbApplied(true);
               setApplicationStatus(appData.status);
+              setExistingApp(appData);
             }
           }
 
@@ -170,33 +172,46 @@ export default function JobDetailPage({
     setIsSubmitting(true);
     try {
       const { data: authData } = await supabase.auth.getUser();
-      const currentAuthUserId = authData?.user?.id;
+      const applicantId = authData?.user?.id || loggedInId;
+
+      // 1. Pre-flight duplicate check
+      const { data: existing } = await supabase
+        .from('job_applications')
+        .select('id, status, proposed_rate, created_at')
+        .eq('job_id', job.id)
+        .eq('applicant_id', applicantId)
+        .maybeSingle();
+
+      if (existing) {
+        setDbApplied(true);
+        setApplicationStatus(existing.status);
+        setExistingApp(existing);
+        triggerToast('You have already applied for this job.');
+        setIsSubmitting(false);
+        setShowApplyForm(false);
+        return;
+      }
 
       const payload = {
         job_id: job.id,
-        applicant_id: loggedInId,
+        applicant_id: applicantId,
         proposed_rate: bidRate,
         cover_letter: coverLetter,
         status: 'pending'
       };
 
-      console.log('--- DB INSERT ATTEMPT ---');
-      console.log('Current Authenticated User ID (supabase.auth):', currentAuthUserId);
-      console.log('Local Storage User ID (loggedInId):', loggedInId);
-      console.log('Job ID:', job.id);
-      console.log('Insert Payload:', payload);
-
       const response = await supabase
         .from('job_applications')
-        .insert(payload);
-
-      console.log('Full Supabase Response:', response);
+        .insert(payload)
+        .select('id, status, proposed_rate, created_at')
+        .single();
 
       if (response.error) throw response.error;
 
       // Update both local states so UI re-renders immediately
       setDbApplied(true);
-      setApplicationStatus('pending');
+      setApplicationStatus(response.data?.status || 'pending');
+      setExistingApp(response.data);
       setJob(prev => prev ? { ...prev, applied: true } : null);
       
       triggerToast('Application submitted successfully!');
@@ -204,9 +219,14 @@ export default function JobDetailPage({
       setIsSubmitting(false);
       setShowApplyForm(false);
     } catch (err: any) {
-      console.error('--- SUPABASE ERROR OBJECT ---');
-      console.error(err);
-      triggerToast(`DB Error: ${err.message || 'Unknown'}. Details: ${err.details || 'None'}`);
+      if (err.code === '23505') {
+        triggerToast('You have already applied for this job.');
+      } else {
+        triggerToast('Unable to submit your application. Please try again.');
+        if (import.meta.env.DEV) {
+          console.error('--- SUPABASE ERROR OBJECT ---', err);
+        }
+      }
       setIsSubmitting(false);
     }
   };
@@ -451,7 +471,7 @@ export default function JobDetailPage({
         </div>
 
         {/* A6. APPLICATION SECTION */}
-        {!isOwner && (
+        {!isOwner && !existingApp && (
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 border border-blue-100 dark:border-blue-800/30 rounded-[22px] p-6 sm:p-8 flex flex-col items-center text-center space-y-4 shadow-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -500,9 +520,54 @@ export default function JobDetailPage({
           </div>
         )}
 
+        {/* NEW APPLICATION STATUS CARD */}
+        {!isOwner && existingApp && (
+          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[22px] p-6 sm:p-8 flex flex-col space-y-4 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-left relative overflow-hidden">
+            <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+              Application Status
+            </h3>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-[#111827] p-5 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="space-y-1.5">
+                <span className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Current Status</span>
+                <div className="flex items-center">
+                  {existingApp.status === 'accepted' ? (
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-bold rounded-lg uppercase tracking-wider">Accepted</span>
+                  ) : existingApp.status === 'rejected' ? (
+                    <span className="px-3 py-1 bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 text-xs font-bold rounded-lg uppercase tracking-wider">Rejected</span>
+                  ) : existingApp.status === 'shortlisted' ? (
+                    <span className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-xs font-bold rounded-lg uppercase tracking-wider">Shortlisted</span>
+                  ) : existingApp.status === 'withdrawn' ? (
+                    <span className="px-3 py-1 bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 text-xs font-bold rounded-lg uppercase tracking-wider">Withdrawn</span>
+                  ) : (
+                    <span className="px-3 py-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-bold rounded-lg uppercase tracking-wider">Pending</span>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                 <span className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Proposed Rate</span>
+                 <span className="block font-bold text-slate-900 dark:text-white">{existingApp.proposed_rate || '-'}</span>
+              </div>
+              <div className="space-y-1.5">
+                 <span className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Applied On</span>
+                 <span className="block font-bold text-slate-900 dark:text-white">
+                   {new Date(existingApp.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                 </span>
+              </div>
+            </div>
+            
+            <button
+               onClick={() => navigate('/profile/jobs-applied')}
+               className="w-full sm:w-auto self-end h-11 px-6 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-sm transition-all shadow-sm cursor-pointer border border-slate-200 dark:border-slate-700"
+            >
+               View My Application
+            </button>
+          </div>
+        )}
+
         {/* Dynamic Apply Form Section */}
         <AnimatePresence>
-          {showApplyForm && !isOwner && !deadlineInfo.isExpired && (
+          {showApplyForm && !isOwner && !deadlineInfo.isExpired && !existingApp && (
             <motion.form
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
