@@ -1402,7 +1402,7 @@ export const dbService = {
   async getMyJobsAppliedCount(userId: string): Promise<number> {
     const { count, error } = await supabase
       .from('job_applications')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .eq('applicant_id', userId);
     
     if (error) {

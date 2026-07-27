@@ -17,6 +17,7 @@ interface AppliedJob {
     location: string;
     salary_range: string;
     posted_by: string;
+    is_active?: boolean;
   };
   employer?: {
     full_name: string;
@@ -39,64 +40,114 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
     setLoading(true);
     setError(null);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData?.user;
       if (!user) {
         throw new Error("You must be logged in to view your applications.");
       }
 
-      const { data, error: fetchError } = await supabase
+      console.log("Fetching applications for user:", user.id);
+
+      // Step A: Fetch applications only
+      const { data: applicationRows, error: applicationsError } = await supabase
         .from('job_applications')
         .select(`
-          id, job_id, proposed_rate, cover_letter, status, created_at,
-          job:jobs(id, title, location, salary_range, posted_by, is_active, created_at)
+          id,
+          job_id,
+          applicant_id,
+          proposed_rate,
+          cover_letter,
+          status,
+          created_at
         `)
         .eq('applicant_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (fetchError) throw fetchError;
+      if (applicationsError) throw applicationsError;
 
-      const rawApps = data as any[];
+      const rawApps = applicationRows || [];
+      console.log("Application row count:", rawApps.length);
 
-      // Two-step fetch: collect posted_by IDs to get employer details
-      const employerIds = [...new Set(rawApps.filter(a => a.job?.posted_by).map(a => a.job.posted_by))];
+      if (rawApps.length === 0) {
+        setApplications([]);
+        return;
+      }
+
+      // Step B: Fetch jobs separately
+      const jobIds = [...new Set(rawApps.map(row => row.job_id))];
+      console.log("Job IDs to fetch:", jobIds);
+
+      const { data: jobRows, error: jobsError } = await supabase
+        .from('jobs')
+        .select(`
+          id,
+          title,
+          location,
+          salary_range,
+          posted_by,
+          is_active,
+          created_at
+        `)
+        .in('id', jobIds);
+
+      if (jobsError) throw jobsError;
+
+      const fetchedJobs = jobRows || [];
+      console.log("Fetched jobs count:", fetchedJobs.length);
       
-      let directoryMap: Record<string, any> = {};
+      const jobMap = fetchedJobs.reduce((acc, job) => {
+        acc[job.id] = job;
+        return acc;
+      }, {} as Record<string, any>);
+
+      // Step C: Fetch employer profiles
+      const employerIds = [...new Set(fetchedJobs.filter(j => j.posted_by).map(job => job.posted_by))];
       
+      let employerMap: Record<string, any> = {};
       if (employerIds.length > 0) {
-        const { data: dirData, error: dirError } = await supabase
+        const { data: employerRows, error: employerError } = await supabase
           .from('profile_directory')
           .select('id, full_name, avatar_url')
           .in('id', employerIds);
           
-        if (!dirError && dirData) {
-          directoryMap = dirData.reduce((acc, curr) => {
-            acc[curr.id] = curr;
+        if (employerError) {
+          console.error("Error fetching employers:", employerError);
+        } else if (employerRows) {
+          employerMap = employerRows.reduce((acc, emp) => {
+            acc[emp.id] = emp;
             return acc;
           }, {} as Record<string, any>);
         }
       }
 
-      // Merge data
-      const mergedApplications: AppliedJob[] = rawApps.map(app => ({
-        id: app.id,
-        job_id: app.job_id,
-        proposed_rate: app.proposed_rate,
-        cover_letter: app.cover_letter,
-        status: app.status,
-        created_at: app.created_at,
-        job: {
-          id: app.job?.id || '',
-          title: app.job?.title || 'Unknown Job',
-          location: app.job?.location || 'Remote',
-          salary_range: app.job?.salary_range || 'Contract',
-          posted_by: app.job?.posted_by || ''
-        },
-        employer: app.job?.posted_by ? directoryMap[app.job.posted_by] : undefined
-      }));
+      // Step D: Merge all datasets
+      const mergedApplications: AppliedJob[] = rawApps.map(app => {
+        const job = jobMap[app.job_id];
+        const employer = job?.posted_by ? employerMap[job.posted_by] : null;
 
+        return {
+          id: app.id,
+          job_id: app.job_id,
+          proposed_rate: app.proposed_rate,
+          cover_letter: app.cover_letter,
+          status: app.status,
+          created_at: app.created_at,
+          job: {
+            id: job?.id || app.job_id,
+            title: job?.title || 'Unknown Job',
+            location: job?.location || 'Remote',
+            salary_range: job?.salary_range || 'Contract',
+            posted_by: job?.posted_by || '',
+            is_active: job?.is_active ?? false
+          },
+          employer: employer || { full_name: 'Employer', avatar_url: '' }
+        };
+      });
+
+      console.log("Merged applications count:", mergedApplications.length);
       setApplications(mergedApplications);
     } catch (err: any) {
+      console.error("Error fetching applications:", err);
       setError(err.message || "An error occurred while fetching your applications.");
     } finally {
       setLoading(false);
@@ -104,26 +155,29 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
   };
 
   useEffect(() => {
-    fetchApplications();
-
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    let channel: any;
+    
+    const setup = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
-      const channel = supabase.channel(`public:job_applications:applicant_id=${user.id}`)
+      channel = supabase
+        .channel(`job-applications-${user.id}`)
         .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
           table: 'job_applications',
           filter: `applicant_id=eq.${user.id}`
-        }, () => {
-          fetchApplications();
-        })
+        }, fetchApplications)
         .subscribe();
+    };
+    
+    setup();
+    fetchApplications();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    });
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleViewJob = (jobId: string) => {
@@ -242,9 +296,16 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                 <div key={app.id} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 md:p-6 transition-all shadow-sm hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex-1 min-w-0 space-y-3">
                     <div className="flex items-center justify-between md:justify-start md:gap-4 w-full">
-                      <h3 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white truncate">
-                        {app.job?.title || 'Unknown Job'}
-                      </h3>
+                      <div className="flex items-center gap-3 truncate">
+                        <h3 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white truncate">
+                          {app.job?.title || 'Unknown Job'}
+                        </h3>
+                        {app.job?.is_active === false && (
+                          <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase tracking-wider border border-slate-200 dark:border-slate-700">
+                            Closed
+                          </span>
+                        )}
+                      </div>
                       <div className="md:hidden shrink-0">
                         {renderStatusBadge(app.status)}
                       </div>

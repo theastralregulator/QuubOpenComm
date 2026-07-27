@@ -211,18 +211,21 @@ export default function ProfilePage({
         setIsOwner(isOwnerCheck);
         setIsPublic(!isOwnerCheck);
 
-        if (isOwnerCheck) {
-          const jobCount = await dbService.getMyJobPostsCount(p.id);
-          setMyJobPostsCount(jobCount);
-          const appliedCount = await dbService.getMyJobsAppliedCount(p.id);
-          setJobsAppliedCount(appliedCount);
+          // Fetch authenticated user to enforce strict ownership checks
+          const { data: authData } = await supabase.auth.getUser();
+          const authUser = authData?.user;
 
-          if (jobCount > 0) {
+          if (authUser && authUser.id === p.id) {
+            const jobCount = await dbService.getMyJobPostsCount(authUser.id);
+            setMyJobPostsCount(jobCount);
+            const appliedCount = await dbService.getMyJobsAppliedCount(authUser.id);
+            setJobsAppliedCount(appliedCount);
+
             try {
               const { data: jobStatsData, error: statsError } = await supabase
                 .from('jobs')
                 .select('id, title, created_at, job_applications(id, status)')
-                .eq('posted_by', p.id)
+                .eq('posted_by', authUser.id)
                 .order('created_at', { ascending: false });
 
               if (statsError) {
@@ -692,6 +695,66 @@ export default function ProfilePage({
         </div>
       )}
 
+      {/* Applications Received Section (Available for all account types) */}
+      {isOwner && employerJobStats.length > 0 && (
+        <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm relative overflow-hidden group mb-8">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 dark:bg-indigo-900/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+          
+          <h3 className="text-lg md:text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center space-x-2 relative z-10">
+            <Briefcase className="w-5 h-5 md:w-6 md:h-6 text-indigo-500" />
+            <span>Applications Received</span>
+          </h3>
+          
+          <div className="grid gap-4 relative z-10">
+            {employerJobStats.map(stat => (
+              <div key={stat.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 md:p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700/50 hover:border-indigo-200 dark:hover:border-indigo-500/30 transition-all gap-4">
+                <div className="space-y-1 flex-1">
+                  <h4 className="font-bold text-slate-900 dark:text-white text-base md:text-lg">{stat.title}</h4>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs md:text-sm">
+                    <span className="font-medium text-slate-600 dark:text-slate-400">
+                      {stat.total} {stat.total === 1 ? 'Application' : 'Applications'}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      {stat.pending > 0 && (
+                        <span className="flex items-center space-x-1 text-amber-600 dark:text-amber-400 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                          <span>{stat.pending} Pending</span>
+                        </span>
+                      )}
+                      {stat.shortlisted > 0 && (
+                        <span className="flex items-center space-x-1 text-purple-600 dark:text-purple-400 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                          <span>{stat.shortlisted} Shortlisted</span>
+                        </span>
+                      )}
+                      {stat.accepted > 0 && (
+                        <span className="flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          <span>{stat.accepted} Accepted</span>
+                        </span>
+                      )}
+                      {stat.rejected > 0 && (
+                        <span className="flex items-center space-x-1 text-rose-600 dark:text-rose-400 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                          <span>{stat.rejected} Rejected</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => navigate(`/jobs/${stat.id}/applications`)}
+                  className="w-full sm:w-auto shrink-0 flex items-center justify-center space-x-2 px-5 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 text-slate-700 dark:text-white font-bold rounded-xl transition-all shadow-sm text-sm"
+                >
+                  <span>Manage Applications</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
 
 
       {/* 3. PROFILE SUB-TABS NAVIGATION (Only displayed for Worker/Company accounts; hidden for Basic accounts) */}
@@ -742,66 +805,6 @@ export default function ProfilePage({
                 exit={{ opacity: 0, y: -8 }}
                 className="space-y-6"
               >
-                {/* Applications Received Section */}
-                {isOwner && employerJobStats.length > 0 && (
-                  <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 dark:bg-indigo-900/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
-                    
-                    <h3 className="text-lg md:text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center space-x-2 relative z-10">
-                      <Briefcase className="w-5 h-5 md:w-6 md:h-6 text-indigo-500" />
-                      <span>Applications Received</span>
-                    </h3>
-                    
-                    <div className="grid gap-4 relative z-10">
-                      {employerJobStats.map(stat => (
-                        <div key={stat.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 md:p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700/50 hover:border-indigo-200 dark:hover:border-indigo-500/30 transition-all gap-4">
-                          <div className="space-y-1 flex-1">
-                            <h4 className="font-bold text-slate-900 dark:text-white text-base md:text-lg">{stat.title}</h4>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs md:text-sm">
-                              <span className="font-medium text-slate-600 dark:text-slate-400">
-                                {stat.total} {stat.total === 1 ? 'Application' : 'Applications'}
-                              </span>
-                              <div className="flex items-center gap-3">
-                                {stat.pending > 0 && (
-                                  <span className="flex items-center space-x-1 text-amber-600 dark:text-amber-400 font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                                    <span>{stat.pending} Pending</span>
-                                  </span>
-                                )}
-                                {stat.shortlisted > 0 && (
-                                  <span className="flex items-center space-x-1 text-purple-600 dark:text-purple-400 font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                                    <span>{stat.shortlisted} Shortlisted</span>
-                                  </span>
-                                )}
-                                {stat.accepted > 0 && (
-                                  <span className="flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                                    <span>{stat.accepted} Accepted</span>
-                                  </span>
-                                )}
-                                {stat.rejected > 0 && (
-                                  <span className="flex items-center space-x-1 text-rose-600 dark:text-rose-400 font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                                    <span>{stat.rejected} Rejected</span>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <button
-                            onClick={() => navigate(`/jobs/${stat.id}/applications`)}
-                            className="w-full sm:w-auto shrink-0 flex items-center justify-center space-x-2 px-5 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 text-slate-700 dark:text-white font-bold rounded-xl transition-all shadow-sm text-sm"
-                          >
-                            <span>Manage Applications</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Professional Summary Card */}
                 <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-6 rounded-3xl space-y-4">
                   <div className="pb-3 border-b border-slate-100 dark:border-slate-800/80">
