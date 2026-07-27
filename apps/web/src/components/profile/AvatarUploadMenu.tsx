@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Image as ImageIcon, Trash2, X, Loader2 } from 'lucide-react';
-import { dbService } from '../../lib/supabase';
+import { dbService, supabase } from '../../lib/supabase';
 
 interface AvatarUploadMenuProps {
   isOpen: boolean;
@@ -51,9 +51,61 @@ export default function AvatarUploadMenu({
     setIsUploading(true);
 
     try {
-      const publicUrl = await dbService.uploadAvatar(userId, file);
+      console.log('Avatar Upload: Starting upload for', file.name);
+      
+      // We still use dbService to upload because it handles the storage API correctly
+      // But we will intercept it to NOT call updateProfile by creating a raw upload.
+      
+      // 2. Upload to avatars bucket directly to avoid the buggy updateProfile
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `${Date.now()}-profile.${fileExt}`;
+      const filePath = `${userId}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // retrieve the public URL
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+        
+      if (!urlData || !urlData.publicUrl) {
+        throw new Error("Failed to get public URL after upload.");
+      }
+      
+      const publicUrl = urlData.publicUrl;
+      console.log('Avatar Upload: Public URL retrieved:', publicUrl);
+
+      // 3. Call the existing RPC and await it fully
+      console.log('Avatar Upload: Calling update_my_basic_profile with', { p_avatar_url: publicUrl });
+      const { data, error } = await supabase.rpc('update_my_basic_profile', {
+        p_avatar_url: publicUrl
+      });
+
+      // 4. Check the RPC response
+      if (error) {
+        console.error('Avatar Upload: RPC error:', error);
+        throw error;
+      }
+
+      console.log('Avatar Upload: RPC response data:', data);
+
+      if (!data || data.avatar_url !== publicUrl) {
+        console.error('Avatar Upload: Mismatch! Expected', publicUrl, 'but got', data?.avatar_url);
+        throw new Error("Database failed to persist the new avatar URL.");
+      }
+
+      console.log('Avatar Upload: Success! Database confirmed the new URL:', data.avatar_url);
+
+      // 5. After the RPC succeeds, pass the new URL up
       onSuccess(publicUrl);
     } catch (err: any) {
+      console.error('Avatar Upload: Exception caught:', err);
       onError(err.message || "Failed to upload profile picture.");
       setLocalPreview(null);
     } finally {
@@ -66,10 +118,20 @@ export default function AvatarUploadMenu({
   const handleRemove = async () => {
     setIsUploading(true);
     try {
-      // Set to null or default
-      await dbService.updateProfile(userId, { avatar_url: '' });
+      console.log('Avatar Upload: Removing avatar...');
+      const { data, error } = await supabase.rpc('update_my_basic_profile', {
+        p_avatar_url: ''
+      });
+
+      if (error) {
+        console.error('Avatar Upload: Remove RPC error:', error);
+        throw error;
+      }
+
+      console.log('Avatar Upload: Remove RPC response:', data);
       onSuccess(null);
     } catch (err: any) {
+      console.error('Avatar Upload: Remove Exception caught:', err);
       onError(err.message || "Failed to remove profile picture.");
     } finally {
       setIsUploading(false);
