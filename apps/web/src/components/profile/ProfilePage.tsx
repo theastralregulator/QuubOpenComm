@@ -6,7 +6,7 @@ import {
   BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
-import { dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
+import { supabase, dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
@@ -218,28 +218,38 @@ export default function ProfilePage({
           setJobsAppliedCount(appliedCount);
 
           if (jobCount > 0) {
-            const { data: jobStatsData } = await supabase
-              .from('jobs')
-              .select('id, title, created_at, job_applications(id, status)')
-              .eq('posted_by', p.id)
-              .order('created_at', { ascending: false });
+            try {
+              const { data: jobStatsData, error: statsError } = await supabase
+                .from('jobs')
+                .select('id, title, created_at, job_applications(id, status)')
+                .eq('posted_by', p.id)
+                .order('created_at', { ascending: false });
 
-            if (jobStatsData) {
-              const stats = jobStatsData.map((job: any) => {
-                const apps = job.job_applications || [];
-                return {
-                  id: job.id,
-                  title: job.title,
-                  created_at: job.created_at,
-                  total: apps.length,
-                  pending: apps.filter((a: any) => a.status === 'pending' || a.status === 'under_review').length,
-                  shortlisted: apps.filter((a: any) => a.status === 'shortlisted').length,
-                  accepted: apps.filter((a: any) => a.status === 'accepted').length,
-                  rejected: apps.filter((a: any) => a.status === 'rejected').length
-                };
-              });
-              setEmployerJobStats(stats);
+              if (statsError) {
+                console.error("Employer job stats fetch error:", statsError);
+                setEmployerJobStats([]);
+              } else if (jobStatsData) {
+                const stats = jobStatsData.map((job: any) => {
+                  const apps = job.job_applications || [];
+                  return {
+                    id: job.id,
+                    title: job.title,
+                    created_at: job.created_at,
+                    total: apps.length,
+                    pending: apps.filter((a: any) => a.status === 'pending' || a.status === 'under_review').length,
+                    shortlisted: apps.filter((a: any) => a.status === 'shortlisted').length,
+                    accepted: apps.filter((a: any) => a.status === 'accepted').length,
+                    rejected: apps.filter((a: any) => a.status === 'rejected').length
+                  };
+                });
+                setEmployerJobStats(stats);
+              }
+            } catch (err) {
+              console.error("Employer job stats runtime error:", err);
+              setEmployerJobStats([]);
             }
+          } else {
+            setEmployerJobStats([]);
           }
         }
         
