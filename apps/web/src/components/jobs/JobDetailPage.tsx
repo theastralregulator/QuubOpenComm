@@ -169,17 +169,30 @@ export default function JobDetailPage({
 
     setIsSubmitting(true);
     try {
-      const { error: applyError } = await supabase
-        .from('job_applications')
-        .insert({
-          job_id: job.id,
-          applicant_id: loggedInId,
-          proposed_rate: bidRate,
-          cover_letter: coverLetter,
-          status: 'pending'
-        });
+      const { data: authData } = await supabase.auth.getUser();
+      const currentAuthUserId = authData?.user?.id;
 
-      if (applyError) throw applyError;
+      const payload = {
+        job_id: job.id,
+        applicant_id: loggedInId,
+        proposed_rate: bidRate,
+        cover_letter: coverLetter,
+        status: 'pending'
+      };
+
+      console.log('--- DB INSERT ATTEMPT ---');
+      console.log('Current Authenticated User ID (supabase.auth):', currentAuthUserId);
+      console.log('Local Storage User ID (loggedInId):', loggedInId);
+      console.log('Job ID:', job.id);
+      console.log('Insert Payload:', payload);
+
+      const response = await supabase
+        .from('job_applications')
+        .insert(payload);
+
+      console.log('Full Supabase Response:', response);
+
+      if (response.error) throw response.error;
 
       // Update both local states so UI re-renders immediately
       setDbApplied(true);
@@ -191,8 +204,9 @@ export default function JobDetailPage({
       setIsSubmitting(false);
       setShowApplyForm(false);
     } catch (err: any) {
-      console.error('Apply error:', err);
-      triggerToast('Unable to submit your application. Please try again.');
+      console.error('--- SUPABASE ERROR OBJECT ---');
+      console.error(err);
+      triggerToast(`DB Error: ${err.message || 'Unknown'}. Details: ${err.details || 'None'}`);
       setIsSubmitting(false);
     }
   };
