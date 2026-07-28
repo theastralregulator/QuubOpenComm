@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
@@ -143,6 +143,10 @@ export default function ProfilePage({
   const [myJobPostsCount, setMyJobPostsCount] = useState(0);
   const [jobsAppliedCount, setJobsAppliedCount] = useState<number | null>(null);
   const [employerJobStats, setEmployerJobStats] = useState<any[]>([]);
+  const [debugJobsInfo, setDebugJobsInfo] = useState<any>(null);
+  
+  const location = useLocation();
+  const jobsAppliedRequestRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'experience' | 'skills' | 'reviews'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -178,27 +182,38 @@ export default function ProfilePage({
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
   // --- REFRESH JOBS APPLIED COUNT ---
   const refreshJobsAppliedCount = async () => {
+    const requestId = ++jobsAppliedRequestRef.current;
+
     const {
       data: { user },
       error: authError
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      setJobsAppliedCount(0);
       return;
     }
 
-    const { count, error } = await supabase
-      .from('job_applications')
-      .select('id', { count: 'exact', head: true })
-      .eq('applicant_id', user.id);
+    const appliedRows = await dbService.getMyJobApplications(user.id);
+    const error = null; // dbService handles internal errors and returns []
+      
+    console.log('[PROFILE JOBS APPLIED DEBUG]', {
+      authUserId: user?.id,
+      displayedProfileId: profile?.id, // Note: profile state might be stale here depending on closure, but we capture the general state.
+      rows: appliedRows,
+      rowCount: appliedRows?.length,
+      error: error
+    });
+
+    if (requestId !== jobsAppliedRequestRef.current) return;
 
     if (error) {
-      console.error('[Profile] Jobs Applied count error:', error);
+      console.error('[Profile] Jobs Applied error:', error);
+      setDebugJobsInfo({ authUserId: user?.id, rowCount: null, error: error.message });
       return;
     }
-
-    setJobsAppliedCount(count ?? 0);
+    
+    setDebugJobsInfo({ authUserId: user?.id, rowCount: appliedRows?.length, error: null });
+    setJobsAppliedCount(appliedRows?.length ?? 0);
   };
 
   useEffect(() => {
@@ -244,6 +259,12 @@ export default function ProfilePage({
       if (channel) supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (location.pathname === '/profile' && isOwner) {
+      refreshJobsAppliedCount();
+    }
+  }, [location.pathname, isOwner]);
 
   // --- REFRESH PROFILE DATA ON LOAD OR ACTIONS ---
   const loadProfileData = async () => {
@@ -714,9 +735,11 @@ export default function ProfilePage({
           <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg shadow-sm">
             <h3 className="font-bold mb-2 flex items-center gap-2"><AlertCircle className="w-5 h-5" /> [Identity Check] Temporary Debug Card</h3>
             <ul className="text-sm font-mono space-y-1">
-              <li>Auth User ID: {loggedInId || 'null'}</li>
+              <li>Auth User ID: {debugJobsInfo?.authUserId || loggedInId || 'null'}</li>
               <li>Displayed Profile ID: {profile?.id || 'null'}</li>
-              <li>Jobs Applied Count: {jobsAppliedCount === null ? 'Loading...' : jobsAppliedCount}</li>
+              <li>Returned Row Count: {debugJobsInfo?.rowCount !== undefined ? debugJobsInfo.rowCount : 'null'}</li>
+              <li>Query Error: {debugJobsInfo?.error || 'None'}</li>
+              <li>Jobs Applied Count State: {jobsAppliedCount === null ? 'Loading...' : jobsAppliedCount}</li>
               {loggedInId !== profile?.id && isOwner && (
                 <li className="font-bold mt-2">MISMATCH DETECTED! Private stats may fail.</li>
               )}

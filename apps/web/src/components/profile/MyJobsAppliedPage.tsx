@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Briefcase, Search, ExternalLink, IndianRupee, MapPin, Building, AlertCircle, MessageSquare } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, dbService } from '../../lib/supabase';
 import { formatSalaryRange } from '../../lib/currency';
 
 interface AppliedJob {
@@ -47,27 +47,8 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
 
       console.log("[Jobs Applied] Auth user:", currentUserId);
 
-      // Step A: Fetch applications only
-      const { data: applicationRows, error: applicationsError } = await supabase
-        .from('job_applications')
-        .select(`
-          id,
-          job_id,
-          applicant_id,
-          proposed_rate,
-          cover_letter,
-          status,
-          created_at
-        `)
-        .eq('applicant_id', currentUserId)
-        .order('created_at', { ascending: false });
-
-      console.log('[Jobs Applied] Auth user:', currentUserId);
-      console.log('[Jobs Applied] Applications:', applicationRows);
-      console.log('[Jobs Applied] Error:', applicationsError);
-
-      if (applicationsError) throw applicationsError;
-
+      // Step A: Fetch applications using shared dbService function
+      const applicationRows = await dbService.getMyJobApplications(currentUserId);
       const rawApps = applicationRows || [];
 
       if (rawApps.length === 0) {
