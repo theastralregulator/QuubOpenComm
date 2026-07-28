@@ -43,6 +43,7 @@ export interface DbMessage {
   unread: boolean;
   role: string;
   created_at: string;
+  read_at: string | null;
 }
 
 export interface Message {
@@ -100,6 +101,7 @@ export interface DbConversation {
   last_message_time: string | null;
   unread_count: number;
   created_at: string;
+  conversation_type?: 'application' | 'worker_direct';
 }
 
 export interface ConversationViewModel {
@@ -116,6 +118,7 @@ export interface ConversationViewModel {
   lastMessageTime: string;
   unreadCount: number;
   createdAt: string;
+  conversationType?: 'application' | 'worker_direct';
 }
 
 export interface Conversation {

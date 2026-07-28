@@ -1460,6 +1460,35 @@ export const dbService = {
     return data || null;
   },
 
+  async getOrCreateWorkerConversation(workerId: string): Promise<string | null> {
+    if (!supabase) return null;
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      throw new Error('Authentication required to message a worker.');
+    }
+    if (user.id === workerId) {
+      throw new Error('You cannot message yourself.');
+    }
+    
+    // Optional check if worker profile exists/is valid can be done if needed,
+    // but the RPC usually handles it or returns error
+    const { data, error } = await supabase.rpc('get_or_create_worker_conversation', {
+      p_worker_id: workerId
+    });
+    
+    if (error) {
+      console.error('get_or_create_worker_conversation error:', error);
+      throw new Error(error.message || 'Worker profile not found or unavailable');
+    }
+    if (typeof data === 'string') return data;
+    if (data && typeof data === 'object') {
+      if ('id' in data) return (data as any).id;
+      if (Array.isArray(data) && data[0]?.id) return data[0].id;
+    }
+    return data || null;
+  },
+
+
   async getMyConversations(): Promise<ConversationViewModel[]> {
     if (!supabase) return [];
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -1487,7 +1516,7 @@ export const dbService = {
     if (otherParticipantIds.length > 0) {
       const { data: pRows } = await supabase
         .from('profile_directory')
-        .select('id, full_name, avatar_url, username, profile_type, city, state, country')
+        .select('id, full_name, avatar_url, username, profile_type, city, state, country, profession')
         .in('id', otherParticipantIds);
       if (pRows) {
         pRows.forEach((p: any) => { profileMap[p.id] = p; });
@@ -1538,11 +1567,14 @@ export const dbService = {
         otherParticipantId: otherId,
         otherParticipantName: otherProfile.full_name || otherProfile.username || 'OpenComm User',
         otherParticipantAvatar: otherProfile.avatar_url || '',
-        otherParticipantTitle: jobTitle,
+        otherParticipantTitle: c.conversation_type === 'worker_direct' 
+          ? (otherProfile.profession || 'Professional') 
+          : jobTitle,
         lastMessageText: c.last_message_text || 'No messages yet',
         lastMessageTime: lastTimeFormatted,
         unreadCount: unreadCountMap[c.id] || 0,
-        createdAt: c.created_at
+        createdAt: c.created_at,
+        conversationType: c.conversation_type
       };
     });
   },

@@ -6,7 +6,7 @@ import {
   MessageSquare, CheckCircle2, ShieldCheck, Briefcase, Award, Clock 
 } from 'lucide-react';
 import { Worker } from '../../types';
-import { supabase } from '../../lib/supabase';
+import { supabase, dbService } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
 import UserAvatar from '../common/UserAvatar';
@@ -17,7 +17,7 @@ interface WorkerDetailPageProps {
   onOpenMessage: (name: string) => void;
   onOpenHire: (worker: Worker, e: React.MouseEvent) => void;
   triggerToast: (msg: string) => void;
-  isLoggedIn: boolean;
+  isLoggedIn?: boolean;
   onOpenAuth: (tab: 'signin' | 'signup' | 'locked') => void;
 }
 
@@ -27,7 +27,7 @@ export default function WorkerDetailPage({
   onOpenMessage,
   onOpenHire,
   triggerToast,
-  isLoggedIn,
+  isLoggedIn = false,
   onOpenAuth,
 }: WorkerDetailPageProps) {
   const { workerId } = useParams<{ workerId: string }>();
@@ -44,6 +44,22 @@ export default function WorkerDetailPage({
   const [projectDesc, setProjectDesc] = useState('');
   const [budget, setBudget] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMessaging, setIsMessaging] = useState(false);
+  const [loggedInId, setLoggedInId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      if (isLoggedIn) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setLoggedInId(user.id);
+        }
+      } else {
+        setLoggedInId(null);
+      }
+    }
+    checkAuth();
+  }, [isLoggedIn]);
 
   useEffect(() => {
     async function fetchWorker() {
@@ -131,6 +147,27 @@ export default function WorkerDetailPage({
       } catch (err) {
         console.error('Clipboard copy failed:', err);
       }
+    }
+  };
+
+  const handleMessageClick = async () => {
+    if (!worker) return;
+
+    if (!isLoggedIn) {
+      onOpenAuth('locked');
+      return;
+    }
+
+    setIsMessaging(true);
+    try {
+      const convId = await dbService.getOrCreateWorkerConversation(worker.id);
+      if (convId) {
+        navigate(`/messages/${convId}`);
+      }
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to start conversation.');
+    } finally {
+      setIsMessaging(false);
     }
   };
 
@@ -349,13 +386,16 @@ export default function WorkerDetailPage({
           </div>
 
           <div className="flex items-center space-x-3 w-full sm:w-auto">
-            <button
-              onClick={() => onOpenMessage(worker.name)}
-              className="h-11 px-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white hover:bg-slate-50 dark:bg-transparent dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer"
-            >
-              <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              <span>Direct Message</span>
-            </button>
+            {worker.id !== loggedInId && (
+              <button
+                onClick={handleMessageClick}
+                disabled={isMessaging}
+                className="h-11 px-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white hover:bg-slate-50 dark:bg-transparent dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer disabled:opacity-70"
+              >
+                <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span>{isMessaging ? 'Starting...' : 'Direct Message'}</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setShowHireForm(!showHireForm);

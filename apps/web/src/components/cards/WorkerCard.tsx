@@ -22,7 +22,11 @@ export interface WorkerCardProps {
   saved: boolean;
   onSave: (id: string, e: React.MouseEvent) => void;
   onViewProfile: () => void;
-  onMessage: () => void;
+  onMessage: (e: React.MouseEvent) => void;
+  onHire?: (e: React.MouseEvent) => void;
+  showHireButton?: boolean;
+  showMessageButton?: boolean;
+  isMessaging?: boolean;
   className?: string;
 }
 
@@ -43,6 +47,10 @@ export default function WorkerCard({
   onSave,
   onViewProfile,
   onMessage,
+  onHire,
+  showHireButton = false,
+  showMessageButton = true,
+  isMessaging = false,
   className = '',
 }: WorkerCardProps) {
   const isAvailableNow = availableNow !== undefined ? availableNow : (availability === 'Available Now');
@@ -196,13 +204,24 @@ export default function WorkerCard({
         >
           <span>View Profile</span>
         </button>
-        <button
-          onClick={onMessage}
-          className="h-11 sm:h-9 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"
-        >
-          <MessageSquare className="w-3.5 h-3.5" />
-          <span>Message</span>
-        </button>
+        {showMessageButton && (
+          <button
+            onClick={onMessage}
+            disabled={isMessaging}
+            className="h-11 sm:h-9 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102 disabled:opacity-50"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{isMessaging ? 'Loading...' : 'Message'}</span>
+          </button>
+        )}
+        {showHireButton && onHire && !showMessageButton && (
+          <button
+            onClick={onHire}
+            className="h-11 sm:h-9 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"
+          >
+            <span>Hire</span>
+          </button>
+        )}
       </div>
     </motion.div>
   );

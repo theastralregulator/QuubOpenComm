@@ -11,7 +11,7 @@ import { Worker } from '../../types';
 import WorkerCard from '../cards/WorkerCard';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
-import { supabase } from '../../lib/supabase';
+import { supabase, dbService } from '../../lib/supabase';
 
 interface WorkersPageProps {
   workers: Worker[];
@@ -40,8 +40,46 @@ export default function WorkersPage({
   isLoggedIn = false,
   onOpenAuth,
 }: WorkersPageProps) {
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [loggedInId, setLoggedInId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      if (isLoggedIn) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setLoggedInId(user.id);
+        }
+      } else {
+        setLoggedInId(null);
+      }
+    }
+    checkAuth();
+  }, [isLoggedIn]);
+
   const { workerId } = useParams();
   const navigate = useNavigate();
+
+  const handleMessageClick = async (e: React.MouseEvent, workerId: string) => {
+    e.stopPropagation();
+    if (!isLoggedIn || !onOpenAuth) {
+      onOpenAuth?.('locked');
+      return;
+    }
+    
+    setSubmittingId(workerId);
+    try {
+      const convId = await dbService.getOrCreateWorkerConversation(workerId);
+      if (convId) {
+        navigate(`/messages/${convId}`);
+      }
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to start conversation.');
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
   // --- ADDITIONAL FILTER STATES ---
   const [locationFilter, setLocationFilter] = useState('');
   const [availabilityFilter, setAvailabilityFilter] = useState('All'); // All, Available Now, Part-time, Full-time
@@ -87,7 +125,8 @@ export default function WorkersPage({
             skills: d.skills || [],
             completedWorks: 0,
             hourlyRate: d.hourly_rate || 0,
-            verified: d.verification_status === 'verified'
+            verified: d.verification_status === 'verified',
+            bookmarked: d.bookmarked || false
           }));
           setLiveWorkers(mapped);
         }
@@ -497,9 +536,13 @@ export default function WorkersPage({
                     saved={isBookmarked}
                     onSave={toggleWorkerBookmark}
                     onViewProfile={() => navigate(`/workers/${worker.id}`)}
-                    onMessage={() => {
-                      requireAuthGuard('Message Worker', () => onOpenMessage(worker.name));
+                    onMessage={(e) => handleMessageClick(e, worker.id)}
+                    onHire={(e) => {
+                      requireAuthGuard('Hire Worker', () => onOpenHire(worker, e));
                     }}
+                    showHireButton={true}
+                    showMessageButton={isLoggedIn && loggedInId !== worker.id}
+                    isMessaging={submittingId === worker.id}
                   />
                 );
               })}

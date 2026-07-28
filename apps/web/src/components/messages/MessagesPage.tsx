@@ -143,6 +143,19 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             setConversations(updatedConvs);
           }
         )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload: any) => {
+            const updatedMsg = payload.new as DbMessage;
+            setMessages((prev) => prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m)));
+          }
+        )
         .subscribe();
     }
 
@@ -193,7 +206,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   };
 
   return (
-    <div className="w-full max-w-[1400px] mx-auto h-[calc(100vh-80px)] min-h-[500px] p-2 sm:p-4 lg:p-6 text-left flex flex-col">
+    <div className="w-full max-w-[1200px] mx-auto h-[100dvh] md:h-[calc(100vh-80px)] min-h-[400px] p-0 md:p-4 text-left flex flex-col">
       {/* Page Header */}
       <div className="flex items-center justify-between mb-3 px-2">
         <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
@@ -210,7 +223,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       </div>
 
       {/* Main Container Card */}
-      <div className="flex-1 bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative">
+      <div className="flex-1 bg-white dark:bg-[#0B0F19] md:border border-slate-200 dark:border-slate-800 md:rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative h-full">
         
         {/* ================= LEFT PANE: INBOX LIST ================= */}
         <div className={`w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 dark:border-slate-800/80 flex flex-col shrink-0 bg-slate-50/50 dark:bg-[#080C14] ${
@@ -287,9 +300,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         </span>
                       </div>
                       <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate mb-1">
-                        {conv.otherParticipantTitle}
+                        {conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application'}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 truncate font-medium">
+                        {conv.conversationType === 'worker_direct' && conv.otherParticipantTitle ? `${conv.otherParticipantTitle} • ` : ''}
                         {conv.lastMessageText}
                       </p>
                     </div>
@@ -333,8 +347,16 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate leading-tight">
                       {activeConv.otherParticipantName}
                     </h3>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                      {activeConv.otherParticipantTitle}
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5">
+                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                        {activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application'}
+                      </span>
+                      {activeConv.otherParticipantTitle && (
+                        <>
+                          <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                          <span>{activeConv.otherParticipantTitle}</span>
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -395,9 +417,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           >
                             {msg.text}
                           </div>
-                          <span className={`block text-[10px] font-semibold text-slate-400 ${isMe ? 'text-right' : 'text-left'}`}>
-                            {sentTime}
-                          </span>
+                          <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <span>{sentTime}</span>
+                            {isMe && (
+                              <span className="shrink-0">
+                                {msg.read_at || msg.unread === false ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-[#38bdf8] fill-[#38bdf8]/20" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600" />
+                                )}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -407,31 +438,30 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               </div>
 
               {/* Message Composer */}
-              <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19]">
+              <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0 safe-area-bottom">
                 <div className="flex items-end gap-2 bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-2 focus-within:border-blue-500 transition-colors">
                   <textarea
                     ref={textareaRef}
-                    rows={1}
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     maxLength={4000}
                     placeholder="Write a message... (Press Enter to send, Shift+Enter for new line)"
-                    className="flex-1 max-h-32 bg-transparent text-slate-900 dark:text-white text-xs font-medium focus:outline-none resize-none px-2 py-1.5"
+                    className="flex-1 max-h-[120px] min-h-[48px] bg-transparent text-slate-900 dark:text-white text-sm font-medium focus:outline-none resize-none px-2 py-3"
                   />
                   <button
                     type="submit"
                     disabled={!chatInput.trim() || isSending}
-                    className={`p-2.5 rounded-xl text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 ${
+                    className={`h-12 w-12 rounded-xl text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 mb-0.5 ${
                       !chatInput.trim() || isSending
                         ? 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500'
                         : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-sm'
                     }`}
                   >
                     {isSending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <RefreshCw className="w-5 h-5 animate-spin" />
                     ) : (
-                      <Send className="w-4 h-4" />
+                      <Send className="w-5 h-5 ml-0.5" />
                     )}
                   </button>
                 </div>
