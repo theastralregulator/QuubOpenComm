@@ -33,15 +33,28 @@ export interface Worker {
   bookmarked?: boolean;
 }
 
+export interface DbMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_avatar: string | null;
+  text: string;
+  unread: boolean;
+  role: string;
+  created_at: string;
+}
+
 export interface Message {
   id: string;
-  conversationId?: string; // Optional linking to clean conversation threads
+  conversationId: string;
+  senderId: string;
   senderName: string;
   senderAvatar: string;
   text: string;
-  timestamp: string;
+  createdAt: string;
   unread: boolean;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | string;
 }
 
 export interface JobApplication {
@@ -77,6 +90,34 @@ export interface ApplicationMessage {
   createdAt: string;
 }
 
+export interface DbConversation {
+  id: string;
+  job_id: string;
+  application_id: string;
+  creator_id: string;
+  member_id: string;
+  last_message_text: string | null;
+  last_message_time: string | null;
+  unread_count: number;
+  created_at: string;
+}
+
+export interface ConversationViewModel {
+  id: string;
+  jobId: string;
+  applicationId: string;
+  creatorId: string;
+  memberId: string;
+  otherParticipantId: string;
+  otherParticipantName: string;
+  otherParticipantAvatar: string;
+  otherParticipantTitle: string; // Job title
+  lastMessageText: string;
+  lastMessageTime: string;
+  unreadCount: number;
+  createdAt: string;
+}
+
 export interface Conversation {
   id: string;
   jobId?: string;
@@ -84,7 +125,7 @@ export interface Conversation {
   memberName: string;
   memberAvatar: string;
   memberTitle: string;
-  memberId: string; // ID of the other user in the chat
+  memberId: string;
   lastMessageText: string;
   lastMessageTime: string;
   unreadCount: number;

@@ -22,7 +22,7 @@ interface ApplicantData {
 }
 
 interface ManageApplicationsPageProps {
-  handleStartConversation: (contactId: string, contactName: string, contactPhoto: string) => void;
+  handleStartConversation: (applicationId: string) => void;
 }
 
 export default function ManageApplicationsPage({ handleStartConversation }: ManageApplicationsPageProps) {
@@ -406,9 +406,9 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                             <span>View Profile</span>
                           </button>
                           
-                          {(app.status === 'accepted' || app.status === 'shortlisted') && (
+                          {(app.status === 'accepted' || app.status === 'shortlisted' || app.status === 'pending' || app.status === 'under_review') && (
                             <button
-                              onClick={() => handleStartConversation(app.applicant_id, app.profile.full_name, app.profile.avatar_url)}
+                              onClick={() => handleStartConversation(app.id)}
                               className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
                             >
                               <MessageSquare className="w-4 h-4" />

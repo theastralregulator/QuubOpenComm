@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
+import { ConversationViewModel, DbMessage } from '../types';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
@@ -1439,6 +1440,188 @@ export const dbService = {
       return true;
     }
     return false;
+  },
+
+  // Messaging Service Methods
+  async getOrCreateApplicationConversation(applicationId: string): Promise<string | null> {
+    if (!supabase) return null;
+    const { data, error } = await supabase.rpc('get_or_create_application_conversation', {
+      p_application_id: applicationId
+    });
+    if (error) {
+      console.error('get_or_create_application_conversation error:', error);
+      throw new Error(error.message);
+    }
+    if (typeof data === 'string') return data;
+    if (data && typeof data === 'object') {
+      if ('id' in data) return (data as any).id;
+      if (Array.isArray(data) && data[0]?.id) return data[0].id;
+    }
+    return data || null;
+  },
+
+  async getMyConversations(): Promise<ConversationViewModel[]> {
+    if (!supabase) return [];
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return [];
+
+    const { data: convRows, error: convError } = await supabase
+      .from('conversations')
+      .select('*')
+      .or(`creator_id.eq.${user.id},member_id.eq.${user.id}`)
+      .order('last_message_time', { ascending: false, nullsFirst: false });
+
+    if (convError || !convRows || convRows.length === 0) {
+      if (convError) console.error('getMyConversations error:', convError);
+      return [];
+    }
+
+    const otherParticipantIds = [...new Set(convRows.map((c: any) => 
+      c.creator_id === user.id ? c.member_id : c.creator_id
+    ).filter(Boolean))];
+
+    const jobIds = [...new Set(convRows.map((c: any) => c.job_id).filter(Boolean))];
+    const convIds = convRows.map((c: any) => c.id);
+
+    let profileMap: Record<string, any> = {};
+    if (otherParticipantIds.length > 0) {
+      const { data: pRows } = await supabase
+        .from('profile_directory')
+        .select('id, full_name, avatar_url, username, profile_type, city, state, country')
+        .in('id', otherParticipantIds);
+      if (pRows) {
+        pRows.forEach((p: any) => { profileMap[p.id] = p; });
+      }
+    }
+
+    let jobMap: Record<string, string> = {};
+    if (jobIds.length > 0) {
+      const { data: jRows } = await supabase
+        .from('jobs')
+        .select('id, title')
+        .in('id', jobIds);
+      if (jRows) {
+        jRows.forEach((j: any) => { jobMap[j.id] = j.title; });
+      }
+    }
+
+    let unreadCountMap: Record<string, number> = {};
+    if (convIds.length > 0) {
+      const { data: unreadRows } = await supabase
+        .from('messages')
+        .select('conversation_id')
+        .in('conversation_id', convIds)
+        .neq('sender_id', user.id)
+        .eq('unread', true);
+      if (unreadRows) {
+        unreadRows.forEach((m: any) => {
+          unreadCountMap[m.conversation_id] = (unreadCountMap[m.conversation_id] || 0) + 1;
+        });
+      }
+    }
+
+    return convRows.map((c: any) => {
+      const otherId = c.creator_id === user.id ? c.member_id : c.creator_id;
+      const otherProfile = profileMap[otherId] || {};
+      const jobTitle = jobMap[c.job_id] || 'Job Opportunity';
+      
+      const lastTimeFormatted = c.last_message_time 
+        ? new Date(c.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : (c.created_at ? new Date(c.created_at).toLocaleDateString() : '');
+
+      return {
+        id: c.id,
+        jobId: c.job_id,
+        applicationId: c.application_id,
+        creatorId: c.creator_id,
+        memberId: c.member_id,
+        otherParticipantId: otherId,
+        otherParticipantName: otherProfile.full_name || otherProfile.username || 'OpenComm User',
+        otherParticipantAvatar: otherProfile.avatar_url || '',
+        otherParticipantTitle: jobTitle,
+        lastMessageText: c.last_message_text || 'No messages yet',
+        lastMessageTime: lastTimeFormatted,
+        unreadCount: unreadCountMap[c.id] || 0,
+        createdAt: c.created_at
+      };
+    });
+  },
+
+  async getConversationMessages(conversationId: string): Promise<DbMessage[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('getConversationMessages error:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  async sendTextMessage(conversationId: string, text: string): Promise<DbMessage | null> {
+    if (!supabase) return null;
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) throw new Error('Authentication required');
+
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error('Message cannot be empty');
+    if (trimmed.length > 4000) throw new Error('Message exceeds 4000 characters limit');
+
+    const { data: prof } = await supabase
+      .from('profile_directory')
+      .select('full_name, username, avatar_url')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    const senderName = prof?.full_name || prof?.username || user.email || 'User';
+    const senderAvatar = prof?.avatar_url || null;
+
+    const payload = {
+      conversation_id: conversationId,
+      sender_id: user.id,
+      sender_name: senderName,
+      sender_avatar: senderAvatar,
+      text: trimmed,
+      unread: true,
+      role: 'user'
+    };
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert(payload)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('sendTextMessage error:', error);
+      throw new Error(error.message);
+    }
+
+    await supabase
+      .from('conversations')
+      .update({
+        last_message_text: trimmed,
+        last_message_time: new Date().toISOString()
+      })
+      .eq('id', conversationId);
+
+    return data;
+  },
+
+  async markConversationRead(conversationId: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase.rpc('mark_conversation_read', {
+      p_conversation_id: conversationId
+    });
+    if (error) {
+      console.error('mark_conversation_read error:', error);
+      return false;
+    }
+    return true;
   }
 };
 

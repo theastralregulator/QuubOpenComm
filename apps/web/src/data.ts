@@ -217,51 +217,9 @@ export const INITIAL_NOTIFICATIONS: Notification[] = [
   }
 ];
 
-export const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'msg-1',
-    conversationId: 'conv-sarah',
-    senderName: 'Sarah Jenkins',
-    senderAvatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=mock44803',
-    text: 'Hey Akhil! I would love to collaborate on the new project. Let me know if you are free for a 15-min call today.',
-    timestamp: '10:30 AM',
-    unread: true,
-    role: 'assistant'
-  },
-  {
-    id: 'msg-2',
-    conversationId: 'conv-david',
-    senderName: 'David Chen',
-    senderAvatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=mock42920',
-    text: 'I submitted the pull request for the layout fixes. The animation in Framer Motion is now fully optimized for React 19!',
-    timestamp: 'Yesterday',
-    unread: false,
-    role: 'assistant'
-  }
-];
+export const INITIAL_MESSAGES: Message[] = [];
 
-export const INITIAL_CONVERSATIONS: Conversation[] = [
-  {
-    id: 'conv-sarah',
-    memberName: 'Sarah Jenkins',
-    memberAvatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=mock61946',
-    memberTitle: 'Lead Product & Interaction Designer',
-    memberId: 'worker-1',
-    lastMessageText: 'Hey Akhil! I would love to collaborate on the new project. Let me know if you are free for a 15-min call today.',
-    lastMessageTime: '10:30 AM',
-    unreadCount: 1
-  },
-  {
-    id: 'conv-david',
-    memberName: 'David Chen',
-    memberAvatar: 'https://api.dicebear.com/7.x/notionists/svg?seed=mock18406',
-    memberTitle: 'Senior Frontend Engineer',
-    memberId: 'worker-2',
-    lastMessageText: 'I submitted the pull request for the layout fixes. The animation in Framer Motion is now fully optimized for React 19!',
-    lastMessageTime: 'Yesterday',
-    unreadCount: 0
-  }
-];
+export const INITIAL_CONVERSATIONS: Conversation[] = [];
 
 export const INITIAL_APPLICATIONS: JobApplication[] = [
   {

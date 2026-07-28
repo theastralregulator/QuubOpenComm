@@ -1,215 +1,293 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, MessageSquare, Check, X, ShieldAlert, ArrowLeft, CheckCircle2 } from 'lucide-react';
-import { Message, Conversation } from '../../types';
-import { analytics } from '../../lib/analytics';
+import { Send, MessageSquare, ArrowLeft, RefreshCw, AlertCircle, ShieldAlert, CheckCircle2, User } from 'lucide-react';
+import { supabase, dbService } from '../../lib/supabase';
+import { ConversationViewModel, DbMessage } from '../../types';
 import UserAvatar from '../common/UserAvatar';
 
 interface MessagesPageProps {
-  messages: Message[];
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-  conversations: Conversation[];
-  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>;
-  username: string;
-  userPhoto: string;
   triggerToast: (msg: string) => void;
 }
 
-export default function MessagesPage({
-  messages,
-  setMessages,
-  conversations,
-  setConversations,
-  username,
-  userPhoto,
-  triggerToast,
-}: MessagesPageProps) {
-  const { conversationId } = useParams();
+export default function MessagesPage({ triggerToast }: MessagesPageProps) {
+  const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
 
-  // Select active conversation ID
-  const [activeConversationId, setActiveConversationId] = useState<string>('');
-  const [chatInput, setChatInput] = useState('');
-  const [isTypingReply, setIsTypingReply] = useState(false);
-  const [mobileActiveThreadOpen, setMobileActiveThreadOpen] = useState(false); // Mobile drill-down
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationViewModel[]>([]);
+  const [loadingConvs, setLoadingConvs] = useState<boolean>(true);
+  const [convsError, setConvsError] = useState<string | null>(null);
+
+  const [messages, setMessages] = useState<DbMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+
+  const [chatInput, setChatInput] = useState<string>('');
+  const [isSending, setIsSending] = useState<boolean>(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fallback to first conversation if active conversation is not set
-  const activeConv = conversations.find(c => c.id === activeConversationId) || conversations[0];
-  const activeContact = activeConv?.memberName || 'Sarah Jenkins';
+  // 1. Authenticate user & load conversations
+  const loadConversations = async () => {
+    setLoadingConvs(true);
+    setConvsError(null);
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        setCurrentUserId(null);
+        setConvsError('Authentication required to access messages.');
+        setLoadingConvs(false);
+        return;
+      }
+      setCurrentUserId(user.id);
 
-  // Initialize and sync activeConversationId with URL route param
-  useEffect(() => {
-    if (conversationId) {
-      setActiveConversationId(conversationId);
-      setMobileActiveThreadOpen(true);
-    } else if (conversations.length > 0 && !activeConversationId) {
-      setActiveConversationId(conversations[0].id);
+      const convList = await dbService.getMyConversations();
+      setConversations(convList);
+    } catch (err: any) {
+      console.error('Error loading conversations:', err);
+      setConvsError(err.message || 'Failed to load conversations.');
+    } finally {
+      setLoadingConvs(false);
     }
-  }, [conversationId, conversations, activeConversationId]);
-
-  // Scroll to bottom of chat
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, activeConversationId, isTypingReply]);
-
-  // Filter messages for currently chosen conversation
-  const activeChatMessages = messages.filter(m => m.conversationId === activeConv?.id);
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || !activeConv) return;
-
-    const currentConvId = activeConv.id;
-    const sentText = chatInput;
-
-    const userMsg: Message = {
-      id: `msg-sent-${Date.now()}`,
-      conversationId: currentConvId,
-      senderName: username,
-      senderAvatar: userPhoto,
-      text: sentText,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      unread: false,
-      role: 'user'
-    };
-
-    // Append message
-    setMessages(prev => [...prev, userMsg]);
-    setChatInput('');
-
-    // Update conversation metadata
-    setConversations(prev => prev.map(c => {
-      if (c.id === currentConvId) {
-        return {
-          ...c,
-          lastMessageText: sentText,
-          lastMessageTime: 'Just now',
-          unreadCount: 0
-        };
-      }
-      return c;
-    }));
-
-    setIsTypingReply(true);
-
-    // Simulate direct contact response
-    setTimeout(() => {
-      let replyText = "Perfect, thank you! I am reviewing your scope details and will send a formal proposal by tomorrow morning.";
-      if (activeContact === 'Sarah Jenkins') {
-        replyText = "Hey Akhil! Yes, I reviewed your project posting. My experience in Figma & Framer matches this perfectly. Let's align on a short call tomorrow?";
-      } else if (activeContact === 'David Chen') {
-        replyText = "Excellent choice of tech stack! I am fully available to consult on your responsive Next.js/React layout adjustments. Let me know when you are free!";
-      } else if (activeContact === 'Marcus Thorne') {
-        replyText = "Safety diagnostics are critical. I have my certifications up to date and can stop by the Austin commercial site this Saturday.";
-      } else if (activeContact === 'Carlos Mendez') {
-        replyText = "Custom oak inlays are my specialty. I will draft a quick structural blueprint and send it over here shortly.";
-      }
-
-      const replyMsg: Message = {
-        id: `msg-recv-${Date.now()}`,
-        conversationId: currentConvId,
-        senderName: activeContact,
-        senderAvatar: activeConv.memberAvatar,
-        text: replyText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        unread: false,
-        role: 'assistant'
-      };
-
-      setMessages(prev => [...prev, replyMsg]);
-      setIsTypingReply(false);
-
-      setConversations(prev => prev.map(c => {
-        if (c.id === currentConvId) {
-          return {
-            ...c,
-            lastMessageText: replyText,
-            lastMessageTime: 'Just now'
-          };
-        }
-        return c;
-      }));
-
-      triggerToast(`New message from ${activeContact}!`);
-    }, 1500);
   };
 
-  const selectConversation = (id: string) => {
-    navigate(`/messages/${id}`);
-    
-    // Track chat opened
-    const selectedConv = conversations.find(c => c.id === id);
-    if (selectedConv) {
-      analytics.trackChatOpened(selectedConv.memberName);
+  useEffect(() => {
+    loadConversations();
+  }, []);
+
+  // Active conversation selection
+  const activeConv = conversations.find(c => c.id === conversationId);
+
+  // 2. Load messages when conversationId changes
+  useEffect(() => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
     }
-    
-    // Clear unread count
-    setConversations(prev => prev.map(c => {
-      if (c.id === id) {
-        return { ...c, unreadCount: 0 };
+
+    let isMounted = true;
+
+    async function fetchMessages() {
+      setLoadingMessages(true);
+      setMessagesError(null);
+      try {
+        const msgs = await dbService.getConversationMessages(conversationId!);
+        if (isMounted) {
+          setMessages(msgs);
+          // Mark conversation as read if active
+          await dbService.markConversationRead(conversationId!);
+          // Refresh conversation list to update unread badge counts
+          const updatedConvs = await dbService.getMyConversations();
+          if (isMounted) setConversations(updatedConvs);
+        }
+      } catch (err: any) {
+        console.error('Error fetching messages:', err);
+        if (isMounted) setMessagesError(err.message || 'Failed to load messages.');
+      } finally {
+        if (isMounted) setLoadingMessages(false);
       }
-      return c;
-    }));
+    }
+
+    fetchMessages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [conversationId]);
+
+  // 3. Real-time Subscriptions for messages and conversations
+  useEffect(() => {
+    if (!supabase) return;
+
+    // Realtime channel for inbox conversation updates
+    const convsChannel = supabase
+      .channel('public:conversations:realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversations' },
+        async () => {
+          const updatedConvs = await dbService.getMyConversations();
+          setConversations(updatedConvs);
+        }
+      )
+      .subscribe();
+
+    let messagesChannel: any = null;
+    if (conversationId) {
+      messagesChannel = supabase
+        .channel(`public:messages:conv=${conversationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          async (payload: any) => {
+            const newMsg = payload.new as DbMessage;
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+
+            // Mark read if sent by recipient
+            if (currentUserId && newMsg.sender_id !== currentUserId) {
+              await dbService.markConversationRead(conversationId);
+            }
+
+            // Refresh conversations preview
+            const updatedConvs = await dbService.getMyConversations();
+            setConversations(updatedConvs);
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      if (convsChannel) supabase.removeChannel(convsChannel);
+      if (messagesChannel) supabase.removeChannel(messagesChannel);
+    };
+  }, [conversationId, currentUserId]);
+
+  // 4. Auto-scroll to bottom of thread
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loadingMessages]);
+
+  // 5. Send Text Message
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!conversationId || !chatInput.trim() || isSending) return;
+
+    const textToSend = chatInput.trim();
+    setIsSending(true);
+
+    try {
+      const sentMsg = await dbService.sendTextMessage(conversationId, textToSend);
+      if (sentMsg) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sentMsg.id)) return prev;
+          return [...prev, sentMsg];
+        });
+        setChatInput('');
+        // Refresh conversations list to update preview
+        const updatedConvs = await dbService.getMyConversations();
+        setConversations(updatedConvs);
+      }
+    } catch (err: any) {
+      console.error('Failed to send message:', err);
+      triggerToast(err.message || 'Failed to send message.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   return (
-    <div className="w-full text-left max-w-6xl mx-auto" id="messages-page-view">
-      
-      {/* HEADER */}
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-display font-bold text-slate-900 dark:text-white flex items-center">
-          <MessageSquare className="w-7 h-7 mr-2.5 text-emerald-500" />
-          Messages Inbox
+    <div className="w-full max-w-[1400px] mx-auto h-[calc(100vh-80px)] min-h-[500px] p-2 sm:p-4 lg:p-6 text-left flex flex-col">
+      {/* Page Header */}
+      <div className="flex items-center justify-between mb-3 px-2">
+        <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+          <MessageSquare className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+          <span>Messages</span>
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Coordinate directly with contractors, discuss project requirements, and lock milestones.
-        </p>
+        <button
+          onClick={loadConversations}
+          className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          title="Refresh Inbox"
+        >
+          <RefreshCw className={`w-4 h-4 ${loadingConvs ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
-      {/* CHAT INTERFACE WINDOW */}
-      <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-2xl overflow-hidden shadow-sm h-[580px] flex">
+      {/* Main Container Card */}
+      <div className="flex-1 bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative">
         
-        {/* LEFT PANEL: CONTACTS THREADS (Hidden on mobile if conversation is maximized) */}
-        <div className={`w-full md:w-80 shrink-0 border-r border-slate-200 dark:border-[#273449] flex flex-col h-full bg-slate-50/30 dark:bg-slate-900/10 ${
-          mobileActiveThreadOpen ? 'hidden md:flex' : 'flex'
+        {/* ================= LEFT PANE: INBOX LIST ================= */}
+        <div className={`w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 dark:border-slate-800/80 flex flex-col shrink-0 bg-slate-50/50 dark:bg-[#080C14] ${
+          conversationId ? 'hidden md:flex' : 'flex'
         }`}>
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/60 font-semibold text-xs tracking-wider uppercase text-slate-400 dark:text-slate-500 font-mono">
-            Conversations
-          </div>
           
-          <div className="overflow-y-auto flex-1 divide-y divide-slate-100 dark:divide-slate-800/40">
-            {conversations.length === 0 ? (
-              <p className="text-center text-xs text-slate-400 py-8 italic font-semibold">No active approved message threads.</p>
+          {/* Inbox List Header */}
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Conversations</span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+              {conversations.length}
+            </span>
+          </div>
+
+          {/* Conversations Scroll Area */}
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+            {loadingConvs ? (
+              <div className="p-4 space-y-4 animate-pulse">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
+                      <div className="h-3 w-48 bg-slate-200 dark:bg-slate-800 rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : convsError ? (
+              <div className="p-6 text-center space-y-3">
+                <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+                <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{convsError}</p>
+                <button
+                  onClick={loadConversations}
+                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : conversations.length === 0 ? (
+              <div className="p-8 text-center space-y-3 my-auto">
+                <MessageSquare className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No conversations yet</h4>
+                <p className="text-xs text-slate-400 leading-relaxed max-w-[240px] mx-auto">
+                  Apply for a job or message an applicant to start a conversation.
+                </p>
+              </div>
             ) : (
               conversations.map((conv) => {
-                const isSelected = activeConv?.id === conv.id;
-                
+                const isActive = conv.id === conversationId;
                 return (
                   <div
                     key={conv.id}
-                    onClick={() => selectConversation(conv.id)}
-                    className={`p-4 transition-all flex items-center space-x-3.5 cursor-pointer text-left relative ${
-                      isSelected 
-                        ? 'bg-blue-50/60 dark:bg-blue-950/20 border-l-4 border-blue-600' 
-                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                    onClick={() => navigate(`/messages/${conv.id}`)}
+                    className={`p-4 flex items-start gap-3 transition-colors cursor-pointer relative ${
+                      isActive
+                        ? 'bg-indigo-50/70 dark:bg-indigo-500/10 border-l-4 border-indigo-600 dark:border-indigo-400'
+                        : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/40'
                     }`}
                   >
                     <UserAvatar
-                      avatarUrl={conv.memberAvatar}
-                      fullName={conv.memberName}
+                      avatarUrl={conv.otherParticipantAvatar}
+                      fullName={conv.otherParticipantName}
                       size="md"
+                      className="shrink-0 mt-0.5"
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex justify-between items-center mb-0.5">
-                        <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">{conv.memberName}</span>
-                        <span className="text-[9px] text-slate-400 shrink-0 font-mono">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {conv.otherParticipantName}
+                        </h4>
+                        <span className="text-[10px] font-semibold text-slate-400 shrink-0 ml-2">
                           {conv.lastMessageTime}
                         </span>
                       </div>
-                      <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono uppercase truncate leading-none mb-1">
-                        {conv.memberTitle}
+                      <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate mb-1">
+                        {conv.otherParticipantTitle}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 truncate font-medium">
                         {conv.lastMessageText}
@@ -217,7 +295,7 @@ export default function MessagesPage({
                     </div>
 
                     {conv.unreadCount > 0 && (
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 bg-blue-600 text-[9px] text-white font-black flex items-center justify-center rounded-full">
+                      <span className="shrink-0 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-extrabold shadow-sm">
                         {conv.unreadCount}
                       </span>
                     )}
@@ -228,124 +306,149 @@ export default function MessagesPage({
           </div>
         </div>
 
-        {/* RIGHT PANEL: CONVERSATION CONTENT (Hidden on mobile if looking at inbox list) */}
-        <div className={`flex-1 flex flex-col h-full bg-white dark:bg-[#111827] ${
-          !mobileActiveThreadOpen ? 'hidden md:flex' : 'flex'
+        {/* ================= RIGHT PANE: CHAT THREAD ================= */}
+        <div className={`flex-1 flex flex-col bg-white dark:bg-[#0B0F19] ${
+          !conversationId ? 'hidden md:flex' : 'flex'
         }`}>
-          {activeConv ? (
+          
+          {conversationId && activeConv ? (
             <>
-              {/* Conversation Header */}
-              <div className="px-4 py-3 border-b border-slate-200 dark:border-[#273449] flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
-                <div className="flex items-center space-x-3 text-left">
-                  {/* Back Button for mobile */}
-                  <button 
-                    onClick={() => setMobileActiveThreadOpen(false)}
-                    className="md:hidden p-1.5 -ml-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0 cursor-pointer"
+              {/* Thread Header */}
+              <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-md sticky top-0 z-10">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    onClick={() => navigate('/messages')}
+                    className="md:hidden p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    title="Back to inbox"
                   >
-                    <ArrowLeft className="w-5 h-5" />
+                    <ArrowLeft className="w-4 h-4" />
                   </button>
-
                   <UserAvatar
-                    avatarUrl={activeConv.memberAvatar}
-                    fullName={activeContact}
-                    size="sm"
+                    avatarUrl={activeConv.otherParticipantAvatar}
+                    fullName={activeConv.otherParticipantName}
+                    size="md"
+                    className="shrink-0"
                   />
                   <div className="min-w-0">
-                    <span className="block font-bold text-sm text-slate-900 dark:text-white truncate">{activeContact}</span>
-                    <span className="block text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono uppercase truncate leading-none mt-0.5">
-                      {activeConv.memberTitle}
-                    </span>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate leading-tight">
+                      {activeConv.otherParticipantName}
+                    </h3>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                      {activeConv.otherParticipantTitle}
+                    </p>
                   </div>
-                </div>
-
-                {/* Escrow badge */}
-                <div className="hidden lg:flex items-center space-x-1.5 px-3 py-1 bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold rounded-lg uppercase tracking-wide font-mono shrink-0">
-                  <Check className="w-3 h-3" />
-                  <span>Escrow Protected</span>
                 </div>
               </div>
 
-              {/* Messages Stream */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/20 dark:bg-slate-900/10">
-                <div className="p-3 bg-blue-500/5 border border-blue-500/10 text-[11px] text-blue-600 dark:text-blue-400 rounded-2xl max-w-lg mx-auto text-center leading-relaxed">
-                  👋 <strong>Escrow Protected Thread:</strong> Your messages with {activeContact} are fully encrypted. Let's build something together!
-                </div>
+              {/* Safety Banner */}
+              <div className="px-4 py-2 bg-slate-50 dark:bg-[#0E1320] border-b border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-center gap-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span>Keep communication professional and never share sensitive payment details.</span>
+              </div>
 
-                {activeChatMessages.map((m) => {
-                  const isMe = m.role === 'user';
-                  return (
-                    <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} text-left`}>
-                      <div className="flex items-start space-x-2.5 max-w-[85%]">
+              {/* Messages Thread Content */}
+              <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30">
+                {loadingMessages ? (
+                  <div className="p-8 space-y-4 animate-pulse">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'}`}>
+                        <div className="h-12 w-64 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+                      </div>
+                    ))}
+                  </div>
+                ) : messagesError ? (
+                  <div className="p-6 text-center space-y-2">
+                    <AlertCircle className="w-6 h-6 text-rose-500 mx-auto" />
+                    <p className="text-xs text-rose-500 font-semibold">{messagesError}</p>
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 text-xs font-medium">
+                    No messages yet. Send a message to start the conversation!
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const isMe = msg.sender_id === currentUserId;
+                    const sentTime = msg.created_at
+                      ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : '';
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}
+                      >
                         {!isMe && (
                           <UserAvatar
-                            avatarUrl={m.senderAvatar}
-                            fullName={m.senderName}
+                            avatarUrl={msg.sender_avatar || activeConv.otherParticipantAvatar}
+                            fullName={msg.sender_name}
                             size="sm"
+                            className="shrink-0 mb-1"
                           />
                         )}
-                        
-                        <div className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-xs ${
-                          isMe 
-                            ? 'bg-blue-600 text-white rounded-tr-none' 
-                            : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-800/80 rounded-tl-none'
-                        }`}>
-                          <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-                            {m.senderName}
+                        <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
+                          <div
+                            className={`p-3.5 rounded-[18px] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left ${
+                              isMe
+                                ? 'bg-blue-600 text-white rounded-br-xs shadow-sm'
+                                : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
+                            }`}
+                          >
+                            {msg.text}
+                          </div>
+                          <span className={`block text-[10px] font-semibold text-slate-400 ${isMe ? 'text-right' : 'text-left'}`}>
+                            {sentTime}
                           </span>
-                          <p className="font-medium whitespace-pre-wrap">{m.text}</p>
-                          <span className="block text-[8px] opacity-65 text-right mt-1.5 font-mono">{m.timestamp}</span>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-
-                {isTypingReply && (
-                  <div className="flex justify-start text-left">
-                    <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800/80 rounded-tl-none shadow-xs">
-                      <div className="flex space-x-1 shrink-0">
-                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
-                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-                        <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-                      </div>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold pl-1">{activeContact} is typing...</span>
-                    </div>
-                  </div>
+                    );
+                  })
                 )}
-
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Input Footer */}
-              <form onSubmit={handleSendMessage} className="p-3.5 border-t border-slate-200 dark:border-[#273449] bg-slate-50 dark:bg-slate-900/60 flex items-center space-x-2 shrink-0">
-                <input 
-                  type="text"
-                  placeholder={`Send a direct message to ${activeContact}...`}
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isTypingReply}
-                  className="flex-1 text-xs px-3.5 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-950 dark:text-white focus:outline-none focus:border-blue-500 placeholder-slate-400 dark:placeholder-slate-500 font-medium"
-                />
-                
-                <button 
-                  type="submit"
-                  disabled={!chatInput.trim() || isTypingReply}
-                  className="p-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 disabled:dark:bg-slate-800 disabled:text-slate-400 text-white rounded-xl transition-all cursor-pointer hover:scale-103 active:scale-97"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
+              {/* Message Composer */}
+              <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19]">
+                <div className="flex items-end gap-2 bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-2 focus-within:border-blue-500 transition-colors">
+                  <textarea
+                    ref={textareaRef}
+                    rows={1}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    maxLength={4000}
+                    placeholder="Write a message... (Press Enter to send, Shift+Enter for new line)"
+                    className="flex-1 max-h-32 bg-transparent text-slate-900 dark:text-white text-xs font-medium focus:outline-none resize-none px-2 py-1.5"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!chatInput.trim() || isSending}
+                    className={`p-2.5 rounded-xl text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 ${
+                      !chatInput.trim() || isSending
+                        ? 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500'
+                        : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-sm'
+                    }`}
+                  >
+                    {isSending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </form>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-400">
-              <MessageSquare className="w-12 h-12 text-slate-300 mb-3" />
-              <p className="text-xs font-semibold">Select a thread or approve an application request to start messaging.</p>
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3 text-slate-400">
+              <MessageSquare className="w-12 h-12 text-slate-300 dark:text-slate-700" />
+              <h3 className="text-base font-bold text-slate-700 dark:text-slate-300">Select a conversation</h3>
+              <p className="text-xs max-w-sm leading-relaxed">
+                Choose a conversation from the left menu or message an employer/applicant to start chatting.
+              </p>
             </div>
           )}
         </div>
 
       </div>
-
     </div>
   );
 }

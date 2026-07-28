@@ -26,7 +26,7 @@ interface AppliedJob {
 }
 
 interface MyJobsAppliedPageProps {
-  handleStartConversation: (contactId: string, contactName: string, contactPhoto: string) => void;
+  handleStartConversation: (applicationId: string) => void;
 }
 
 export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsAppliedPageProps) {
@@ -345,10 +345,10 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                     </div>
                     
                     <div className="flex items-center gap-2">
-                      {app.status === 'accepted' && (
+                      {app.status !== 'withdrawn' && (
                         <button
-                          onClick={() => handleStartConversation(app.job?.posted_by, employerName, app.employer?.avatar_url || '')}
-                          className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-sm font-bold rounded-lg transition-colors"
+                          onClick={() => handleStartConversation(app.id)}
+                          className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-sm font-bold rounded-lg transition-colors cursor-pointer"
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
                           <span>Message Employer</span>

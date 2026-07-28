@@ -111,22 +111,20 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleStartConversation = (contactId: string, contactName: string, contactPhoto: string) => {
-    let conv = conversations.find(c => c.memberName === contactName || c.id === contactId);
-    if (!conv) {
-      const newConvId = `conv-${Date.now()}`;
-      conv = {
-        id: newConvId,
-        memberName: contactName,
-        memberAvatar: contactPhoto || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
-        lastMessageText: 'Say hi!',
-        lastMessageTime: 'Just now',
-        unreadCount: 0,
-        online: true
-      };
-      setConversations(prev => [conv!, ...prev]);
+  const handleOpenConversationForApplication = async (applicationId: string) => {
+    if (!applicationId) return;
+    try {
+      triggerToast('Opening conversation...');
+      const convId = await dbService.getOrCreateApplicationConversation(applicationId);
+      if (convId) {
+        navigate(`/messages/${convId}`);
+      } else {
+        triggerToast('Unable to open conversation. Please try again.');
+      }
+    } catch (err: any) {
+      console.error('Error opening conversation:', err);
+      triggerToast(err.message || 'Unable to open conversation.');
     }
-    navigate(`/messages/${conv.id}`);
   };
 
   const path = location.pathname;
@@ -2696,12 +2694,6 @@ export default function App() {
                 transition={{ duration: 0.25 }}
               >
                 <MessagesPage 
-                  messages={messages}
-                  setMessages={setMessages}
-                  conversations={conversations}
-                  setConversations={setConversations}
-                  username={username}
-                  userPhoto={userPhoto}
                   triggerToast={triggerToast}
                 />
               </motion.div>
@@ -2717,12 +2709,6 @@ export default function App() {
                 transition={{ duration: 0.25 }}
               >
                 <MessagesPage 
-                  messages={messages}
-                  setMessages={setMessages}
-                  conversations={conversations}
-                  setConversations={setConversations}
-                  username={username}
-                  userPhoto={userPhoto}
                   triggerToast={triggerToast}
                 />
               </motion.div>
@@ -2738,13 +2724,13 @@ export default function App() {
 
           <Route path="/profile/jobs-applied" element={
             <ProtectedRoute>
-              <MyJobsAppliedPage handleStartConversation={handleStartConversation} />
+              <MyJobsAppliedPage handleStartConversation={handleOpenConversationForApplication} />
             </ProtectedRoute>
           } />
 
           <Route path="/jobs/:jobId/applications" element={
             <ProtectedRoute>
-              <ManageApplicationsPage handleStartConversation={handleStartConversation} />
+              <ManageApplicationsPage handleStartConversation={handleOpenConversationForApplication} />
             </ProtectedRoute>
           } />
 
