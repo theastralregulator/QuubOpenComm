@@ -159,22 +159,11 @@ export default function App() {
   };
   
   // Dynamic User Profile
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem('opencomm_is_logged_in') === 'true';
-  });
-  const [userType, setUserType] = useState<'normal' | 'worker' | 'company'>(() => {
-    return (localStorage.getItem('opencomm_user_type') as any) || 'normal';
-  });
-  const [username, setUsername] = useState(() => {
-    return localStorage.getItem('opencomm_username') || 'User';
-  });
-  const [userIdState, setUserIdState] = useState(() => {
-    return localStorage.getItem('opencomm_user_id') || null;
-  });
-  const [userPhoto, setUserPhoto] = useState(() => {
-    const id = localStorage.getItem('opencomm_user_id');
-    return id ? (localStorage.getItem(`opencomm_user_photo_${id}`) || '') : '';
-  });
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [userType, setUserType] = useState<'normal' | 'worker' | 'company'>('normal');
+  const [username, setUsername] = useState('User');
+  const [userIdState, setUserIdState] = useState<string | null>(null);
+  const [userPhoto, setUserPhoto] = useState('');
 
   // UI Modals & Menus
   const [showPostJob, setShowPostJob] = useState(false);
@@ -391,7 +380,9 @@ export default function App() {
   useEffect(() => {
     if (showCreateProfile && isLoggedIn) {
       const loadBasicDetailsForUpgrade = async () => {
-        const userId = localStorage.getItem('opencomm_user_id') || 'temp-user-id';
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id;
+        if (!userId) return;
         try {
           const profile = await dbService.getProfile(userId);
           if (profile) {
@@ -716,14 +707,15 @@ export default function App() {
       setIsEmailVerified(true);
       
       // Sync DB state locally
-      const userId = localStorage.getItem('opencomm_user_id');
-      if (userId) {
-        dbService.getProfile(userId).then(profile => {
-          if (profile) {
-            dbService.updateProfile(userId, { email_verified_for_actions: true });
-          }
-        });
-      }
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user?.id) {
+          dbService.getProfile(user.id).then(profile => {
+            if (profile) {
+              dbService.updateProfile(user.id, { email_verified_for_actions: true });
+            }
+          });
+        }
+      });
 
       // Clean the URL query params cleanly
       window.history.replaceState({}, '', '/');
@@ -905,12 +897,7 @@ export default function App() {
       setTheme('light');
     }
 
-    localStorage.setItem('opencomm_is_logged_in', 'true');
-    localStorage.setItem('opencomm_username', profile.full_name || userEmail.split('@')[0]);
-    setUserIdState(userId);
-    localStorage.setItem(`opencomm_user_photo_${userId}`, profile.avatar_url || '');
-    localStorage.setItem('opencomm_user_type', profile.profile_type || 'normal');
-    localStorage.setItem('opencomm_user_id', userId);
+    // Removed opencomm_user_id and opencomm_is_logged_in from localStorage
 
     const isOnboarded = Boolean(
       profile?.onboarding_completed || 
@@ -1044,12 +1031,8 @@ export default function App() {
     setUserType('normal');
     setTheme('light'); // Reset theme state to Light Mode on logout
     
-    localStorage.removeItem('opencomm_is_logged_in');
     localStorage.removeItem('opencomm_username');
-    if (userIdState) {
-      localStorage.removeItem(`opencomm_user_photo_${userIdState}`);
-    }
-    localStorage.removeItem('opencomm_user_id');
+    setUserIdState(null);
 
     // Force public DOM root back to Light Theme immediately
     const root = document.documentElement;
@@ -1397,7 +1380,8 @@ export default function App() {
 
     // Case 1: Already logged in, save profile changes directly
     if (isLoggedIn) {
-      const userId = localStorage.getItem('opencomm_user_id');
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
       if (!userId) {
         setAuthError("No active user session found.");
         setIsAuthSubmitting(false);
@@ -1902,7 +1886,7 @@ export default function App() {
       localStorage.setItem('opencomm_is_logged_in', 'true');
       localStorage.setItem('opencomm_username', formFullName);
       localStorage.setItem(`opencomm_user_photo_${verifiedUser.id}`, resolvedPhoto);
-      localStorage.setItem('opencomm_user_id', verifiedUser.id);
+      setUserIdState(verifiedUser.id);
       setUserIdState(verifiedUser.id);
       localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
       localStorage.setItem('opencomm_onboarding_completed', 'true');
@@ -2134,7 +2118,12 @@ export default function App() {
     console.log('[Audit] Submit clicked');
     setJobFormError(null);
 
-    const loggedInId = localStorage.getItem('opencomm_user_id');
+    const { data: { user } } = await supabase.auth.getUser();
+    const loggedInId = user?.id;
+    if (!loggedInId) {
+      setJobFormError("You must be logged in to post a job.");
+      return;
+    }
 
     // Validation
     const missingFields = [];
@@ -4190,7 +4179,7 @@ export default function App() {
                                 setUserPhoto(url);
                                 if (url) setSelectedAvatar(null);
                               }}
-                              userId={localStorage.getItem('opencomm_user_id') || 'temp-user-id'}
+                              userId={userIdState || ''}
                               supabase={supabase}
                               triggerToast={triggerToast}
                             />

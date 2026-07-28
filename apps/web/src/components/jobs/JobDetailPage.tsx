@@ -42,7 +42,7 @@ export default function JobDetailPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const loggedInId = localStorage.getItem('opencomm_user_id');
+  const [loggedInId, setLoggedInId] = useState<string | null>(null);
   const isOwner = job?.posted_by && loggedInId === job.posted_by;
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
@@ -66,13 +66,19 @@ export default function JobDetailPage({
       // 2. Query real Supabase if connected
       if (supabase) {
         try {
+          const { data: authData } = await supabase.auth.getUser();
+          const authUserId = authData?.user?.id;
+          if (authUserId) {
+            setLoggedInId(authUserId);
+          }
+
           // Check if user has already applied
-          if (loggedInId) {
+          if (authUserId) {
             const { data: appData } = await supabase
               .from('job_applications')
               .select('id, status, proposed_rate, created_at')
               .eq('job_id', jobId)
-              .eq('applicant_id', loggedInId)
+              .eq('applicant_id', authUserId)
               .maybeSingle();
             if (appData) {
               setDbApplied(true);
@@ -172,7 +178,12 @@ export default function JobDetailPage({
     setIsSubmitting(true);
     try {
       const { data: authData } = await supabase.auth.getUser();
-      const applicantId = authData?.user?.id || loggedInId;
+      const applicantId = authData?.user?.id;
+      if (!applicantId) {
+        setIsSubmitting(false);
+        onOpenAuth('locked');
+        return;
+      }
 
       // 1. Pre-flight duplicate check
       const { data: existing } = await supabase

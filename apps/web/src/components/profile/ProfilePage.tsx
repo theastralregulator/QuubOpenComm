@@ -141,7 +141,7 @@ export default function ProfilePage({
   const [isOwner, setIsOwner] = useState(true);
   const [isPublic, setIsPublic] = useState(false);
   const [myJobPostsCount, setMyJobPostsCount] = useState(0);
-  const [jobsAppliedCount, setJobsAppliedCount] = useState(0);
+  const [jobsAppliedCount, setJobsAppliedCount] = useState<number | null>(null);
   const [employerJobStats, setEmployerJobStats] = useState<any[]>([]);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'experience' | 'skills' | 'reviews'>('overview');
@@ -175,8 +175,7 @@ export default function ProfilePage({
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
-  const loggedInId = localStorage.getItem('opencomm_user_id') || 'user-demo-id';
-
+  const [loggedInId, setLoggedInId] = useState<string | null>(null);
   // --- REFRESH JOBS APPLIED COUNT ---
   const refreshJobsAppliedCount = async () => {
     const {
@@ -253,8 +252,16 @@ export default function ProfilePage({
     try {
       let p: LocalProfile | null = null;
       let isOwnerCheck = false;
-      const { data: authData } = await supabase.auth.getUser();
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      const { data: authData, error: userError } = await supabase.auth.getUser();
+      
       const authUser = authData?.user;
+      
+      if (authUser) {
+        setLoggedInId(authUser.id);
+      } else {
+        setLoggedInId(null);
+      }
 
       if (usernameParam) {
         // Public View logic (or owner viewing their own public link)
@@ -319,8 +326,21 @@ export default function ProfilePage({
         setIsPublic(!isOwnerCheck);
 
           // Fetch authenticated user to enforce strict ownership checks
-          const { data: authData } = await supabase.auth.getUser();
-          const authUser = authData?.user;
+          if (authUser && authUser.id !== p.id && isOwnerCheck) {
+            console.error('[Identity Check] Mismatch detected!', {
+              authUserId: authUser?.id,
+              displayedProfileId: p?.id,
+              loggedInId,
+              routeProfileId: usernameParam
+            });
+            // Reload using correct ID
+            p = await dbService.getProfile(authUser.id);
+            if (!p) {
+              setLoading(false);
+              return;
+            }
+            setProfile(p);
+          }
 
           if (authUser && authUser.id === p.id && isOwnerCheck) {
             const jobCount = await dbService.getMyJobPostsCount(authUser.id);
@@ -686,6 +706,23 @@ export default function ProfilePage({
           onLogout={onLogout || (() => {})}
           triggerToast={triggerToast}
         />
+      )}
+
+      {/* IDENTITY DEBUG CARD (DEV ONLY) */}
+      {import.meta.env.DEV && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 mb-4">
+          <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg shadow-sm">
+            <h3 className="font-bold mb-2 flex items-center gap-2"><AlertCircle className="w-5 h-5" /> [Identity Check] Temporary Debug Card</h3>
+            <ul className="text-sm font-mono space-y-1">
+              <li>Auth User ID: {loggedInId || 'null'}</li>
+              <li>Displayed Profile ID: {profile?.id || 'null'}</li>
+              <li>Jobs Applied Count: {jobsAppliedCount === null ? 'Loading...' : jobsAppliedCount}</li>
+              {loggedInId !== profile?.id && isOwner && (
+                <li className="font-bold mt-2">MISMATCH DETECTED! Private stats may fail.</li>
+              )}
+            </ul>
+          </div>
+        </div>
       )}
 
       {/* 2. MAIN HEADER CARD (Only for Worker/Company) */}
