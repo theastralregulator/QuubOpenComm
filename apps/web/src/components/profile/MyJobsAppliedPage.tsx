@@ -48,7 +48,8 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
       console.log("[Jobs Applied] Auth user:", currentUserId);
 
       // Step A: Fetch applications using shared dbService function
-      const applicationRows = await dbService.getMyJobApplications(currentUserId);
+      const { data: applicationRows, error: applicationsError } = await dbService.getMyJobApplications(currentUserId);
+      if (applicationsError) throw applicationsError;
       const rawApps = applicationRows || [];
 
       if (rawApps.length === 0) {

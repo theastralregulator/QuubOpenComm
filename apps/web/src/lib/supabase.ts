@@ -1399,17 +1399,16 @@ export const dbService = {
     return count || 0;
   },
 
-  async getMyJobApplications(userId: string): Promise<any[]> {
+  async getMyJobApplications(userId: string): Promise<{ data: any[] | null; error: any }> {
     const { data, error } = await supabase
       .from('job_applications')
       .select('id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at')
       .eq('applicant_id', userId);
     
     if (error) {
-      console.error('Error fetching job applications:', error);
-      return [];
+      console.error('[dbService] Error fetching job applications:', error);
     }
-    return data || [];
+    return { data, error };
   },
 
   async updateMyJobStatus(jobId: string, isActive: boolean): Promise<boolean> {

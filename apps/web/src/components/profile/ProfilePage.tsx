@@ -193,12 +193,11 @@ export default function ProfilePage({
       return;
     }
 
-    const appliedRows = await dbService.getMyJobApplications(user.id);
-    const error = null; // dbService handles internal errors and returns []
+    const { data: appliedRows, error } = await dbService.getMyJobApplications(user.id);
       
     console.log('[PROFILE JOBS APPLIED DEBUG]', {
       authUserId: user?.id,
-      displayedProfileId: profile?.id, // Note: profile state might be stale here depending on closure, but we capture the general state.
+      displayedProfileId: profile?.id,
       rows: appliedRows,
       rowCount: appliedRows?.length,
       error: error
@@ -208,12 +207,14 @@ export default function ProfilePage({
 
     if (error) {
       console.error('[Profile] Jobs Applied error:', error);
-      setDebugJobsInfo({ authUserId: user?.id, rowCount: null, error: error.message });
+      const errMsg = typeof error === 'string' ? error : (error.message || JSON.stringify(error));
+      setDebugJobsInfo({ authUserId: user?.id, rowCount: null, renderedCount: jobsAppliedCount, error: errMsg });
       return;
     }
     
-    setDebugJobsInfo({ authUserId: user?.id, rowCount: appliedRows?.length, error: null });
-    setJobsAppliedCount(appliedRows?.length ?? 0);
+    const count = appliedRows ? appliedRows.length : 0;
+    setDebugJobsInfo({ authUserId: user?.id, rowCount: appliedRows?.length ?? 0, renderedCount: count, error: null });
+    setJobsAppliedCount(count);
   };
 
   useEffect(() => {
@@ -704,6 +705,8 @@ export default function ProfilePage({
           jobs={jobs}
           workers={workers}
           myJobPostsCount={myJobPostsCount}
+          jobsAppliedCount={jobsAppliedCount}
+          debugJobsInfo={debugJobsInfo}
           isOwner={isOwner}
           onEditProfile={handleOpenEdit}
           onUpdateBanner={handleOpenEdit}
@@ -729,24 +732,18 @@ export default function ProfilePage({
         />
       )}
 
-      {/* IDENTITY DEBUG CARD (DEV ONLY) */}
-      {import.meta.env.DEV && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 mb-4">
-          <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg shadow-sm">
-            <h3 className="font-bold mb-2 flex items-center gap-2"><AlertCircle className="w-5 h-5" /> [Identity Check] Temporary Debug Card</h3>
-            <ul className="text-sm font-mono space-y-1">
-              <li>Auth User ID: {debugJobsInfo?.authUserId || loggedInId || 'null'}</li>
-              <li>Displayed Profile ID: {profile?.id || 'null'}</li>
-              <li>Returned Row Count: {debugJobsInfo?.rowCount !== undefined ? debugJobsInfo.rowCount : 'null'}</li>
-              <li>Query Error: {debugJobsInfo?.error || 'None'}</li>
-              <li>Jobs Applied Count State: {jobsAppliedCount === null ? 'Loading...' : jobsAppliedCount}</li>
-              {loggedInId !== profile?.id && isOwner && (
-                <li className="font-bold mt-2">MISMATCH DETECTED! Private stats may fail.</li>
-              )}
-            </ul>
-          </div>
+      {/* IDENTITY DEBUG CARD (PROD VISIBLE DIAGNOSTIC) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 mb-4">
+        <div className="bg-slate-900 border border-slate-700 text-slate-100 p-4 rounded-xl shadow-md font-mono text-xs text-left space-y-1">
+          <h3 className="font-bold text-amber-400 mb-2 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400" /> Live Jobs Applied Diagnostic Card
+          </h3>
+          <div>Auth ID: {debugJobsInfo?.authUserId || loggedInId || 'None'}</div>
+          <div>Rows returned: {debugJobsInfo?.rowCount !== undefined && debugJobsInfo?.rowCount !== null ? debugJobsInfo.rowCount : 'None'}</div>
+          <div>Rendered count: {jobsAppliedCount === null ? 'Loading...' : jobsAppliedCount}</div>
+          <div>Query error: {debugJobsInfo?.error || 'None'}</div>
         </div>
-      )}
+      </div>
 
       {/* 2. MAIN HEADER CARD (Only for Worker/Company) */}
       {(!loading || profile) && profile?.profile_type !== 'basic' && (

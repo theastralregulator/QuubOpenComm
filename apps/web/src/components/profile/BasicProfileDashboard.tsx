@@ -59,6 +59,8 @@ interface BasicProfileDashboardProps {
   jobs?: Job[];
   workers?: Worker[];
   myJobPostsCount?: number;
+  jobsAppliedCount?: number | null;
+  debugJobsInfo?: any;
   isOwner?: boolean;
   onEditProfile: () => void;
   onCreateWorker: () => void;
@@ -78,6 +80,8 @@ export default function BasicProfileDashboard({
   jobs = [],
   workers = [],
   myJobPostsCount = 0,
+  jobsAppliedCount = null,
+  debugJobsInfo,
   isOwner = true,
   onEditProfile,
   onCreateWorker,
@@ -111,7 +115,7 @@ export default function BasicProfileDashboard({
   // Conditionally hide stats for public users
   const stats = [
     { label: 'My Job Posts', value: myJobPostsCount.toString(), icon: Briefcase, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-500/10', private: true, onClick: () => navigate('/profile/my-job-posts') },
-    { label: 'Jobs Applied', value: '0', icon: Briefcase, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', private: true },
+    { label: 'Jobs Applied', value: jobsAppliedCount === null || jobsAppliedCount === undefined ? 'Loading...' : jobsAppliedCount.toString(), icon: Briefcase, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', private: true, onClick: () => navigate('/profile/jobs-applied') },
     { label: 'Saved Jobs', value: jobs.filter(j => j.bookmarked).length.toString(), icon: Bookmark, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-500/10', private: true },
     { label: 'Saved Workers', value: workers.filter(w => w.bookmarked).length.toString(), icon: Users, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10', private: true },
     { label: 'Reviews', value: '0', icon: Star, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-500/10', private: false }
@@ -295,6 +299,15 @@ export default function BasicProfileDashboard({
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* TEMPORARY PRODUCTION DIAGNOSTIC DIRECTLY BELOW JOBS APPLIED CARD */}
+              <div className="p-4 bg-slate-900 text-slate-100 text-xs font-mono border-t border-slate-800 text-left space-y-1">
+                <div className="font-bold text-amber-400">Live Jobs Applied Diagnostic:</div>
+                <div>Auth ID: {debugJobsInfo?.authUserId || 'Loading...'}</div>
+                <div>Rows returned: {debugJobsInfo?.rowCount !== undefined && debugJobsInfo?.rowCount !== null ? debugJobsInfo.rowCount : 'Loading...'}</div>
+                <div>Rendered count: {jobsAppliedCount === null || jobsAppliedCount === undefined ? 'Loading...' : jobsAppliedCount}</div>
+                <div>Query error: {debugJobsInfo?.error || 'None'}</div>
               </div>
             </motion.div>
           )}
