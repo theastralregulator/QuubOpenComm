@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
-  ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, Clock
+  ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, Clock, RefreshCw
 } from 'lucide-react';
 import { Job } from '../../types';
 import { supabase } from '../../lib/supabase';
@@ -54,7 +54,33 @@ export default function JobDetailPage({
       setLoading(true);
       setError(null);
 
-      // 1. Try to find in memory first
+      // We must fetch Auth first before checking local jobs, so we don't early return and miss the application check
+      let currentAuthUserId: string | null = null;
+      if (supabase) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) {
+          console.error('[Job Details] Auth error:', authError);
+        }
+        currentAuthUserId = user?.id ?? null;
+        setLoggedInId(currentAuthUserId);
+
+        if (currentAuthUserId) {
+          const { data: existingApplication, error: applicationError } = await supabase
+            .from('job_applications')
+            .select('id, status, proposed_rate, created_at')
+            .eq('job_id', jobId)
+            .eq('applicant_id', currentAuthUserId)
+            .maybeSingle();
+
+          if (existingApplication) {
+            setDbApplied(true);
+            setApplicationStatus(existingApplication.status);
+            setExistingApp(existingApplication);
+          }
+        }
+      }
+
+      // Now resolve the job (local or remote)
       const localJob = jobs.find((j) => j.id === jobId);
       if (localJob) {
         setJob(localJob);
@@ -66,26 +92,8 @@ export default function JobDetailPage({
       // 2. Query real Supabase if connected
       if (supabase) {
         try {
-          const { data: authData } = await supabase.auth.getUser();
-          const authUserId = authData?.user?.id;
-          if (authUserId) {
-            setLoggedInId(authUserId);
-          }
-
-          // Check if user has already applied
-          if (authUserId) {
-            const { data: appData } = await supabase
-              .from('job_applications')
-              .select('id, status, proposed_rate, created_at')
-              .eq('job_id', jobId)
-              .eq('applicant_id', authUserId)
-              .maybeSingle();
-            if (appData) {
-              setDbApplied(true);
-              setApplicationStatus(appData.status);
-              setExistingApp(appData);
-            }
-          }
+          // Auth and existing application check is already done above.
+          // Proceed to fetch the job directly.
 
           const { data, error: sbError } = await supabase
             .from('jobs')
@@ -170,20 +178,21 @@ export default function JobDetailPage({
     e.preventDefault();
     if (!job) return;
 
-    if (!isLoggedIn || !loggedInId) {
-      onOpenAuth('locked');
-      return;
-    }
-
+    console.log('[Apply] Button clicked');
     setIsSubmitting(true);
+
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const applicantId = authData?.user?.id;
-      if (!applicantId) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
         setIsSubmitting(false);
         onOpenAuth('locked');
         return;
       }
+
+      const applicantId = user.id;
+      console.log('[Apply] Auth user ID:', applicantId);
+      console.log('[Apply] Job ID:', job.id);
 
       // 1. Pre-flight duplicate check
       const { data: existing } = await supabase
@@ -193,12 +202,13 @@ export default function JobDetailPage({
         .eq('applicant_id', applicantId)
         .maybeSingle();
 
+      console.log('[Apply] Existing application:', existing);
+
       if (existing) {
         setDbApplied(true);
         setApplicationStatus(existing.status);
         setExistingApp(existing);
         triggerToast('You have already applied for this job.');
-        setIsSubmitting(false);
         setShowApplyForm(false);
         return;
       }
@@ -217,6 +227,8 @@ export default function JobDetailPage({
         .select('id, status, proposed_rate, created_at')
         .single();
 
+      console.log('[Apply] Insert response:', response);
+
       if (response.error) throw response.error;
 
       // Update both local states so UI re-renders immediately
@@ -227,8 +239,6 @@ export default function JobDetailPage({
       
       window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
       triggerToast('Application submitted successfully!');
-      
-      setIsSubmitting(false);
       setShowApplyForm(false);
     } catch (err: any) {
       if (err.code === '23505') {
@@ -239,6 +249,7 @@ export default function JobDetailPage({
           console.error('--- SUPABASE ERROR OBJECT ---', err);
         }
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -504,6 +515,11 @@ export default function JobDetailPage({
                 onClick={() => {
                   if (job.applied || deadlineInfo.isExpired) return;
                   setShowApplyForm(!showApplyForm);
+                  if (!showApplyForm) {
+                    setTimeout(() => {
+                      document.getElementById('apply-form-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                  }
                 }}
                 disabled={job.applied || deadlineInfo.isExpired}
                 className={`w-full h-12 rounded-xl text-sm font-extrabold transition-all duration-200 flex items-center justify-center space-x-2 ${
@@ -581,6 +597,7 @@ export default function JobDetailPage({
         <AnimatePresence>
           {showApplyForm && !isOwner && !deadlineInfo.isExpired && !existingApp && (
             <motion.form
+              id="apply-form-section"
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -634,9 +651,13 @@ export default function JobDetailPage({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="h-11 px-6 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center justify-center space-x-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02]"
+                  className={`h-11 px-6 rounded-xl text-white font-bold text-sm flex items-center justify-center space-x-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02] ${isSubmitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500'}`}
                 >
-                  <Send className="w-4 h-4" />
+                  {isSubmitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                   <span>{isSubmitting ? 'Submitting...' : 'Submit Proposal'}</span>
                 </button>
               </div>
