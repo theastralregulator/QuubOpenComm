@@ -177,6 +177,75 @@ export default function ProfilePage({
 
   const loggedInId = localStorage.getItem('opencomm_user_id') || 'user-demo-id';
 
+  // --- REFRESH JOBS APPLIED COUNT ---
+  const refreshJobsAppliedCount = async () => {
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      setJobsAppliedCount(0);
+      return;
+    }
+
+    const { count, error } = await supabase
+      .from('job_applications')
+      .select('id', { count: 'exact', head: true })
+      .eq('applicant_id', user.id);
+
+    if (error) {
+      console.error('[Profile] Jobs Applied count error:', error);
+      return;
+    }
+
+    setJobsAppliedCount(count ?? 0);
+  };
+
+  useEffect(() => {
+    let channel: any;
+    
+    const setupSubscriptions = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      channel = supabase
+        .channel(`profile-job-applications-${user.id}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'job_applications',
+          filter: `applicant_id=eq.${user.id}`
+        }, () => refreshJobsAppliedCount())
+        .subscribe();
+    };
+
+    const handleFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshJobsAppliedCount();
+      }
+    };
+
+    const handleCustomEvent = () => {
+      refreshJobsAppliedCount();
+    };
+
+    // Initial load
+    refreshJobsAppliedCount();
+    setupSubscriptions();
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+    window.addEventListener('opencomm:job-application-changed', handleCustomEvent);
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      window.removeEventListener('opencomm:job-application-changed', handleCustomEvent);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
   // --- REFRESH PROFILE DATA ON LOAD OR ACTIONS ---
   const loadProfileData = async () => {
     setLoading(true);
@@ -256,16 +325,7 @@ export default function ProfilePage({
           if (authUser && authUser.id === p.id && isOwnerCheck) {
             const jobCount = await dbService.getMyJobPostsCount(authUser.id);
             setMyJobPostsCount(jobCount);
-            const { count, error: countError } = await supabase
-              .from('job_applications')
-              .select('id', { count: 'exact', head: true })
-              .eq('applicant_id', authUser.id);
-              
-            if (countError) {
-              console.error('[Profile] Jobs Applied count error:', countError);
-            } else {
-              setJobsAppliedCount(count ?? 0);
-            }
+            // We do not set jobsAppliedCount here anymore to avoid resetting/overwriting the dedicated realtime fetch
 
             try {
               const { data: jobStatsData, error: statsError } = await supabase

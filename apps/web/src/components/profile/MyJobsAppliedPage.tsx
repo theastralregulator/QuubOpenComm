@@ -179,10 +179,27 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
         .subscribe();
     };
     
+    const handleFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchApplications();
+      }
+    };
+
+    const handleCustomEvent = () => {
+      fetchApplications();
+    };
+
     setup();
     fetchApplications();
 
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+    window.addEventListener('opencomm:job-application-changed', handleCustomEvent);
+
     return () => {
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      window.removeEventListener('opencomm:job-application-changed', handleCustomEvent);
       if (channel) supabase.removeChannel(channel);
     };
   }, []);

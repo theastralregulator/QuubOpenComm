@@ -214,6 +214,7 @@ export default function JobDetailPage({
       setExistingApp(response.data);
       setJob(prev => prev ? { ...prev, applied: true } : null);
       
+      window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
       triggerToast('Application submitted successfully!');
       
       setIsSubmitting(false);
