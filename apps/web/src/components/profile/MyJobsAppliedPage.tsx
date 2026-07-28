@@ -107,7 +107,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
       if (employerIds.length > 0) {
         const { data: employerRows, error: employerError } = await supabase
           .from('profile_directory')
-          .select('id, full_name, avatar_url')
+          .select('id, full_name, avatar_url, city, state, country')
           .in('id', employerIds);
           
         if (employerError) {

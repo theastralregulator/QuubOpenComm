@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
-  BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users
+  BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users, AlertCircle
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { supabase, dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
@@ -183,26 +183,64 @@ export default function ProfilePage({
     setErrorState(null);
     try {
       let p: LocalProfile | null = null;
-      let isOwnerCheck = true;
+      let isOwnerCheck = false;
+      const { data: authData } = await supabase.auth.getUser();
+      const authUser = authData?.user;
 
       if (usernameParam) {
         // Public View logic (or owner viewing their own public link)
-        p = await dbService.getProfileByUsername(usernameParam);
-        if (p && p.id === loggedInId) {
+        if (authUser && authUser.id === usernameParam) {
           isOwnerCheck = true;
+          p = await dbService.getProfile(authUser.id);
         } else {
           isOwnerCheck = false;
+          
+          const fetchPublicProfile = async (retryCount = 0): Promise<any> => {
+            const { data, error } = await supabase
+              .from('profile_directory')
+              .select(`
+                id,
+                username,
+                full_name,
+                avatar_url,
+                banner_url,
+                bio,
+                city,
+                state,
+                country,
+                preferred_language,
+                profile_type,
+                onboarding_completed,
+                created_at
+              `)
+              .eq('id', usernameParam)
+              .maybeSingle();
+
+            if (!data && retryCount < 1) {
+              await new Promise(r => setTimeout(r, 600));
+              return fetchPublicProfile(retryCount + 1);
+            }
+            if (error && import.meta.env.DEV) {
+               console.error("Public profile fetch error:", error);
+            }
+            return data;
+          };
+          
+          const pubProfile = await fetchPublicProfile();
+          if (pubProfile) {
+            p = pubProfile as unknown as LocalProfile;
+          }
         }
       } else {
         // Owner accessing /profile directly
-        if (!isLoggedIn) {
+        if (!isLoggedIn || !authUser) {
           setProfile(null);
           setWorkerProfile(null);
           setCompanyProfile(null);
           setLoading(false);
           return;
         }
-        p = await dbService.getProfile(loggedInId);
+        p = await dbService.getProfile(authUser.id);
         isOwnerCheck = true;
       }
 
@@ -215,7 +253,7 @@ export default function ProfilePage({
           const { data: authData } = await supabase.auth.getUser();
           const authUser = authData?.user;
 
-          if (authUser && authUser.id === p.id) {
+          if (authUser && authUser.id === p.id && isOwnerCheck) {
             const jobCount = await dbService.getMyJobPostsCount(authUser.id);
             setMyJobPostsCount(jobCount);
             const appliedCount = await dbService.getMyJobsAppliedCount(authUser.id);
@@ -521,7 +559,7 @@ export default function ProfilePage({
         </div>
       )}
 
-      {errorState && (
+      {errorState && !isPublic && isOwner && (
         <div className="p-8 text-center bg-rose-500/5 border border-rose-500/15 rounded-3xl space-y-4 text-left">
           <h3 className="text-sm font-bold text-rose-500">Database Synchronization Blocked</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-mono">
@@ -529,10 +567,20 @@ export default function ProfilePage({
           </p>
           <button 
             onClick={loadProfileData}
-            className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all"
+            className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
           >
             Retry Sync
           </button>
+        </div>
+      )}
+
+      {errorState && (!isOwner || isPublic) && (
+        <div className="p-12 text-center bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-[24px] max-w-lg mx-auto mt-12 shadow-sm">
+          <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4 opacity-50" />
+          <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Profile Unavailable</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            This profile could not be found or may have been removed.
+          </p>
         </div>
       )}
 
