@@ -256,8 +256,16 @@ export default function ProfilePage({
           if (authUser && authUser.id === p.id && isOwnerCheck) {
             const jobCount = await dbService.getMyJobPostsCount(authUser.id);
             setMyJobPostsCount(jobCount);
-            const appliedCount = await dbService.getMyJobsAppliedCount(authUser.id);
-            setJobsAppliedCount(appliedCount);
+            const { count, error: countError } = await supabase
+              .from('job_applications')
+              .select('id', { count: 'exact', head: true })
+              .eq('applicant_id', authUser.id);
+              
+            if (countError) {
+              console.error('[Profile] Jobs Applied count error:', countError);
+            } else {
+              setJobsAppliedCount(count ?? 0);
+            }
 
             try {
               const { data: jobStatsData, error: statsError } = await supabase

@@ -40,13 +40,12 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
     setLoading(true);
     setError(null);
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const user = authData?.user;
-      if (!user) {
-        throw new Error("You must be logged in to view your applications.");
-      }
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) return;
+      const currentUserId = user.id;
 
-      console.log("Fetching applications for user:", user.id);
+      console.log("[Jobs Applied] Auth user:", currentUserId);
 
       // Step A: Fetch applications only
       const { data: applicationRows, error: applicationsError } = await supabase
@@ -60,15 +59,22 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
           status,
           created_at
         `)
-        .eq('applicant_id', user.id)
+        .eq('applicant_id', currentUserId)
         .order('created_at', { ascending: false });
+
+      console.log('[Jobs Applied] Auth user:', currentUserId);
+      console.log('[Jobs Applied] Applications:', applicationRows);
+      console.log('[Jobs Applied] Error:', applicationsError);
 
       if (applicationsError) throw applicationsError;
 
       const rawApps = applicationRows || [];
-      console.log("Application row count:", rawApps.length);
 
       if (rawApps.length === 0) {
+        const { data: debugData, error: debugError, status: debugStatus } = await supabase.from('job_applications').select('applicant_id').limit(10);
+        console.log('[Jobs Applied DEBUG] Visible applicant_ids:', debugData);
+        console.log('[Jobs Applied DEBUG] Debug error:', debugError);
+        console.log('[Jobs Applied DEBUG] Session status:', debugStatus);
         setApplications([]);
         return;
       }
@@ -160,14 +166,15 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      const currentUserId = user.id;
       
       channel = supabase
-        .channel(`job-applications-${user.id}`)
+        .channel(`job-applications-${currentUserId}`)
         .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
           table: 'job_applications',
-          filter: `applicant_id=eq.${user.id}`
+          filter: `applicant_id=eq.${currentUserId}`
         }, fetchApplications)
         .subscribe();
     };
