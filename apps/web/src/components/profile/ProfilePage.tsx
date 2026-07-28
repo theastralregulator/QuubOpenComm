@@ -143,7 +143,6 @@ export default function ProfilePage({
   const [myJobPostsCount, setMyJobPostsCount] = useState(0);
   const [jobsAppliedCount, setJobsAppliedCount] = useState<number | null>(null);
   const [employerJobStats, setEmployerJobStats] = useState<any[]>([]);
-  const [debugJobsInfo, setDebugJobsInfo] = useState<any>(null);
   
   const location = useLocation();
   const jobsAppliedRequestRef = useRef(0);
@@ -194,26 +193,15 @@ export default function ProfilePage({
     }
 
     const { data: appliedRows, error } = await dbService.getMyJobApplications(user.id);
-      
-    console.log('[PROFILE JOBS APPLIED DEBUG]', {
-      authUserId: user?.id,
-      displayedProfileId: profile?.id,
-      rows: appliedRows,
-      rowCount: appliedRows?.length,
-      error: error
-    });
 
     if (requestId !== jobsAppliedRequestRef.current) return;
 
     if (error) {
       console.error('[Profile] Jobs Applied error:', error);
-      const errMsg = typeof error === 'string' ? error : (error.message || JSON.stringify(error));
-      setDebugJobsInfo({ authUserId: user?.id, rowCount: null, renderedCount: jobsAppliedCount, error: errMsg });
       return;
     }
     
     const count = appliedRows ? appliedRows.length : 0;
-    setDebugJobsInfo({ authUserId: user?.id, rowCount: appliedRows?.length ?? 0, renderedCount: count, error: null });
     setJobsAppliedCount(count);
   };
 
@@ -706,7 +694,6 @@ export default function ProfilePage({
           workers={workers}
           myJobPostsCount={myJobPostsCount}
           jobsAppliedCount={jobsAppliedCount}
-          debugJobsInfo={debugJobsInfo}
           isOwner={isOwner}
           onEditProfile={handleOpenEdit}
           onUpdateBanner={handleOpenEdit}
@@ -732,18 +719,7 @@ export default function ProfilePage({
         />
       )}
 
-      {/* IDENTITY DEBUG CARD (PROD VISIBLE DIAGNOSTIC) */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 mb-4">
-        <div className="bg-slate-900 border border-slate-700 text-slate-100 p-4 rounded-xl shadow-md font-mono text-xs text-left space-y-1">
-          <h3 className="font-bold text-amber-400 mb-2 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-400" /> Live Jobs Applied Diagnostic Card
-          </h3>
-          <div>Auth ID: {debugJobsInfo?.authUserId || loggedInId || 'None'}</div>
-          <div>Rows returned: {debugJobsInfo?.rowCount !== undefined && debugJobsInfo?.rowCount !== null ? debugJobsInfo.rowCount : 'None'}</div>
-          <div>Rendered count: {jobsAppliedCount === null ? 'Loading...' : jobsAppliedCount}</div>
-          <div>Query error: {debugJobsInfo?.error || 'None'}</div>
-        </div>
-      </div>
+
 
       {/* 2. MAIN HEADER CARD (Only for Worker/Company) */}
       {(!loading || profile) && profile?.profile_type !== 'basic' && (

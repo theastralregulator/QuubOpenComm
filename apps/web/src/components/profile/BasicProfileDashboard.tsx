@@ -60,7 +60,6 @@ interface BasicProfileDashboardProps {
   workers?: Worker[];
   myJobPostsCount?: number;
   jobsAppliedCount?: number | null;
-  debugJobsInfo?: any;
   isOwner?: boolean;
   onEditProfile: () => void;
   onCreateWorker: () => void;
@@ -81,7 +80,6 @@ export default function BasicProfileDashboard({
   workers = [],
   myJobPostsCount = 0,
   jobsAppliedCount = null,
-  debugJobsInfo,
   isOwner = true,
   onEditProfile,
   onCreateWorker,
@@ -299,15 +297,6 @@ export default function BasicProfileDashboard({
                     </div>
                   </div>
                 ))}
-              </div>
-
-              {/* TEMPORARY PRODUCTION DIAGNOSTIC DIRECTLY BELOW JOBS APPLIED CARD */}
-              <div className="p-4 bg-slate-900 text-slate-100 text-xs font-mono border-t border-slate-800 text-left space-y-1">
-                <div className="font-bold text-amber-400">Live Jobs Applied Diagnostic:</div>
-                <div>Auth ID: {debugJobsInfo?.authUserId || 'Loading...'}</div>
-                <div>Rows returned: {debugJobsInfo?.rowCount !== undefined && debugJobsInfo?.rowCount !== null ? debugJobsInfo.rowCount : 'Loading...'}</div>
-                <div>Rendered count: {jobsAppliedCount === null || jobsAppliedCount === undefined ? 'Loading...' : jobsAppliedCount}</div>
-                <div>Query error: {debugJobsInfo?.error || 'None'}</div>
               </div>
             </motion.div>
           )}
