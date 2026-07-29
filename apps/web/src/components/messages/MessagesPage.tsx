@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, MessageSquare, ArrowLeft, RefreshCw, AlertCircle, ShieldAlert, CheckCircle2, User } from 'lucide-react';
+import { 
+  MessageSquare, Send, ArrowLeft, ShieldAlert, CheckCircle2, 
+  RefreshCw, AlertCircle, Search, X
+} from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { ConversationViewModel, DbMessage } from '../../types';
 import UserAvatar from '../common/UserAvatar';
@@ -25,6 +28,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   const [chatInput, setChatInput] = useState<string>('');
   const [isSending, setIsSending] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -205,8 +209,21 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     }
   };
 
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const query = searchQuery.toLowerCase();
+    return conversations.filter(c => {
+      const nameMatch = c.otherParticipantName?.toLowerCase().includes(query);
+      const titleMatch = c.otherParticipantTitle?.toLowerCase().includes(query);
+      const typeLabel = c.conversationType === 'worker_direct' ? 'direct worker enquiry' : 'job application';
+      const typeMatch = typeLabel.includes(query);
+      const textMatch = c.lastMessageText?.toLowerCase().includes(query);
+      return nameMatch || titleMatch || typeMatch || textMatch;
+    });
+  }, [conversations, searchQuery]);
+
   return (
-    <div className="w-full max-w-[1200px] mx-auto h-[100dvh] md:h-[calc(100vh-80px)] min-h-[400px] p-0 md:p-4 text-left flex flex-col">
+    <div className="w-full max-w-[1200px] mx-auto h-[calc(100dvh-120px)] md:h-[calc(100vh-80px)] min-h-[400px] p-0 md:p-4 text-left flex flex-col overflow-hidden">
       {/* Page Header */}
       <div className="flex items-center justify-between mb-3 px-2">
         <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
@@ -231,15 +248,39 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         }`}>
           
           {/* Inbox List Header */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Conversations</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-              {conversations.length}
-            </span>
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Conversations</span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                {filteredConversations.length}
+              </span>
+            </div>
+            
+            {/* Search Bar */}
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-slate-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search conversations..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="block w-full pl-9 pr-8 py-2 border border-slate-200 dark:border-slate-700 rounded-xl leading-5 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-all shadow-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Conversations Scroll Area */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+          <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 divide-y divide-slate-100 dark:divide-slate-800/50">
             {loadingConvs ? (
               <div className="p-4 space-y-4 animate-pulse">
                 {[1, 2, 3].map((i) => (
@@ -263,48 +304,59 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                   Retry
                 </button>
               </div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="p-8 text-center space-y-3 my-auto">
+                <Search className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No conversations found</h4>
+              </div>
             ) : conversations.length === 0 ? (
               <div className="p-8 text-center space-y-3 my-auto">
                 <MessageSquare className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto" />
                 <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No conversations yet</h4>
                 <p className="text-xs text-slate-400 leading-relaxed max-w-[240px] mx-auto">
-                  Apply for a job or message an applicant to start a conversation.
+                  Apply for a job or contact a worker to start a conversation.
                 </p>
+                <div className="flex gap-2 justify-center pt-2">
+                  <button onClick={() => navigate('/jobs')} className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-lg transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-500/20">Find Jobs</button>
+                  <button onClick={() => navigate('/workers')} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg transition-colors hover:bg-slate-200 dark:hover:bg-slate-700">Browse Workers</button>
+                </div>
               </div>
             ) : (
-              conversations.map((conv) => {
+              filteredConversations.map((conv) => {
                 const isActive = conv.id === conversationId;
+                const isUnread = conv.unreadCount > 0;
                 return (
                   <div
                     key={conv.id}
                     onClick={() => navigate(`/messages/${conv.id}`)}
-                    className={`p-4 flex items-start gap-3 transition-colors cursor-pointer relative ${
+                    className={`p-4 flex items-start gap-3 transition-colors cursor-pointer relative border-l-4 ${
                       isActive
-                        ? 'bg-indigo-50/70 dark:bg-indigo-500/10 border-l-4 border-indigo-600 dark:border-indigo-400'
-                        : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/40'
+                        ? 'bg-indigo-50/70 dark:bg-indigo-500/10 border-indigo-600 dark:border-indigo-400'
+                        : 'border-transparent hover:bg-slate-100/60 dark:hover:bg-slate-800/40'
                     }`}
                   >
                     <UserAvatar
                       avatarUrl={conv.otherParticipantAvatar}
                       fullName={conv.otherParticipantName}
                       size="md"
-                      className="shrink-0 mt-0.5"
+                      className="shrink-0 mt-0.5 shadow-sm"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                        <h4 className={`text-sm truncate ${isUnread ? 'font-black text-slate-900 dark:text-white' : 'font-bold text-slate-900 dark:text-white'}`}>
                           {conv.otherParticipantName}
                         </h4>
-                        <span className="text-[10px] font-semibold text-slate-400 shrink-0 ml-2">
+                        <span className={`text-[10px] shrink-0 ml-2 ${isUnread ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-semibold text-slate-400'}`}>
                           {conv.lastMessageTime}
                         </span>
                       </div>
                       <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate mb-1">
-                        {conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application'}
+                        {conv.conversationType === 'worker_direct' 
+                          ? `Direct Worker Enquiry${conv.otherParticipantTitle ? ` · ${conv.otherParticipantTitle}` : ''}` 
+                          : `Job Application${conv.otherParticipantTitle && conv.otherParticipantTitle !== 'Job Opportunity' ? ` · ${conv.otherParticipantTitle}` : ''}`}
                       </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate font-medium">
-                        {conv.conversationType === 'worker_direct' && conv.otherParticipantTitle ? `${conv.otherParticipantTitle} • ` : ''}
-                        {conv.lastMessageText}
+                      <p className={`text-xs truncate ${isUnread ? 'font-bold text-slate-800 dark:text-slate-200' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+                        {conv.lastMessageText === 'No messages yet' ? 'Start the conversation' : conv.lastMessageText}
                       </p>
                     </div>
 

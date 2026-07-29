@@ -478,8 +478,8 @@ export default function Navbar({
       </header>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/80 dark:bg-[#080B18]/80 backdrop-blur-lg border-t border-slate-200 dark:border-[#273449]/40 pb-[env(safe-area-inset-bottom,8px)] shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
-        <nav className="flex items-center justify-around h-13 px-2">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-[calc(16px+env(safe-area-inset-bottom))] pointer-events-none">
+        <nav className="flex items-center justify-around h-16 px-2 bg-white/95 dark:bg-[#0B0F19]/95 backdrop-blur-xl border border-slate-200/60 dark:border-slate-800/80 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] pointer-events-auto">
           {navItems.map((item) => {
             const IconComponent = item.icon;
             const pathname = location.pathname;
@@ -508,23 +508,23 @@ export default function Navbar({
                   setShowSettingsMenu(false);
                   setShowThemeMenu(false);
                 }}
-                className="relative flex flex-col items-center justify-center flex-1 h-full py-0.5 text-slate-500 dark:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-h-[44px]"
+                className="relative flex flex-col items-center justify-center flex-1 h-full py-1 text-slate-500 dark:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-h-[48px]"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 id={`mobile-nav-${item.id}`}
               >
                 {isActive && (
                   <motion.span
                     layoutId="mobileActiveIndicator"
-                    className="absolute top-0.5 w-8 h-0.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"
+                    className="absolute top-1 w-8 h-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"
                     transition={{ type: "spring", stiffness: 350, damping: 25 }}
                   />
                 )}
-                <IconComponent className={`w-4.5 h-4.5 mb-0.5 transition-colors duration-200 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`} />
-                <span className={`text-[9px] font-medium transition-colors duration-200 leading-none ${isActive ? 'text-slate-900 dark:text-white font-semibold' : 'text-slate-500 dark:text-slate-400'}`}>
+                <IconComponent className={`w-5 h-5 mb-0.5 transition-colors duration-200 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                <span className={`text-[10px] font-medium transition-colors duration-200 leading-none ${isActive ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
                   {item.label}
                 </span>
                 {item.badgeCount && item.badgeCount > 0 ? (
-                  <span className="absolute top-1.5 right-1/4 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[8px] font-bold text-white">
+                  <span className="absolute top-2 right-1/4 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-[#0B0F19]">
                     {item.badgeCount}
                   </span>
                 ) : null}

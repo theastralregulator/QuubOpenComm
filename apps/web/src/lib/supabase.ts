@@ -1514,12 +1514,15 @@ export const dbService = {
 
     let profileMap: Record<string, any> = {};
     if (otherParticipantIds.length > 0) {
-      const { data: pRows } = await supabase
+      const { data: pRows, error: pError } = await supabase
         .from('profile_directory')
         .select('id, full_name, avatar_url, username, profile_type, city, state, country, profession')
         .in('id', otherParticipantIds);
       if (pRows) {
         pRows.forEach((p: any) => { profileMap[p.id] = p; });
+      }
+      if (pError) {
+        console.error('getMyConversations profile_directory error:', pError);
       }
     }
 
@@ -1549,7 +1552,7 @@ export const dbService = {
       }
     }
 
-    return convRows.map((c: any) => {
+    const mergedConversations = convRows.map((c: any) => {
       const otherId = c.creator_id === user.id ? c.member_id : c.creator_id;
       const otherProfile = profileMap[otherId] || {};
       const jobTitle = jobMap[c.job_id] || 'Job Opportunity';
@@ -1577,6 +1580,13 @@ export const dbService = {
         conversationType: c.conversation_type
       };
     });
+
+    console.log('[Messages Inbox] Current user:', user.id);
+    console.log('[Messages Inbox] Participant IDs:', otherParticipantIds);
+    console.log('[Messages Inbox] Profiles returned:', profileMap);
+    console.log('[Messages Inbox] Merged conversations:', mergedConversations);
+
+    return mergedConversations;
   },
 
   async getConversationMessages(conversationId: string): Promise<DbMessage[]> {
