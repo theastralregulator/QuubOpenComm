@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  MessageSquare, Send, ArrowLeft, ShieldAlert, CheckCircle2, 
-  RefreshCw, AlertCircle, Search, X
+  MessageSquare, Send, ArrowLeft, ShieldAlert, 
+  RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { ConversationViewModel, DbMessage } from '../../types';
@@ -19,6 +19,13 @@ export interface ConversationGroup {
   latestMessageText: string;
   totalUnread: number;
 }
+
+type PendingMessage = {
+  id: string;
+  text: string;
+  status: 'sending' | 'failed';
+};
+
 interface MessagesPageProps {
   triggerToast: (msg: string) => void;
 }
@@ -60,6 +67,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   const [chatInput, setChatInput] = useState<string>('');
   const [isSending, setIsSending] = useState<boolean>(false);
+  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedParticipantGroup, setSelectedParticipantGroup] = useState<ConversationGroup | null>(null);
 
@@ -213,22 +221,27 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     if (!conversationId || !chatInput.trim() || isSending) return;
 
     const textToSend = chatInput.trim();
+    const tempId = `temp-${Date.now()}`;
+    
+    setPendingMessages(prev => [...prev, { id: tempId, text: textToSend, status: 'sending' }]);
+    setChatInput('');
     setIsSending(true);
 
     try {
       const sentMsg = await dbService.sendTextMessage(conversationId, textToSend);
       if (sentMsg) {
+        setPendingMessages(prev => prev.filter(m => m.id !== tempId));
         setMessages((prev) => {
           if (prev.some((m) => m.id === sentMsg.id)) return prev;
           return [...prev, sentMsg];
         });
-        setChatInput('');
         // Refresh conversations list to update preview
         const updatedConvs = await dbService.getMyConversations();
         handleSetConversations(updatedConvs);
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
+      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
       triggerToast(err.message || 'Failed to send message.');
     } finally {
       setIsSending(false);
@@ -481,6 +494,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     const sentTime = msg.created_at
                       ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       : '';
+                    const isRead = Boolean(msg.read_at) || msg.unread === false;
 
                     return (
                       <div
@@ -497,9 +511,13 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         )}
                         <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
                           <div
-                            className={`p-3.5 rounded-[18px] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left ${
+                            title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                            aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                            className={`p-3.5 rounded-[18px] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
                               isMe
-                                ? 'bg-blue-600 text-white rounded-br-xs shadow-sm'
+                                ? isRead
+                                  ? 'bg-blue-600 text-white rounded-br-xs shadow-sm'
+                                  : 'bg-slate-500 text-white rounded-br-xs shadow-sm'
                                 : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
                             }`}
                           >
@@ -507,21 +525,40 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           </div>
                           <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
                             <span>{sentTime}</span>
-                            {isMe && (
-                              <span className="shrink-0">
-                                {msg.read_at || msg.unread === false ? (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-[#38bdf8] fill-[#38bdf8]/20" />
-                                ) : (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600" />
-                                )}
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
                     );
                   })
                 )}
+                
+                {/* Pending Messages Optimistic UI */}
+                {pendingMessages.map((pMsg) => (
+                  <div key={pMsg.id} className="flex items-end gap-2 justify-end">
+                    <div className="max-w-[85%] sm:max-w-[70%] space-y-1 items-end relative">
+                      <div className="flex items-center justify-end gap-2">
+                        {pMsg.status === 'failed' && (
+                          <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" title="Failed to send" />
+                        )}
+                        <div
+                          className={`p-3.5 rounded-[18px] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left bg-slate-500 text-white rounded-br-xs shadow-sm transition-opacity duration-300 ${
+                            pMsg.status === 'sending' ? 'opacity-70' : ''
+                          }`}
+                        >
+                          {pMsg.text}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-1 text-[10px] font-semibold text-slate-400">
+                        {pMsg.status === 'sending' ? (
+                          <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Sending...</span>
+                        ) : (
+                          <span className="text-rose-500">Failed</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
                 <div ref={messagesEndRef} />
               </div>
 
