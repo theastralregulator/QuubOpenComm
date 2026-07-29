@@ -1512,17 +1512,47 @@ export const dbService = {
     const jobIds = [...new Set(convRows.map((c: any) => c.job_id).filter(Boolean))];
     const convIds = convRows.map((c: any) => c.id);
 
-    let profileMap: Record<string, any> = {};
+    let profileMap = new Map();
     if (otherParticipantIds.length > 0) {
       const { data: pRows, error: pError } = await supabase
         .from('profile_directory')
-        .select('id, full_name, avatar_url, username, profile_type, city, state, country, profession')
+        .select(`
+          id,
+          full_name,
+          username,
+          avatar_url,
+          profile_type,
+          city,
+          state,
+          country
+        `)
         .in('id', otherParticipantIds);
+        
       if (pRows) {
-        pRows.forEach((p: any) => { profileMap[p.id] = p; });
+        pRows.forEach((p: any) => { profileMap.set(p.id, p); });
       }
       if (pError) {
         console.error('getMyConversations profile_directory error:', pError);
+      }
+    }
+
+    const workerIds = convRows
+      .filter((c: any) => c.conversation_type === 'worker_direct')
+      .map((c: any) => c.creator_id === user.id ? c.member_id : c.creator_id)
+      .filter(Boolean);
+
+    let professionMap = new Map();
+    if (workerIds.length > 0) {
+      const { data: wRows, error: wError } = await supabase
+        .from('worker_profiles')
+        .select('id, profession')
+        .in('id', workerIds);
+
+      if (wRows) {
+        wRows.forEach((w: any) => { professionMap.set(w.id, w.profession); });
+      }
+      if (wError) {
+        console.error('getMyConversations worker_profiles error:', wError);
       }
     }
 
@@ -1554,8 +1584,9 @@ export const dbService = {
 
     const mergedConversations = convRows.map((c: any) => {
       const otherId = c.creator_id === user.id ? c.member_id : c.creator_id;
-      const otherProfile = profileMap[otherId] || {};
+      const otherProfile = profileMap.get(otherId) || {};
       const jobTitle = jobMap[c.job_id] || 'Job Opportunity';
+      const profession = professionMap.get(otherId) || 'Professional';
       
       const lastTimeFormatted = c.last_message_time 
         ? new Date(c.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -1568,10 +1599,10 @@ export const dbService = {
         creatorId: c.creator_id,
         memberId: c.member_id,
         otherParticipantId: otherId,
-        otherParticipantName: otherProfile.full_name || otherProfile.username || 'OpenComm User',
-        otherParticipantAvatar: otherProfile.avatar_url || '',
+        otherParticipantName: otherProfile.full_name?.trim() || otherProfile.username?.trim() || 'OpenComm User',
+        otherParticipantAvatar: otherProfile.avatar_url || null,
         otherParticipantTitle: c.conversation_type === 'worker_direct' 
-          ? (otherProfile.profession || 'Professional') 
+          ? profession 
           : jobTitle,
         lastMessageText: c.last_message_text || 'No messages yet',
         lastMessageTime: lastTimeFormatted,
@@ -1581,12 +1612,19 @@ export const dbService = {
       };
     });
 
-    console.log('[Messages Inbox] Current user:', user.id);
-    console.log('[Messages Inbox] Participant IDs:', otherParticipantIds);
-    console.log('[Messages Inbox] Profiles returned:', profileMap);
-    console.log('[Messages Inbox] Merged conversations:', mergedConversations);
+    const uniqueConversations = Array.from(
+      new Map(mergedConversations.map((item: any) => [item.id, item])).values()
+    ) as ConversationViewModel[];
 
-    return mergedConversations;
+    console.log('[Messages Inbox Verification]', {
+      currentUserId: user.id,
+      participantIds: otherParticipantIds,
+      participantProfiles: Array.from(profileMap.values()),
+      workerProfiles: Array.from(professionMap.entries()),
+      mergedConversations: uniqueConversations
+    });
+
+    return uniqueConversations;
   },
 
   async getConversationMessages(conversationId: string): Promise<DbMessage[]> {

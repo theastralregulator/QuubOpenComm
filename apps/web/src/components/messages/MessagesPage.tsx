@@ -223,7 +223,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   }, [conversations, searchQuery]);
 
   return (
-    <div className="w-full max-w-[1200px] mx-auto h-[calc(100dvh-120px)] md:h-[calc(100vh-80px)] min-h-[400px] p-0 md:p-4 text-left flex flex-col overflow-hidden">
+    <div 
+      className="w-full max-w-[1200px] mx-auto min-h-0 overflow-hidden flex flex-col p-0 md:p-4 text-left"
+      style={{ height: 'calc(100dvh - 120px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       {/* Page Header */}
       <div className="flex items-center justify-between mb-3 px-2">
         <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
@@ -243,12 +246,12 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       <div className="flex-1 bg-white dark:bg-[#0B0F19] md:border border-slate-200 dark:border-slate-800 md:rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative h-full">
         
         {/* ================= LEFT PANE: INBOX LIST ================= */}
-        <div className={`w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 dark:border-slate-800/80 flex flex-col shrink-0 bg-slate-50/50 dark:bg-[#080C14] ${
+        <div className={`w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 dark:border-slate-800/80 flex flex-col min-h-0 overflow-hidden shrink-0 bg-slate-50/50 dark:bg-[#080C14] ${
           conversationId ? 'hidden md:flex' : 'flex'
         }`}>
           
           {/* Inbox List Header */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex flex-col gap-3">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex flex-col gap-3 shrink-0">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Conversations</span>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
@@ -280,7 +283,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           </div>
 
           {/* Conversations Scroll Area */}
-          <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 divide-y divide-slate-100 dark:divide-slate-800/50">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y pb-4 divide-y divide-slate-100 dark:divide-slate-800/50">
             {loadingConvs ? (
               <div className="p-4 space-y-4 animate-pulse">
                 {[1, 2, 3].map((i) => (
