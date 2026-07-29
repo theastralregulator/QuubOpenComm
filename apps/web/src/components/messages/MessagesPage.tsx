@@ -9,6 +9,16 @@ import { supabase, dbService } from '../../lib/supabase';
 import { ConversationViewModel, DbMessage } from '../../types';
 import UserAvatar from '../common/UserAvatar';
 
+export interface ConversationGroup {
+  participantId: string;
+  participantName: string;
+  participantAvatar: string | null;
+  conversations: ConversationViewModel[];
+  latestActivityTime: number;
+  latestActivityFormatted: string;
+  latestMessageText: string;
+  totalUnread: number;
+}
 interface MessagesPageProps {
   triggerToast: (msg: string) => void;
 }
@@ -19,6 +29,28 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationViewModel[]>([]);
+  
+  const handleSetConversations = (convList: ConversationViewModel[]) => {
+    // Deduplicate exact duplicates by ID (keep latest which is the nature of Map overwriting)
+    const uniqueConversations = Array.from(
+      new Map(convList.map(c => [c.id, c])).values()
+    );
+
+    // Detect and log exact context duplicate DB rows
+    const contextMap = new Map<string, string[]>();
+    for (const c of uniqueConversations) {
+      const key = `${c.otherParticipantId}-${c.conversationType}-${c.applicationId || 'null'}`;
+      const existing = contextMap.get(key) || [];
+      existing.push(c.id);
+      contextMap.set(key, existing);
+    }
+    const duplicateContexts = Array.from(contextMap.entries()).filter(([_, ids]) => ids.length > 1);
+    if (duplicateContexts.length > 0) {
+      console.warn('[Messages] Exact duplicate contexts found for review (IDs):', duplicateContexts);
+    }
+
+    setConversations(uniqueConversations);
+  };
   const [loadingConvs, setLoadingConvs] = useState<boolean>(true);
   const [convsError, setConvsError] = useState<string | null>(null);
 
@@ -29,6 +61,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [chatInput, setChatInput] = useState<string>('');
   const [isSending, setIsSending] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedParticipantGroup, setSelectedParticipantGroup] = useState<ConversationGroup | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -48,7 +81,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       setCurrentUserId(user.id);
 
       const convList = await dbService.getMyConversations();
-      setConversations(convList);
+      handleSetConversations(convList);
     } catch (err: any) {
       console.error('Error loading conversations:', err);
       setConvsError(err.message || 'Failed to load conversations.');
@@ -84,7 +117,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           await dbService.markConversationRead(conversationId!);
           // Refresh conversation list to update unread badge counts
           const updatedConvs = await dbService.getMyConversations();
-          if (isMounted) setConversations(updatedConvs);
+          if (isMounted) handleSetConversations(updatedConvs);
         }
       } catch (err: any) {
         console.error('Error fetching messages:', err);
@@ -113,7 +146,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         { event: '*', schema: 'public', table: 'conversations' },
         async () => {
           const updatedConvs = await dbService.getMyConversations();
-          setConversations(updatedConvs);
+          handleSetConversations(updatedConvs);
         }
       )
       .subscribe();
@@ -144,7 +177,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
             // Refresh conversations preview
             const updatedConvs = await dbService.getMyConversations();
-            setConversations(updatedConvs);
+            handleSetConversations(updatedConvs);
           }
         )
         .on(
@@ -192,7 +225,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         setChatInput('');
         // Refresh conversations list to update preview
         const updatedConvs = await dbService.getMyConversations();
-        setConversations(updatedConvs);
+        handleSetConversations(updatedConvs);
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
@@ -534,6 +567,90 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         </div>
 
       </div>
+
+      {/* Context Picker Modal */}
+      <AnimatePresence>
+        {selectedParticipantGroup && (
+          <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setSelectedParticipantGroup(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 100, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 100, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-md bg-white dark:bg-[#0B0F19] rounded-[32px] md:rounded-[24px] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-5 md:p-6 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+                <div className="flex items-center gap-3">
+                  <UserAvatar
+                    avatarUrl={selectedParticipantGroup.participantAvatar}
+                    fullName={selectedParticipantGroup.participantName}
+                    size="sm"
+                  />
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">Select context</h3>
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      {selectedParticipantGroup.conversations.length} conversations with {selectedParticipantGroup.participantName}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedParticipantGroup(null)}
+                  className="p-2 -mr-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto overscroll-contain p-2">
+                <div className="space-y-1">
+                  {selectedParticipantGroup.conversations.map(conv => {
+                    const isUnread = conv.unreadCount > 0;
+                    return (
+                      <button
+                        key={conv.id}
+                        onClick={() => {
+                          setSelectedParticipantGroup(null);
+                          navigate(`/messages/${conv.id}`);
+                        }}
+                        className="w-full text-left p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group flex flex-col gap-1"
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">
+                            {conv.conversationType === 'worker_direct' 
+                              ? `Direct Worker Enquiry${conv.otherParticipantTitle ? ` · ${conv.otherParticipantTitle}` : ''}` 
+                              : `Job Application${conv.otherParticipantTitle && conv.otherParticipantTitle !== 'Job Opportunity' ? ` · ${conv.otherParticipantTitle}` : ''}`}
+                          </span>
+                          <span className={`text-[10px] ${isUnread ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-semibold text-slate-400'}`}>
+                            {conv.lastMessageTime}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between w-full">
+                          <span className={`text-sm truncate pr-4 ${isUnread ? 'font-bold text-slate-800 dark:text-slate-200' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+                            {conv.lastMessageText === 'No messages yet' ? 'Start the conversation' : conv.lastMessageText}
+                          </span>
+                          {isUnread && (
+                            <span className="shrink-0 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-extrabold shadow-sm">
+                              {conv.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
