@@ -1058,6 +1058,8 @@ export const dbService = {
           salary_range: job.salary,
           location: job.location,
           category: job.category,
+          job_type: job.jobType || job.job_type || 'Full-time',
+          application_deadline: job.applicationDeadline || job.application_deadline || null,
           requirements: job.requirements || [],
           posted_by: authenticatedUserId,
           is_active: true
@@ -1077,6 +1079,87 @@ export const dbService = {
     } else {
       throw new Error("Supabase client is not initialized.");
     }
+  },
+
+  async updateJobInDb(jobId: string, updatedJob: any): Promise<any> {
+    await assertUserEmailConfirmed();
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("You must be logged in to edit a job post.");
+
+    // Pre-flight check: Verify ownership and 5-hour edit window
+    const { data: existingJob, error: fetchErr } = await supabase
+      .from('jobs')
+      .select('id, posted_by, created_at')
+      .eq('id', jobId)
+      .single();
+
+    if (fetchErr || !existingJob) {
+      throw new Error("Job record not found.");
+    }
+
+    if (existingJob.posted_by !== user.id) {
+      throw new Error("Unauthorized: You can only edit your own job post.");
+    }
+
+    const createdAtTime = new Date(existingJob.created_at).getTime();
+    const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
+    if (Date.now() > (createdAtTime + FIVE_HOURS_MS)) {
+      throw new Error("The 5-hour edit window for this post has expired.");
+    }
+
+    const payload: any = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (updatedJob.title) payload.title = updatedJob.title;
+    if (updatedJob.description) payload.description = updatedJob.description;
+    if (updatedJob.salary) payload.salary_range = updatedJob.salary;
+    if (updatedJob.location) payload.location = updatedJob.location;
+    if (updatedJob.category) payload.category = updatedJob.category;
+    if (updatedJob.requirements) payload.requirements = updatedJob.requirements;
+    if (updatedJob.jobType || updatedJob.job_type) payload.job_type = updatedJob.jobType || updatedJob.job_type;
+    if (updatedJob.applicationDeadline !== undefined || updatedJob.application_deadline !== undefined) {
+      payload.application_deadline = updatedJob.applicationDeadline || updatedJob.application_deadline || null;
+    }
+
+    const { data, error } = await supabase
+      .from('jobs')
+      .update(payload)
+      .eq('id', jobId)
+      .eq('posted_by', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Audit] updateJobInDb error:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  async deleteJobInDb(jobId: string): Promise<boolean> {
+    await assertUserEmailConfirmed();
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("You must be logged in to delete a job post.");
+
+    // Soft-delete to preserve applications, conversations, messages, and audit history
+    const { error } = await supabase
+      .from('jobs')
+      .update({ is_active: false })
+      .eq('id', jobId)
+      .eq('posted_by', user.id);
+
+    if (error) {
+      console.error('[Audit] deleteJobInDb error:', error);
+      throw error;
+    }
+
+    return true;
   },
 
   async getJobsFromDb(): Promise<any[]> {
@@ -1100,7 +1183,10 @@ export const dbService = {
         }
 
         if (!error && data) {
-          return data.map(job => {
+          const nowTime = Date.now();
+          const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
+
+          const mapped = data.map(job => {
             const posterObj = job.poster || job.profiles;
             const companyName = job.companies?.name || posterObj?.full_name || 'Individual Employer';
             const companyLogo = job.companies?.logo_url || posterObj?.avatar_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80';
@@ -1113,6 +1199,7 @@ export const dbService = {
               salary: job.salary_range || 'Contract',
               location: job.location || 'Remote',
               category: job.category || 'Professional',
+              jobType: job.job_type || 'Full-time',
               description: job.description || '',
               requirements: Array.isArray(job.requirements) ? job.requirements : [],
               verified: true,
@@ -1124,6 +1211,18 @@ export const dbService = {
               posted_by: job.posted_by,
               created_at: job.created_at
             };
+          });
+
+          // Apply 4-day post-deadline public visibility rule
+          return mapped.filter(j => {
+            if (j.is_active === false) return false;
+            if (j.applicationDeadline) {
+              const dTime = new Date(j.applicationDeadline).getTime();
+              if (!isNaN(dTime) && nowTime > (dTime + FOUR_DAYS_MS)) {
+                return false; // Hide from public Jobs page after deadline + 4 days
+              }
+            }
+            return true;
           });
         }
       } catch (err) {

@@ -567,8 +567,38 @@ export default function App() {
   const [newJobDesc, setNewJobDesc] = useState('');
   const [newJobReqs, setNewJobReqs] = useState('');
   const [newJobDeadline, setNewJobDeadline] = useState('');
+  const [newJobType, setNewJobType] = useState('Full-time');
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [jobFormError, setJobFormError] = useState<string | null>(null);
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+
+  const openEditJobModal = (jobToEdit: Job) => {
+    setEditingJob(jobToEdit);
+    setNewJobTitle(jobToEdit.title || '');
+    setNewJobCompany(jobToEdit.company || '');
+    setNewJobSalary(jobToEdit.salary || '');
+    setNewJobLocation(jobToEdit.location || '');
+    setNewJobCategory(jobToEdit.category || 'Developer');
+    setNewJobType(jobToEdit.jobType || 'Full-time');
+    setNewJobDeadline(jobToEdit.applicationDeadline ? jobToEdit.applicationDeadline.split('T')[0] : '');
+    setNewJobReqs(Array.isArray(jobToEdit.requirements) ? jobToEdit.requirements.join(', ') : '');
+    setNewJobDesc(jobToEdit.description || '');
+    setJobFormError(null);
+    setShowPostJob(true);
+  };
+
+  const handleDeleteJob = async (jobToDelete: Job) => {
+    try {
+      await dbService.deleteJobInDb(jobToDelete.id);
+      triggerToast(`Job "${jobToDelete.title}" deleted successfully.`);
+      const freshJobs = await dbService.getJobsFromDb();
+      if (freshJobs) setJobs(freshJobs);
+    } catch (err: any) {
+      console.error('Error deleting job:', err);
+      triggerToast(err.message || "Failed to delete job.");
+      throw err;
+    }
+  };
 
   // Form states for Create Worker Profile
   const [newWorkerName, setNewWorkerName] = useState('');
@@ -2156,41 +2186,50 @@ export default function App() {
     console.log('[Audit] Validation passed');
     console.log('[Audit] Current user ID:', loggedInId);
 
-    const createdJob = {
+    const jobPayload = {
       title: newJobTitle.trim(),
       company: newJobCompany.trim(),
       salary: newJobSalary.includes('₹') ? newJobSalary : `₹${newJobSalary}`,
       location: newJobLocation.trim(),
       category: newJobCategory,
+      jobType: newJobType,
+      applicationDeadline: newJobDeadline.trim(),
       description: newJobDesc.trim(),
       requirements: newJobReqs ? newJobReqs.split(',').map(r => r.trim()).filter(Boolean) : ['Immediate availability']
     };
 
-    console.log('[Audit] Payload prepared:', createdJob);
-
     setIsSubmittingJob(true);
-    console.log('[Audit] Insert started');
 
     try {
-      const finalJob = await dbService.createJobInDb(createdJob, loggedInId);
-      console.log('[Audit] Insert finished successfully. Supabase returned:', finalJob);
-      
-      if (finalJob) {
-        triggerToast(`Job "${newJobTitle}" published successfully!`);
-        setShowPostJob(false);
-        setJobFormError(null);
-        
-        // Refetch fully to ensure data consistency
-        const freshJobs = await dbService.getJobsFromDb();
-        if (freshJobs && freshJobs.length > 0) setJobs(freshJobs);
+      if (editingJob) {
+        // EDIT MODE
+        const updatedJob = await dbService.updateJobInDb(editingJob.id, jobPayload);
+        if (updatedJob) {
+          triggerToast(`Job "${newJobTitle}" updated successfully!`);
+          setShowPostJob(false);
+          setEditingJob(null);
+          setJobFormError(null);
 
-        // Redirect to new job page
-        console.log('[Audit] Redirecting to /jobs/', finalJob.id);
-        navigate(`/jobs/${finalJob.id}`);
+          const freshJobs = await dbService.getJobsFromDb();
+          if (freshJobs) setJobs(freshJobs);
+        }
+      } else {
+        // CREATE MODE
+        const finalJob = await dbService.createJobInDb(jobPayload, loggedInId);
+        if (finalJob) {
+          triggerToast(`Job "${newJobTitle}" published successfully!`);
+          setShowPostJob(false);
+          setJobFormError(null);
+          
+          const freshJobs = await dbService.getJobsFromDb();
+          if (freshJobs && freshJobs.length > 0) setJobs(freshJobs);
+
+          navigate(`/jobs/${finalJob.id}`);
+        }
       }
     } catch (err: any) {
-      console.error('[Audit] Catch block error:', err);
-      setJobFormError(err.message || "Failed to post job to the database.");
+      console.error('[Audit] Job submit error:', err);
+      setJobFormError(err.message || "Failed to save job to the database.");
     } finally {
       setIsSubmittingJob(false);
     }
@@ -3195,10 +3234,15 @@ export default function App() {
               <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40 shrink-0 z-10 rounded-t-3xl">
                 <div className="flex items-center space-x-2">
                   <Briefcase className="w-5 h-5 text-blue-500" />
-                  <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Post an Active Job Listing</span>
+                  <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">
+                    {editingJob ? 'Edit Job Post Details' : 'Post an Active Job Listing'}
+                  </span>
                 </div>
                 <button 
-                  onClick={() => setShowPostJob(false)}
+                  onClick={() => {
+                    setShowPostJob(false);
+                    setEditingJob(null);
+                  }}
                   className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -3220,7 +3264,6 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Title</label>
                     <input 
                       type="text" 
-                      
                       placeholder="e.g. Senior Figma Designer"
                       value={newJobTitle}
                       onChange={(e) => setNewJobTitle(e.target.value)}
@@ -3231,7 +3274,6 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Company / Household Name</label>
                     <input 
                       type="text" 
-                      
                       placeholder="e.g. OpenComm Labs"
                       value={newJobCompany}
                       onChange={(e) => setNewJobCompany(e.target.value)}
@@ -3240,16 +3282,29 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (₹) (e.g. ₹650/hr, ₹45,000/mo)</label>
-                  <input 
-                    type="text" 
-                    
-                    placeholder="e.g. ₹850/hr"
-                    value={newJobSalary}
-                    onChange={(e) => setNewJobSalary(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (₹)</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. ₹850/hr or ₹45,000"
+                      value={newJobSalary}
+                      onChange={(e) => setNewJobSalary(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Type</label>
+                    <select
+                      value={newJobType}
+                      onChange={(e) => setNewJobType(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
+                    >
+                      {['Full-time', 'Part-time', 'Contract', 'Temporary', 'Freelance', 'Internship', 'Daily Wage', 'One-time Work'].map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -3280,7 +3335,6 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Application Deadline</label>
                     <input 
                       type="date" 
-                      
                       min={new Date().toISOString().split('T')[0]}
                       value={newJobDeadline}
                       onChange={(e) => setNewJobDeadline(e.target.value)}
@@ -3317,7 +3371,10 @@ export default function App() {
               <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2.5 shrink-0 bg-white dark:bg-[#111827] pb-[calc(1rem+env(safe-area-inset-bottom))]">
                 <button 
                   type="button"
-                  onClick={() => setShowPostJob(false)}
+                  onClick={() => {
+                    setShowPostJob(false);
+                    setEditingJob(null);
+                  }}
                   className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors font-semibold cursor-pointer"
                 >
                   Cancel
@@ -3330,11 +3387,11 @@ export default function App() {
                 >
                   {isSubmittingJob ? (
                     <>
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      <span>Publishing...</span>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>{editingJob ? 'Saving Changes...' : 'Publishing Job...'}</span>
                     </>
                   ) : (
-                    <span>Publish Listing</span>
+                    <span>{editingJob ? 'Save Changes' : 'Publish Job'}</span>
                   )}
                 </button>
               </div>

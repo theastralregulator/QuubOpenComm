@@ -17,7 +17,7 @@ export function getDeadlineInfo(deadlineDateStr?: string | Date | null): Deadlin
       formattedDate: '',
       daysRemaining: 999,
       status: 'none',
-      label: 'No deadline',
+      label: 'No deadline specified',
       badgeColorClass: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/40',
       isExpired: false,
     };
@@ -29,7 +29,7 @@ export function getDeadlineInfo(deadlineDateStr?: string | Date | null): Deadlin
       formattedDate: '',
       daysRemaining: 999,
       status: 'none',
-      label: 'No deadline',
+      label: 'No deadline specified',
       badgeColorClass: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/40',
       isExpired: false,
     };
@@ -83,17 +83,6 @@ function calculateDeadline(deadline: Date): DeadlineInfo {
       status: 'closing_soon',
       label: 'Ends tomorrow',
       badgeColorClass: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700/50 font-bold',
-      isExpired: false
-    };
-  }
-
-  if (daysRemaining <= 3) {
-    return {
-      formattedDate,
-      daysRemaining,
-      status: 'closing_soon',
-      label: `Apply by ${formattedDate}`,
-      badgeColorClass: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800/40',
       isExpired: false
     };
   }
