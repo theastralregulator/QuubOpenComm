@@ -3,13 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
-  ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, Clock, RefreshCw
+  ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, Clock, RefreshCw,
+  MessageSquare, Bell, Shield, X, User, ExternalLink
 } from 'lucide-react';
 import { Job } from '../../types';
-import { supabase } from '../../lib/supabase';
+import { supabase, dbService } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
-import { formatSalaryRange } from '../../lib/currency';
 import { getDeadlineInfo } from '../../lib/deadline';
+import OpenCommLogo from '../common/OpenCommLogo';
+import UserAvatar from '../common/UserAvatar';
 
 interface JobDetailPageProps {
   jobs: Job[];
@@ -38,11 +40,12 @@ export default function JobDetailPage({
   // Apply form state
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [bidRate, setBidRate] = useState('');
-  const [coverLetter, setCoverLetter] = useState('Hi! I am very interested in this role and would love to collaborate on this. I have extensive experience in responsive development, TypeScript, and modern frameworks.');
+  const [coverLetter, setCoverLetter] = useState('Hi! I am very interested in this opportunity and would love to collaborate on this project. I have extensive relevant experience and look forward to hearing from you.');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
+  const [loggedInUser, setLoggedInUser] = useState<any>(null);
   const isOwner = job?.posted_by && loggedInId === job.posted_by;
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
@@ -54,7 +57,6 @@ export default function JobDetailPage({
       setLoading(true);
       setError(null);
 
-      // We must fetch Auth first before checking local jobs, so we don't early return and miss the application check
       let currentAuthUserId: string | null = null;
       if (supabase) {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -63,9 +65,10 @@ export default function JobDetailPage({
         }
         currentAuthUserId = user?.id ?? null;
         setLoggedInId(currentAuthUserId);
+        setLoggedInUser(user);
 
         if (currentAuthUserId) {
-          const { data: existingApplication, error: applicationError } = await supabase
+          const { data: existingApplication } = await supabase
             .from('job_applications')
             .select('id, status, proposed_rate, created_at')
             .eq('job_id', jobId)
@@ -80,7 +83,7 @@ export default function JobDetailPage({
         }
       }
 
-      // Now resolve the job (local or remote)
+      // Check local jobs first
       const localJob = jobs.find((j) => j.id === jobId);
       if (localJob) {
         setJob(localJob);
@@ -89,12 +92,9 @@ export default function JobDetailPage({
         return;
       }
 
-      // 2. Query real Supabase if connected
+      // Fetch from Supabase if not found locally
       if (supabase) {
         try {
-          // Auth and existing application check is already done above.
-          // Proceed to fetch the job directly.
-
           const { data, error: sbError } = await supabase
             .from('jobs')
             .select('*, companies(*)')
@@ -130,7 +130,6 @@ export default function JobDetailPage({
         }
       }
 
-      // 3. Fallback: Not found
       setError('Job opportunity could not be found or has been closed.');
       setLoading(false);
     }
@@ -138,7 +137,6 @@ export default function JobDetailPage({
     fetchJob();
   }, [jobId, jobs]);
 
-  // Track detail view
   useEffect(() => {
     if (job) {
       analytics.trackEvent('view_job_detail', { job_id: job.id, job_title: job.title });
@@ -148,7 +146,7 @@ export default function JobDetailPage({
   const handleShare = async () => {
     if (!job) return;
     const shareUrl = window.location.href;
-    const shareText = `Check out this job opportunity: ${job.title} at ${job.company}!`;
+    const shareText = `Check out this opportunity: ${job.title} at ${job.company}!`;
 
     analytics.trackEvent('share', { item_type: 'job', item_id: job.id, item_title: job.title });
 
@@ -167,10 +165,41 @@ export default function JobDetailPage({
         await navigator.clipboard.writeText(shareUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-        triggerToast('Job listing URL copied to clipboard!');
+        triggerToast('Link copied to clipboard!');
       } catch (err) {
         console.error('Clipboard copy failed:', err);
       }
+    }
+  };
+
+  const handleDirectMessage = async () => {
+    if (!job) return;
+
+    if (!isLoggedIn || !loggedInId) {
+      onOpenAuth('locked');
+      return;
+    }
+
+    if (job.posted_by === loggedInId) {
+      triggerToast("You cannot message yourself.");
+      return;
+    }
+
+    if (!job.posted_by) {
+      triggerToast("Employer details unavailable for direct messaging.");
+      return;
+    }
+
+    try {
+      const convId = await dbService.getOrCreateWorkerConversation(job.posted_by);
+      if (convId) {
+        navigate(`/messages/${convId}`);
+      } else {
+        triggerToast("Unable to start direct message conversation.");
+      }
+    } catch (err: any) {
+      console.error('Error starting conversation:', err);
+      triggerToast(err.message || 'Failed to open message conversation.');
     }
   };
 
@@ -178,7 +207,6 @@ export default function JobDetailPage({
     e.preventDefault();
     if (!job) return;
 
-    console.log('[Apply] Button clicked');
     setIsSubmitting(true);
 
     try {
@@ -191,18 +219,13 @@ export default function JobDetailPage({
       }
 
       const applicantId = user.id;
-      console.log('[Apply] Auth user ID:', applicantId);
-      console.log('[Apply] Job ID:', job.id);
 
-      // 1. Pre-flight duplicate check
       const { data: existing } = await supabase
         .from('job_applications')
         .select('id, status, proposed_rate, created_at')
         .eq('job_id', job.id)
         .eq('applicant_id', applicantId)
         .maybeSingle();
-
-      console.log('[Apply] Existing application:', existing);
 
       if (existing) {
         setDbApplied(true);
@@ -227,11 +250,8 @@ export default function JobDetailPage({
         .select('id, status, proposed_rate, created_at')
         .single();
 
-      console.log('[Apply] Insert response:', response);
-
       if (response.error) throw response.error;
 
-      // Update both local states so UI re-renders immediately
       setDbApplied(true);
       setApplicationStatus(response.data?.status || 'pending');
       setExistingApp(response.data);
@@ -244,10 +264,7 @@ export default function JobDetailPage({
       if (err.code === '23505') {
         triggerToast('You have already applied for this job.');
       } else {
-        triggerToast('Unable to submit your application. Please try again.');
-        if (import.meta.env.DEV) {
-          console.error('--- SUPABASE ERROR OBJECT ---', err);
-        }
+        triggerToast('Unable to submit proposal. Please try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -256,14 +273,12 @@ export default function JobDetailPage({
 
   if (loading) {
     return (
-      <div className="w-full max-w-4xl mx-auto py-12 px-4 space-y-6 animate-pulse text-left">
-        <div className="h-6 w-24 bg-slate-200 dark:bg-slate-800 rounded" />
-        <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
-          <div className="space-y-2">
-            <div className="h-5 w-48 bg-slate-200 dark:bg-slate-800 rounded" />
-            <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
+      <div className="min-h-screen bg-[#FAFBFF] dark:bg-[#080C14] py-12 px-4 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-[#6C4DFF]/10 text-[#6C4DFF] flex items-center justify-center animate-pulse">
+            <Sparkles className="w-6 h-6 animate-spin" />
           </div>
+          <p className="text-xs font-bold text-[#6B7280]">Loading opportunity details...</p>
         </div>
       </div>
     );
@@ -271,401 +286,423 @@ export default function JobDetailPage({
 
   if (error || !job) {
     return (
-      <div className="w-full max-w-md mx-auto py-16 px-4 text-center space-y-4">
-        <div className="w-16 h-16 mx-auto bg-rose-50 dark:bg-rose-950/20 rounded-full flex items-center justify-center">
-          <Briefcase className="w-8 h-8 text-rose-500" />
+      <div className="min-h-screen bg-[#FAFBFF] dark:bg-[#080C14] py-16 px-4 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-8 text-center space-y-4 shadow-sm">
+          <div className="w-14 h-14 mx-auto bg-rose-50 dark:bg-rose-950/20 rounded-full flex items-center justify-center">
+            <Briefcase className="w-7 h-7 text-rose-500" />
+          </div>
+          <h2 className="text-xl font-black text-[#111827] dark:text-white">Opportunity Closed</h2>
+          <p className="text-xs text-[#6B7280]">{error || 'This job is no longer available.'}</p>
+          <button
+            onClick={() => navigate('/jobs')}
+            className="inline-flex items-center space-x-2 px-5 py-2.5 bg-[#6C4DFF] hover:bg-[#5b3edf] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Explore Opportunities</span>
+          </button>
         </div>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Opportunity Not Found</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{error || 'This job is no longer available.'}</p>
-        <button
-          onClick={() => navigate('/jobs')}
-          className="inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to Opportunities</span>
-        </button>
       </div>
     );
   }
 
   const deadlineInfo = getDeadlineInfo(job.applicationDeadline);
 
-  const createdDate = new Date(job.created_at || new Date());
-  const now = new Date();
-  const diffHours = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60);
-  const isEditable = isOwner && diffHours <= 5;
-
   return (
-    <div className="w-full max-w-4xl mx-auto py-6 px-3.5 sm:px-4 space-y-4 sm:space-y-6 text-left pb-[calc(110px+env(safe-area-inset-bottom))]" id="job-detail-page">
+    <div className="min-h-screen bg-[#FAFBFF] dark:bg-[#080C14] text-[#111827] dark:text-white pb-32">
       
-      {/* Back Button */}
-      <button
-        onClick={() => navigate(-1)}
-        className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all cursor-pointer"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Back</span>
-      </button>
+      {/* 1. STICKY TOP NAVIGATION HEADER */}
+      <header className="sticky top-0 z-40 bg-[#FAFBFF]/90 dark:bg-[#080C14]/90 backdrop-blur-xl border-b border-[#ECEEF5] dark:border-slate-800/80 px-4 py-3 shadow-xs">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <button 
+            onClick={() => navigate(-1)} 
+            className="p-2.5 rounded-2xl bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-slate-50 transition-all cursor-pointer shadow-xs"
+            title="Go back"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
 
-      {/* Main Container */}
-      <div className="w-full space-y-4 sm:space-y-5">
-        
-        {/* A1. JOB HEADER CARD */}
-        <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[22px] sm:rounded-[26px] p-5 sm:p-7 shadow-[0_2px_10px_rgba(0,0,0,0.02)] relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-          
-          <div className="flex flex-col space-y-4">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center space-x-3">
+          <OpenCommLogo variant="navbar" onClick={() => navigate('/')} />
+
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => navigate('/messages')}
+              className="p-2.5 rounded-2xl bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-all cursor-pointer shadow-xs"
+              title="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+            </button>
+            <UserAvatar 
+              avatarUrl={loggedInUser?.user_metadata?.avatar_url} 
+              fullName={loggedInUser?.user_metadata?.full_name || 'User'} 
+              size="xs" 
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* MAIN CONTAINER */}
+      <main className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 space-y-4">
+
+        {/* 2. PREMIUM HERO CARD */}
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          transition={{ duration: 0.3 }} 
+          className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-5 sm:p-7 shadow-[0_4px_20px_rgba(108,77,255,0.04)] relative overflow-hidden space-y-5"
+        >
+          {/* Top Employer Row */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="relative shrink-0">
                 <img 
                   src={job.companyLogo} 
                   alt={job.company} 
-                  referrerPolicy="no-referrer"
-                  className="w-12 h-12 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shadow-sm" 
+                  className="w-12 h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs" 
                 />
-                <div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="text-[13px] font-bold text-slate-700 dark:text-slate-300">
-                      {job.company}
-                    </span>
-                    {job.verified && (
-                      <span className="inline-flex items-center text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 dark:bg-emerald-500/5 px-1.5 py-0.5 rounded-md">
-                        <ShieldCheck className="w-3 h-3 mr-0.5 stroke-[2.5]" />
-                        Verified Employer
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-[#0F172A] rounded-full" title="Online" />
               </div>
-              <div className="flex items-center space-x-2 shrink-0">
-                {isOwner && (
-                  <div className="relative">
-                    {isEditable ? (
-                      <button
-                        onClick={() => triggerToast('Edit Job feature is coming soon.')}
-                        className="p-2.5 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 transition-all cursor-pointer shadow-sm hover:shadow"
-                        title="Edit Job (Editable for 5 hours)"
-                      >
-                        <Briefcase className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-                      </button>
-                    ) : (
-                      <span className="px-3 py-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
-                        This job can no longer be edited because the 5-hour editing period has ended.
-                      </span>
-                    )}
+              <div>
+                <div className="flex items-center space-x-1.5">
+                  <h3 className="text-sm font-extrabold text-[#111827] dark:text-white tracking-tight">{job.company}</h3>
+                  {job.verified && <ShieldCheck className="w-4 h-4 text-[#6C4DFF] shrink-0" />}
+                </div>
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Verified Employer</span>
+              </div>
+            </div>
+
+            {/* Three Circular Action Buttons */}
+            <div className="flex items-center space-x-2.5">
+              <button
+                onClick={handleDirectMessage}
+                className="w-10 h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-[#6C4DFF]/10 hover:border-[#6C4DFF]/30 text-[#6C4DFF] flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                title="Message Employer"
+              >
+                <MessageSquare className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleShare}
+                className="w-10 h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-slate-100 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs relative"
+                title="Share"
+              >
+                <Share2 className="w-4 h-4" />
+                {copied && (
+                  <div className="absolute bottom-full mb-1 bg-slate-900 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow whitespace-nowrap animate-bounce">
+                    Copied!
                   </div>
                 )}
-                <div className="relative">
-                  <button
-                    onClick={handleShare}
-                    className="p-2.5 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-700 dark:bg-[#111827] dark:hover:bg-slate-800 dark:text-slate-300 transition-all cursor-pointer shadow-sm hover:shadow"
-                    title="Share Job Opportunity"
-                  >
-                    <Share2 className="w-4 h-4" />
-                  </button>
-                  {copied && (
-                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-slate-950 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow-md whitespace-nowrap z-10 animate-bounce">
-                      Copied!
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={(e) => toggleBookmark(job.id, e)}
-                  className={`p-2.5 rounded-full border transition-all cursor-pointer shadow-sm hover:shadow ${
-                    job.bookmarked 
-                      ? 'border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-400' 
-                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-[#111827] dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <Bookmark className={`w-4 h-4 ${job.bookmarked ? 'fill-current' : ''}`} />
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <h1 className="text-[22px] sm:text-2xl font-extrabold text-[#0F172A] dark:text-white tracking-tight leading-snug">
-                {job.title}
-              </h1>
-              <div className="flex flex-wrap gap-2 pt-3">
-                <span className="text-[11px] font-extrabold tracking-wide bg-blue-500/10 text-blue-600 dark:text-blue-400 px-3 py-1 rounded-lg">
-                  {job.category}
-                </span>
-                <span className="text-[11px] font-extrabold tracking-wide bg-slate-100 dark:bg-[#111827] text-slate-600 dark:text-slate-300 px-3 py-1 rounded-lg border border-slate-200/50 dark:border-slate-800/50">
-                  Full-time
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* A2. JOB INFORMATION GRID */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[20px] p-4 flex items-center space-x-3 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-            <div className="p-2.5 bg-blue-500/10 dark:bg-blue-500/5 rounded-xl text-blue-600 dark:text-blue-400 shrink-0">
-              <MapPin className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Location</span>
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{job.location}</span>
-            </div>
-          </div>
-          
-          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[20px] p-4 flex items-center space-x-3 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-            <div className="p-2.5 bg-emerald-500/10 dark:bg-emerald-500/5 rounded-xl text-emerald-600 dark:text-emerald-400 shrink-0">
-              <IndianRupee className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Salary / Budget</span>
-              <span className="text-sm font-extrabold text-slate-900 dark:text-white">{job.salary}</span>
-            </div>
-          </div>
-          {dbApplied ? (
-            <div className="col-span-1 sm:col-span-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-[20px] p-5 flex items-center justify-between shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-              <div className="space-y-0.5 text-left">
-                <h3 className="font-bold text-amber-800 dark:text-amber-400 text-sm">Application Submitted</h3>
-                <p className="text-xs text-amber-700 dark:text-amber-500">
-                  You have applied for this job. Your application status is currently: 
-                  {applicationStatus === 'accepted' ? (
-                    <span className="ml-1.5 font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider text-[10px]">ACCEPTED</span>
-                  ) : applicationStatus === 'rejected' ? (
-                    <span className="ml-1.5 font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider text-[10px]">REJECTED</span>
-                  ) : applicationStatus === 'shortlisted' ? (
-                    <span className="ml-1.5 font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider text-[10px]">SHORTLISTED</span>
-                  ) : (
-                    <span className="ml-1.5 font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider text-[10px]">PENDING</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[20px] p-4 flex items-center space-x-3 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-            <div className="p-2.5 bg-purple-500/10 dark:bg-purple-500/5 rounded-xl text-purple-600 dark:text-purple-400 shrink-0">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Posted</span>
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{job.datePosted}</span>
+              </button>
+              <button
+                onClick={(e) => toggleBookmark(job.id, e)}
+                className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all cursor-pointer shadow-xs ${
+                  job.bookmarked 
+                    ? 'border-[#6C4DFF]/40 bg-[#6C4DFF]/10 text-[#6C4DFF]' 
+                    : 'border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] text-[#6B7280] dark:text-slate-300 hover:text-[#6C4DFF]'
+                }`}
+                title="Bookmark"
+              >
+                <Bookmark className={`w-4 h-4 ${job.bookmarked ? 'fill-current' : ''}`} />
+              </button>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[20px] p-4 flex items-center space-x-3 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-            <div className="p-2.5 bg-indigo-500/10 dark:bg-indigo-500/5 rounded-xl text-indigo-600 dark:text-indigo-400 shrink-0">
-              <Clock className="w-5 h-5" />
+          {/* Job Title */}
+          <h1 className="text-xl sm:text-2xl font-black text-[#111827] dark:text-white tracking-tight leading-snug">
+            {job.title}
+          </h1>
+
+          {/* Subtle Gradient Chips */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-[#6C4DFF]/10 to-[#9D4EDD]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shadow-xs">
+              ✓ {job.category}
+            </span>
+            <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-slate-100 to-slate-200/60 dark:from-slate-800 dark:to-slate-800/60 text-slate-700 dark:text-slate-300 border border-[#ECEEF5] dark:border-slate-700/50 shadow-xs">
+              ✓ Full Time
+            </span>
+            <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/30 shadow-xs">
+              ✓ Verified Employer
+            </span>
+          </div>
+        </motion.div>
+
+        {/* 3. 4-CARD INFORMATION GRID */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-[#6C4DFF]/10 text-[#6C4DFF] flex items-center justify-center shrink-0">
+              <MapPin className="w-4 h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Application Deadline</span>
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                {job.applicationDeadline ? `Apply by ${new Date(job.applicationDeadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No deadline specified'}
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Location</span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white truncate block">{job.location}</span>
+            </div>
+          </div>
+
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <IndianRupee className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Salary</span>
+              <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 truncate block">{job.salary}</span>
+            </div>
+          </div>
+
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Posted Date</span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white truncate block">{job.datePosted}</span>
+            </div>
+          </div>
+
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Deadline</span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white truncate block">
+                {job.applicationDeadline ? new Date(job.applicationDeadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Flexible'}
               </span>
             </div>
           </div>
         </div>
 
-        {/* A4. JOB DESCRIPTION */}
-        <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[22px] p-5 sm:p-7 shadow-[0_2px_10px_rgba(0,0,0,0.02)] space-y-4">
-          <h2 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-            Opportunity Description
-          </h2>
-          <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed space-y-4">
-            {job.description.split('\n').map((para, i) => (
-              para.trim() ? <p key={i}>{para}</p> : <br key={i} />
-            ))}
-          </div>
-        </div>
-
-        {/* A5. REQUIREMENTS */}
-        <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[22px] p-5 sm:p-7 shadow-[0_2px_10px_rgba(0,0,0,0.02)] space-y-4">
-          <h2 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-            Requirements
-          </h2>
-          {job.requirements && job.requirements.length > 0 ? (
-            <div className="flex flex-col space-y-2">
-              {job.requirements.map((req, index) => (
-                <div key={index} className="flex items-start space-x-3 bg-slate-50/50 dark:bg-slate-800/20 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800/40">
-                  <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500 shrink-0 mt-0.5" />
-                  <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 leading-snug">{req}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500 dark:text-slate-400 italic">No specific requirements added.</p>
-          )}
-        </div>
-
-        {/* A6. APPLICATION SECTION */}
-        {!isOwner && !existingApp && (
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 border border-blue-100 dark:border-blue-800/30 rounded-[22px] p-6 sm:p-8 flex flex-col items-center text-center space-y-4 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-            
-            <div className="relative z-10 space-y-2 max-w-md">
-              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
-                {deadlineInfo.isExpired ? 'Applications Closed' : 'Interested in this opportunity?'}
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                {deadlineInfo.isExpired 
-                  ? 'This job is no longer accepting applications at this time.' 
-                  : 'Send your application directly to the employer.'}
+        {/* APPLICATION STATUS BANNER IF APPLIED */}
+        {dbApplied && (
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-[20px] p-4 sm:p-5 flex items-center justify-between shadow-xs">
+            <div className="space-y-0.5">
+              <h4 className="font-extrabold text-amber-900 dark:text-amber-300 text-xs sm:text-sm">Application Status</h4>
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                Status: {applicationStatus ? applicationStatus.toUpperCase() : 'PENDING'}
               </p>
             </div>
-
-            <div className="relative z-10 w-full max-w-xs pt-2">
-              <button
-                onClick={() => {
-                  if (job.applied || deadlineInfo.isExpired) return;
-                  setShowApplyForm(!showApplyForm);
-                  if (!showApplyForm) {
-                    setTimeout(() => {
-                      document.getElementById('apply-form-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 100);
-                  }
-                }}
-                disabled={job.applied || deadlineInfo.isExpired}
-                className={`w-full h-12 rounded-xl text-sm font-extrabold transition-all duration-200 flex items-center justify-center space-x-2 ${
-                  deadlineInfo.isExpired
-                    ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700'
-                    : job.applied 
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 cursor-default border border-emerald-500/20' 
-                      : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md hover:scale-[1.02] cursor-pointer'
-                }`}
-              >
-                {deadlineInfo.isExpired ? (
-                  <span>Closed</span>
-                ) : job.applied ? (
-                  <>
-                    <CheckCircle2 className="w-5 h-5" />
-                    <span>Applied</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4.5 h-4.5" />
-                    <span>Apply</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* NEW APPLICATION STATUS CARD */}
-        {!isOwner && existingApp && (
-          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[22px] p-6 sm:p-8 flex flex-col space-y-4 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-left relative overflow-hidden">
-            <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
-              Application Status
-            </h3>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-[#111827] p-5 rounded-xl border border-slate-100 dark:border-slate-800">
-              <div className="space-y-1.5">
-                <span className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Current Status</span>
-                <div className="flex items-center">
-                  {existingApp.status === 'accepted' ? (
-                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-bold rounded-lg uppercase tracking-wider">Accepted</span>
-                  ) : existingApp.status === 'rejected' ? (
-                    <span className="px-3 py-1 bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 text-xs font-bold rounded-lg uppercase tracking-wider">Rejected</span>
-                  ) : existingApp.status === 'shortlisted' ? (
-                    <span className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-xs font-bold rounded-lg uppercase tracking-wider">Shortlisted</span>
-                  ) : existingApp.status === 'withdrawn' ? (
-                    <span className="px-3 py-1 bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 text-xs font-bold rounded-lg uppercase tracking-wider">Withdrawn</span>
-                  ) : (
-                    <span className="px-3 py-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-bold rounded-lg uppercase tracking-wider">Pending</span>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                 <span className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Proposed Rate</span>
-                 <span className="block font-bold text-slate-900 dark:text-white">{existingApp.proposed_rate || '-'}</span>
-              </div>
-              <div className="space-y-1.5">
-                 <span className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Applied On</span>
-                 <span className="block font-bold text-slate-900 dark:text-white">
-                   {new Date(existingApp.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                 </span>
-              </div>
-            </div>
-            
             <button
-               onClick={() => navigate('/profile/jobs-applied')}
-               className="w-full sm:w-auto self-end h-11 px-6 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-sm transition-all shadow-sm cursor-pointer border border-slate-200 dark:border-slate-700"
+              onClick={() => navigate('/profile/jobs-applied')}
+              className="px-3.5 py-1.5 bg-amber-600 text-white font-extrabold text-xs rounded-xl hover:bg-amber-700 transition-colors shadow-xs"
             >
-               View My Application
+              View Application
             </button>
           </div>
         )}
 
-        {/* Dynamic Apply Form Section */}
-        <AnimatePresence>
-          {showApplyForm && !isOwner && !deadlineInfo.isExpired && !existingApp && (
-            <motion.form
-              id="apply-form-section"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              onSubmit={handleApplySubmit}
-              className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[22px] p-5 sm:p-7 shadow-[0_4px_15px_rgba(0,0,0,0.05)] space-y-4"
+        {/* 4. ABOUT THE OPPORTUNITY */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-6 shadow-xs space-y-3">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-xl bg-[#6C4DFF]/10 text-[#6C4DFF]">
+              <Briefcase className="w-4.5 h-4.5" />
+            </div>
+            <h3 className="text-base font-black text-[#111827] dark:text-white">About the Opportunity</h3>
+          </div>
+          <div className="text-base text-[#111827] dark:text-slate-200 leading-relaxed font-normal whitespace-pre-wrap pt-1 space-y-3">
+            {job.description}
+          </div>
+        </div>
+
+        {/* 5. REQUIREMENTS (PILL CARDS) */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-6 shadow-xs space-y-4">
+          <h3 className="text-base font-black text-[#111827] dark:text-white flex items-center space-x-2">
+            <span>Requirements</span>
+          </h3>
+          {job.requirements && job.requirements.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {job.requirements.map((req, i) => (
+                <motion.div
+                  key={i}
+                  whileHover={{ scale: 1.01 }}
+                  className="flex items-center space-x-3 p-3.5 rounded-2xl bg-[#F7F8FE] dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/60 transition-all"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-[#6C4DFF] shrink-0" />
+                  <span className="text-xs font-bold text-[#111827] dark:text-slate-200">{req}</span>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-[#6B7280] italic">No specific requirements mentioned.</p>
+          )}
+        </div>
+
+        {/* 6. EMPLOYER TRUST SECTION */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <img 
+                src={job.companyLogo} 
+                alt={job.company} 
+                className="w-12 h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50" 
+              />
+              <div>
+                <div className="flex items-center space-x-1.5">
+                  <h4 className="text-sm font-extrabold text-[#111827] dark:text-white">{job.company}</h4>
+                  {job.verified && <ShieldCheck className="w-4 h-4 text-[#6C4DFF] shrink-0" />}
+                </div>
+                <span className="text-xs font-semibold text-[#6B7280]">Verified Employer</span>
+              </div>
+            </div>
+            <button
+              onClick={() => triggerToast(`Employer details for ${job.company}`)}
+              className="px-4 py-2 rounded-xl border border-[#6C4DFF] text-[#6C4DFF] font-bold text-xs hover:bg-[#6C4DFF]/10 transition-colors cursor-pointer"
             >
-              <div className="flex items-center space-x-2 text-left mb-4">
-                <Send className="w-5 h-5 text-blue-500 shrink-0" />
-                <h4 className="text-[15px] font-extrabold text-[#0F172A] dark:text-white">Submit Your Application</h4>
+              View Profile
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-2 text-center border-t border-[#ECEEF5] dark:border-slate-800/60">
+            <div className="p-2">
+              <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Rating</span>
+              <span className="text-xs font-extrabold text-[#111827] dark:text-white">★ 4.9</span>
+            </div>
+            <div className="p-2">
+              <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Jobs</span>
+              <span className="text-xs font-extrabold text-[#111827] dark:text-white">12 Posted</span>
+            </div>
+            <div className="p-2">
+              <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Member</span>
+              <span className="text-xs font-extrabold text-[#111827] dark:text-white">Since 2024</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 7. SAFETY SECTION */}
+        <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 flex items-center space-x-3 text-xs font-medium text-[#6B7280] dark:text-slate-400">
+          <Shield className="w-5 h-5 text-[#6C4DFF] shrink-0" />
+          <span>Your personal contact information remains hidden until you choose to share it.</span>
+        </div>
+
+      </main>
+
+      {/* 8. BOTTOM STICKY ACTION BAR */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          <button
+            onClick={handleDirectMessage}
+            className="flex-1 h-12 rounded-2xl border-2 border-[#6C4DFF] text-[#6C4DFF] font-extrabold text-sm hover:bg-[#6C4DFF]/10 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <MessageSquare className="w-4.5 h-4.5" />
+            <span>Message Employer</span>
+          </button>
+          
+          <button
+            onClick={() => {
+              if (job.applied || deadlineInfo.isExpired) return;
+              setShowApplyForm(true);
+            }}
+            disabled={job.applied || deadlineInfo.isExpired}
+            className={`flex-1 h-12 rounded-2xl text-white font-extrabold text-sm transition-all flex items-center justify-center space-x-2 shadow-lg ${
+              deadlineInfo.isExpired
+                ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                : job.applied
+                ? 'bg-emerald-600 text-white cursor-default'
+                : 'bg-gradient-to-r from-[#6C4DFF] to-[#9D4EDD] hover:opacity-95 shadow-[#6C4DFF]/25 cursor-pointer'
+            }`}
+          >
+            {job.applied ? (
+              <>
+                <CheckCircle2 className="w-4.5 h-4.5" />
+                <span>Applied</span>
+              </>
+            ) : deadlineInfo.isExpired ? (
+              <span>Applications Closed</span>
+            ) : (
+              <>
+                <Sparkles className="w-4.5 h-4.5" />
+                <span>I'm Interested</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* PROPOSAL APPLICATION DRAWER / MODAL */}
+      <AnimatePresence>
+        {showApplyForm && !isOwner && !deadlineInfo.isExpired && !existingApp && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+              onClick={() => setShowApplyForm(false)}
+            />
+            <motion.form
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onSubmit={handleApplySubmit}
+              className="relative w-full max-w-lg bg-white dark:bg-[#0F172A] rounded-t-[28px] sm:rounded-[28px] p-6 shadow-2xl space-y-4 border border-[#ECEEF5] dark:border-slate-800 z-10"
+            >
+              <div className="flex items-center justify-between border-b border-[#ECEEF5] dark:border-slate-800 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-5 h-5 text-[#6C4DFF]" />
+                  <h3 className="text-base font-black text-[#111827] dark:text-white">Submit Proposal</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowApplyForm(false)}
+                  className="p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
               <div className="space-y-4 text-left">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Your Propose Rate
+                  <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200">
+                    Proposed Rate / Budget
                   </label>
                   <input 
                     type="text" 
                     required
                     value={bidRate}
                     onChange={(e) => setBidRate(e.target.value)}
-                    className="w-full h-11 px-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#111827] text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 font-semibold transition-colors"
-                    placeholder="e.g. ₹50,000"
+                    className="w-full h-11 px-3.5 rounded-xl border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] text-[#111827] dark:text-white text-sm font-semibold focus:outline-none focus:border-[#6C4DFF]"
+                    placeholder="e.g. ₹45,000"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Cover Letter / Proposal
+                  <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200">
+                    Proposal / Cover Note
                   </label>
                   <textarea 
                     rows={4}
                     required
                     value={coverLetter}
                     onChange={(e) => setCoverLetter(e.target.value)}
-                    className="w-full p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#111827] text-slate-900 dark:text-white text-sm focus:outline-none focus:border-blue-500 font-medium transition-colors"
-                    placeholder="Tell the employer why you are a great fit..."
+                    className="w-full p-3.5 rounded-xl border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] text-[#111827] dark:text-white text-sm font-medium focus:outline-none focus:border-[#6C4DFF]"
+                    placeholder="Briefly explain your experience..."
                   />
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowApplyForm(false)}
-                  className="h-11 px-5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                  className="flex-1 h-11 rounded-xl border border-[#ECEEF5] dark:border-slate-800 text-xs font-bold text-[#6B7280] dark:text-slate-300 hover:bg-slate-50 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className={`h-11 px-6 rounded-xl text-white font-bold text-sm flex items-center justify-center space-x-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02] ${isSubmitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500'}`}
+                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-[#6C4DFF] to-[#9D4EDD] text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 shadow-md hover:opacity-95 transition-all cursor-pointer"
                 >
                   {isSubmitting ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
                   ) : (
                     <Send className="w-4 h-4" />
                   )}
-                  <span>{isSubmitting ? 'Submitting...' : 'Submit Proposal'}</span>
+                  <span>{isSubmitting ? 'Submitting...' : 'Send Application'}</span>
                 </button>
               </div>
             </motion.form>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
+      </AnimatePresence>
 
-      </div>
     </div>
   );
 }

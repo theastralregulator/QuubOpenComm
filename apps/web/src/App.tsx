@@ -2419,6 +2419,7 @@ export default function App() {
   }
 
   const isAdminRoute = path.startsWith('/admin');
+  const isJobDetailRoute = path.startsWith('/jobs/') && path !== '/jobs';
   console.log('DEBUG: Rendering page. Path:', path, 'isAdminRoute:', isAdminRoute);
 
   return (
@@ -3061,7 +3062,7 @@ export default function App() {
       </main>
 
       {/* FOOTER NAVIGATION */}
-      {!isAdminRoute && (
+      {!isAdminRoute && !isJobDetailRoute && (
         <footer className="mt-auto bg-[#F8FAFC] dark:bg-[#0B1020] border-t border-slate-200/60 dark:border-[#273449] py-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
