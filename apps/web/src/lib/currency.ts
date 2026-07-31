@@ -26,16 +26,26 @@ export function formatINR(amount: number | string | null | undefined): string {
 
 export function formatSalaryRange(min?: number | string, max?: number | string, rawString?: string): string {
   if (rawString) {
-    if (rawString.includes('₹')) return rawString;
-    if (rawString.includes('$')) {
-      return rawString.replace(/\$/g, '₹');
+    const trimmed = rawString.trim();
+    if (!trimmed) return 'Salary discussed during selection';
+    
+    // Check if it's text without numbers (e.g., "Paid Opportunity", "Negotiable", "Salary discussed", "Contract")
+    const hasDigits = /\d/.test(trimmed);
+    if (!hasDigits) {
+      // Strip any accidental leading/trailing currency symbols if present on pure text
+      return trimmed.replace(/^[₹$\s]+/, '');
     }
+
+    if (trimmed.includes('₹')) return trimmed;
+    if (trimmed.includes('$')) return trimmed.replace(/\$/g, '₹');
+
+    // Has numbers but no currency symbol
+    return `₹${trimmed}`;
   }
   
   if (min !== undefined && max !== undefined && min !== null && max !== null) {
     return `${formatINR(min)} - ${formatINR(max)}`;
   }
   
-  if (rawString) return rawString;
-  return '₹0';
+  return 'Salary discussed during selection';
 }
