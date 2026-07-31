@@ -7,6 +7,13 @@ import { formatSalaryRange } from '../../lib/currency';
 import { getJobDateRangeInfo, formatDateDDMMYYYY } from '../../lib/deadline';
 import { formatJobType } from '../../lib/jobType';
 
+export interface EmployerProfile {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  verified: boolean;
+}
+
 interface AppliedJobRecord {
   id: string; // application id
   job_id: string;
@@ -27,12 +34,7 @@ interface AppliedJobRecord {
     application_deadline: string | null;
     is_active?: boolean;
   };
-  employer: {
-    id: string;
-    full_name: string;
-    avatar_url: string;
-    verified: boolean;
-  };
+  employer: EmployerProfile;
 }
 
 interface MyJobsAppliedPageProps {
@@ -45,14 +47,16 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [avatarErrors, setAvatarErrors] = useState<Record<string, boolean>>({});
 
   const getInitials = (nameStr?: string) => {
-    if (!nameStr) return 'EM';
-    const parts = nameStr.trim().split(/\s+/);
+    if (!nameStr || nameStr === 'Employer' || nameStr === 'OpenComm User') return 'OU';
+    const clean = nameStr.trim();
+    const parts = clean.split(/\s+/);
     if (parts.length >= 2) {
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
-    return nameStr.substring(0, 2).toUpperCase();
+    return clean.substring(0, 2).toUpperCase();
   };
 
   const fetchApplications = async () => {
@@ -66,7 +70,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
         return;
       }
 
-      // Step A: Fetch applications for current user
+      // Step 1: Fetch applications for current authenticated user
       const { data: applicationRows, error: applicationsError } = await dbService.getMyJobApplications(user.id);
       if (applicationsError) throw applicationsError;
       const rawApps = applicationRows || [];
@@ -76,7 +80,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
         return;
       }
 
-      // Step B: Fetch related jobs
+      // Step 2: Fetch related jobs
       const jobIds = [...new Set(rawApps.map(row => row.job_id).filter(Boolean))];
 
       let jobMap: Record<string, any> = {};
@@ -107,51 +111,74 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
         }
       }
 
-      // Step C: Fetch employer public profiles
-      const employerIds = [...new Set(Object.values(jobMap).map(j => j.posted_by).filter(Boolean))];
+      // Step 3: Batch-fetch employer public profiles using job.posted_by
+      const employerIds = [...new Set(Object.values(jobMap).map((j: any) => j.posted_by).filter(Boolean))];
       
-      let employerMap: Record<string, any> = {};
+      const employerMap: Record<string, EmployerProfile> = {};
+
       if (employerIds.length > 0) {
-        const { data: employerRows, error: employerError } = await supabase
+        // Query 3A: Batched lookup from profile_directory
+        const { data: pdRows, error: pdError } = await supabase
           .from('profile_directory')
-          .select('id, full_name, company_name, avatar_url, city, state, verified, is_verified')
+          .select('id, full_name, company_name, avatar_url, username, verified, is_verified')
           .in('id', employerIds);
-          
-        if (employerError) {
-          console.warn('[Jobs Applied] profile_directory query warning, attempting profiles fallback:', employerError);
-          const { data: profilesFallback } = await supabase
-            .from('profiles')
-            .select('id, full_name, avatar_url, verified')
-            .in('id', employerIds);
-          
-          if (profilesFallback) {
-            employerMap = profilesFallback.reduce((acc, emp) => {
-              acc[emp.id] = {
-                id: emp.id,
-                full_name: emp.full_name || 'Employer',
-                avatar_url: emp.avatar_url || '',
-                verified: Boolean(emp.verified)
-              };
-              return acc;
-            }, {} as Record<string, any>);
-          }
-        } else if (employerRows) {
-          employerMap = employerRows.reduce((acc, emp) => {
-            acc[emp.id] = {
-              id: emp.id,
-              full_name: emp.full_name || emp.company_name || 'Employer',
-              avatar_url: emp.avatar_url || '',
-              verified: Boolean(emp.verified || emp.is_verified)
+
+        if (pdError) {
+          console.warn('[Jobs Applied] profile_directory query warning:', pdError);
+        }
+
+        if (pdRows) {
+          pdRows.forEach((pd: any) => {
+            const rawName = pd.full_name || pd.company_name || pd.username;
+            const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer' && rawName !== 'Employer') 
+              ? rawName.trim() 
+              : 'OpenComm User';
+
+            employerMap[pd.id] = {
+              id: pd.id,
+              name: cleanName,
+              avatarUrl: pd.avatar_url || null,
+              verified: Boolean(pd.verified || pd.is_verified),
             };
-            return acc;
-          }, {} as Record<string, any>);
+          });
+        }
+
+        // Query 3B: Fallback batched lookup for any IDs missing from profile_directory
+        const missingIds = employerIds.filter(id => !employerMap[id]);
+        if (missingIds.length > 0) {
+          const { data: profRows } = await supabase
+            .from('profiles')
+            .select('id, full_name, company_name, avatar_url, username, verified')
+            .in('id', missingIds);
+
+          if (profRows) {
+            profRows.forEach((prof: any) => {
+              const rawName = prof.full_name || prof.company_name || prof.username;
+              const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer' && rawName !== 'Employer') 
+                ? rawName.trim() 
+                : 'OpenComm User';
+
+              employerMap[prof.id] = {
+                id: prof.id,
+                name: cleanName,
+                avatarUrl: prof.avatar_url || null,
+                verified: Boolean(prof.verified),
+              };
+            });
+          }
         }
       }
 
-      // Step D: Merge all datasets
+      // Step 4: Merge all datasets ensuring strict employer resolution via job.posted_by
       const mergedApplications: AppliedJobRecord[] = rawApps.map(app => {
         const job = jobMap[app.job_id];
-        const employer = job?.posted_by ? employerMap[job.posted_by] : null;
+        const employerId = job?.posted_by || '';
+        const employer = employerMap[employerId] || {
+          id: employerId,
+          name: 'OpenComm User',
+          avatarUrl: null,
+          verified: false,
+        };
 
         return {
           id: app.id,
@@ -168,12 +195,12 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
             salary_range: job?.salary_range || 'Salary discussed during selection',
             category: job?.category || 'Professional',
             job_type: job?.job_type || null,
-            posted_by: job?.posted_by || '',
+            posted_by: employerId,
             created_at: job?.created_at || app.created_at,
             application_deadline: job?.application_deadline || null,
             is_active: job?.is_active ?? true
           },
-          employer: employer || { id: job?.posted_by || '', full_name: 'Employer', avatar_url: '', verified: false }
+          employer
         };
       });
 
@@ -399,22 +426,33 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                   <div className="space-y-2.5">
                     {/* Top Row: Employer Avatar, Name & Status Pill */}
                     <div className="flex justify-between items-start gap-2">
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        {app.employer.avatar_url ? (
+                      
+                      {/* Clickable Employer Avatar & Name (Strictly resolved from job.posted_by) */}
+                      <div 
+                        onClick={() => {
+                          if (app.job.posted_by) {
+                            navigate(`/profile/${app.job.posted_by}`);
+                          }
+                        }}
+                        className="flex items-center space-x-2.5 min-w-0 cursor-pointer group"
+                        title={`View ${app.employer.name}'s profile`}
+                      >
+                        {app.employer.avatarUrl && !avatarErrors[app.id] ? (
                           <img 
-                            src={app.employer.avatar_url} 
-                            alt={app.employer.full_name} 
+                            src={app.employer.avatarUrl} 
+                            alt={app.employer.name} 
                             referrerPolicy="no-referrer"
-                            className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0" 
+                            onError={() => setAvatarErrors(prev => ({ ...prev, [app.id]: true }))}
+                            className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0 group-hover:brightness-95 transition-all" 
                           />
                         ) : (
-                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#6C4DFF] to-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
-                            {getInitials(app.employer.full_name)}
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#6C4DFF] to-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                            {getInitials(app.employer.name)}
                           </div>
                         )}
                         <div className="min-w-0 text-left">
-                          <h4 className="text-xs font-bold text-[#475569] dark:text-slate-300 truncate">
-                            {app.employer.full_name}
+                          <h4 className="text-xs font-bold text-[#475569] dark:text-slate-300 truncate group-hover:text-[#2563EB] transition-colors">
+                            {app.employer.name}
                           </h4>
                           {app.employer.verified && (
                             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[#ECFDF5] dark:bg-emerald-950/40 border border-[#A7F3D0] dark:border-emerald-800/60 text-[#059669] dark:text-emerald-400 text-[10px] font-bold mt-0.5">
