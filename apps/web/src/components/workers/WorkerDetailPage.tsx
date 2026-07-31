@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Worker } from '../../types';
 import { supabase, dbService } from '../../lib/supabase';
+import { getPublicProfileById } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
 import UserAvatar from '../common/UserAvatar';
@@ -83,20 +84,21 @@ export default function WorkerDetailPage({
           if (sbError) {
             console.error('Error fetching worker from Supabase:', sbError);
           } else if (data) {
+            const canonical = await getPublicProfileById(data.id);
             const mappedWorker: Worker = {
               id: data.id,
-              name: data.profiles?.full_name || 'Worker',
-              photo: data.profiles?.avatar_url || '',
+              name: canonical.name,
+              photo: canonical.avatarUrl || '',
               title: data.professional_title || data.profession || 'Professional',
               experience: data.experience_years || data.years_experience || 0,
-              rating: 0, // Fallback to 0 if no real reviews
+              rating: 0,
               availability: data.availability_status || data.availability || 'Available Now',
-              location: [data.profiles?.city, data.profiles?.district, data.profiles?.state].filter(Boolean).join(', ') || 'Not provided',
-              bio: data.bio_summary || 'No biography provided.',
+              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || 'Not provided',
+              bio: canonical.bio || data.bio_summary || 'No biography provided.',
               skills: data.skills || [],
               completedWorks: 0,
               hourlyRate: data.hourly_rate || 0,
-              verified: data.verification_status === 'verified',
+              verified: canonical.verified,
             };
             setWorker(mappedWorker);
             setLoading(false);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, MessageSquare, ExternalLink, ShieldCheck, RefreshCw, AlertCircle, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { getPublicProfilesByIds } from '../../lib/profileService';
 
 interface ApplicantData {
   id: string; // application id
@@ -96,31 +97,15 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
       if (appsError) throw appsError;
 
       const rawApps = appsData || [];
-      const applicantIds = [...new Set(rawApps.map(a => a.applicant_id))];
+      const applicantIds = [...new Set(rawApps.map(a => a.applicant_id).filter(Boolean))] as string[];
       
-      let profileMap: Record<string, any> = {};
-      
-      if (applicantIds.length > 0) {
-        const { data: profData, error: profError } = await supabase
-          .from('profile_directory')
-          .select('id, username, full_name, avatar_url, city, state, country, profile_type, bio, preferred_language')
-          .in('id', applicantIds);
-          
-        if (profError) {
-          if (import.meta.env.DEV) console.error('Profile fetch error:', profError);
-        } else if (profData) {
-          profileMap = profData.reduce((acc, curr) => {
-            acc[curr.id] = curr;
-            return acc;
-          }, {} as Record<string, any>);
-        }
-      }
+      const profilesMap = await getPublicProfilesByIds(applicantIds);
 
       const mergedApps: ApplicantData[] = rawApps.map(app => {
-        const p = profileMap[app.applicant_id];
+        const canonical = profilesMap.get(app.applicant_id);
         let location = 'Location not provided';
-        if (p) {
-          location = [p.city, p.state, p.country].filter(Boolean).join(', ') || location;
+        if (canonical) {
+          location = [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || location;
         }
 
         return {
@@ -131,13 +116,13 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
           status: app.status,
           created_at: app.created_at,
           profile: {
-            full_name: p?.full_name || 'Unknown Applicant',
-            avatar_url: p?.avatar_url || '',
+            full_name: canonical?.name || 'OpenComm User',
+            avatar_url: canonical?.avatarUrl || '',
             location,
-            profile_type: p?.profile_type || 'normal',
-            bio: p?.bio || '',
-            preferred_language: p?.preferred_language || '',
-            username: p?.username || ''
+            profile_type: canonical?.profileType || 'normal',
+            bio: canonical?.bio || '',
+            preferred_language: '',
+            username: ''
           }
         };
       });

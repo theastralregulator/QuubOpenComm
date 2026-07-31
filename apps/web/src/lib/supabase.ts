@@ -1631,33 +1631,27 @@ export const dbService = {
 
     const otherParticipantIds = [...new Set(convRows.map((c: any) => 
       c.creator_id === user.id ? c.member_id : c.creator_id
-    ).filter(Boolean))];
+    ).filter(Boolean))] as string[];
 
     const jobIds = [...new Set(convRows.map((c: any) => c.job_id).filter(Boolean))];
     const convIds = convRows.map((c: any) => c.id);
 
     let profileMap = new Map();
     if (otherParticipantIds.length > 0) {
-      const { data: pRows, error: pError } = await supabase
-        .from('profile_directory')
-        .select(`
-          id,
-          full_name,
-          username,
-          avatar_url,
-          profile_type,
-          city,
-          state,
-          country
-        `)
-        .in('id', otherParticipantIds);
-        
-      if (pRows) {
-        pRows.forEach((p: any) => { profileMap.set(p.id, p); });
-      }
-      if (pError) {
-        console.error('getMyConversations profile_directory error:', pError);
-      }
+      const { getPublicProfilesByIds } = await import('./profileService');
+      const canonicalMap = await getPublicProfilesByIds(otherParticipantIds);
+      canonicalMap.forEach((prof, id) => {
+        profileMap.set(id, {
+          id: prof.id,
+          full_name: prof.name,
+          username: prof.name,
+          avatar_url: prof.avatarUrl,
+          profile_type: prof.profileType || 'normal',
+          city: prof.city,
+          state: prof.state,
+          country: prof.country,
+        });
+      });
     }
 
     const workerIds = convRows

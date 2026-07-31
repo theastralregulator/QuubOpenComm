@@ -6,7 +6,8 @@ import {
   BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users, AlertCircle
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
-import { supabase, dbService, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
+import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
+import { getPublicProfileById } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
@@ -281,40 +282,24 @@ export default function ProfilePage({
         } else {
           isOwnerCheck = false;
           
-          const fetchPublicProfile = async (retryCount = 0): Promise<any> => {
-            const { data, error } = await supabase
-              .from('profile_directory')
-              .select(`
-                id,
-                username,
-                full_name,
-                avatar_url,
-                banner_url,
-                bio,
-                city,
-                state,
-                country,
-                preferred_language,
-                profile_type,
-                onboarding_completed,
-                created_at
-              `)
-              .eq('id', usernameParam)
-              .maybeSingle();
-
-            if (!data && retryCount < 1) {
-              await new Promise(r => setTimeout(r, 600));
-              return fetchPublicProfile(retryCount + 1);
-            }
-            if (error && import.meta.env.DEV) {
-               console.error("Public profile fetch error:", error);
-            }
-            return data;
-          };
-          
-          const pubProfile = await fetchPublicProfile();
-          if (pubProfile) {
-            p = pubProfile as unknown as LocalProfile;
+          const canonical = await getPublicProfileById(usernameParam);
+          if (canonical) {
+            p = {
+              id: canonical.id,
+              username: canonical.id,
+              full_name: canonical.name,
+              avatar_url: canonical.avatarUrl || '',
+              banner_url: canonical.bannerUrl || '',
+              bio: canonical.bio || '',
+              city: canonical.city || '',
+              state: canonical.state || '',
+              country: canonical.country || '',
+              preferred_language: '',
+              profile_type: canonical.profileType || 'normal',
+              onboarding_completed: true,
+              created_at: new Date().toISOString(),
+              verified: canonical.verified,
+            } as unknown as LocalProfile;
           }
         }
       } else {

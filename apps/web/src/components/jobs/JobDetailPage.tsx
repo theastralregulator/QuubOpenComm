@@ -12,6 +12,7 @@ import { supabase, dbService } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import { getDeadlineInfo } from '../../lib/deadline';
 import { formatJobType } from '../../lib/jobType';
+import { getPublicProfileById } from '../../lib/profileService';
 
 interface JobDetailPageProps {
   jobs: Job[];
@@ -191,91 +192,47 @@ export default function JobDetailPage({
   useEffect(() => {
     let isCurrent = true;
 
-    async function loadEmployerProfile() {
+    const loadEmployerProfile = async () => {
       if (!job?.posted_by) {
-        if (isCurrent) {
-          setEmployerProfile({
-            id: null,
-            name: 'OpenComm User',
-            avatarUrl: null,
-            loading: false,
-            avatarError: false,
-          });
-        }
+        setEmployerProfile({
+          id: '',
+          name: 'OpenComm User',
+          avatarUrl: null,
+          verified: false,
+          loading: false,
+          avatarError: false,
+        });
         return;
       }
 
-      if (isCurrent) {
-        setEmployerProfile(prev => ({ ...prev, loading: true }));
-      }
+      setEmployerProfile(prev => ({ ...prev, loading: true, avatarError: false }));
 
       try {
-        if (supabase) {
-          // 1. Query profile_directory
-          const { data: pdData } = await supabase
-            .from('profile_directory')
-            .select('id, full_name, company_name, avatar_url, username')
-            .eq('id', job.posted_by)
-            .maybeSingle();
-
-          if (pdData && isCurrent) {
-            const rawName = pdData.full_name || pdData.company_name || pdData.username;
-            const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer') ? rawName.trim() : 'OpenComm User';
-            setEmployerProfile({
-              id: pdData.id,
-              name: cleanName,
-              avatarUrl: pdData.avatar_url || null,
-              loading: false,
-              avatarError: false,
-            });
-            return;
-          }
-
-          // 2. Query profiles as fallback
-          const { data: profData } = await supabase
-            .from('profiles')
-            .select('id, full_name, company_name, avatar_url, username')
-            .eq('id', job.posted_by)
-            .maybeSingle();
-
-          if (profData && isCurrent) {
-            const rawName = profData.full_name || profData.company_name || profData.username;
-            const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer') ? rawName.trim() : 'OpenComm User';
-            setEmployerProfile({
-              id: profData.id,
-              name: cleanName,
-              avatarUrl: profData.avatar_url || null,
-              loading: false,
-              avatarError: false,
-            });
-            return;
-          }
-        }
-
-        // 3. Fallback if missing in DB
+        const canonical = await getPublicProfileById(job.posted_by);
         if (isCurrent) {
-          const fallbackName = (job.company && job.company !== 'Verified Employer') ? job.company : 'OpenComm User';
           setEmployerProfile({
-            id: job.posted_by,
-            name: fallbackName,
-            avatarUrl: job.companyLogo || null,
+            id: canonical.id,
+            name: canonical.name,
+            avatarUrl: canonical.avatarUrl,
+            verified: canonical.verified,
             loading: false,
             avatarError: false,
           });
         }
       } catch (err) {
-        console.error('[Employer Profile] Error loading canonical employer profile:', err);
+        console.error('[JobDetail] Profile fetch error:', err);
         if (isCurrent) {
           setEmployerProfile({
             id: job.posted_by,
             name: 'OpenComm User',
             avatarUrl: null,
+            verified: false,
             loading: false,
             avatarError: false,
           });
         }
       }
-    }
+    };
 
     loadEmployerProfile();
 

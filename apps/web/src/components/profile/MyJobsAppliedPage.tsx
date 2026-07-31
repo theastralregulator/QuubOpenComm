@@ -6,6 +6,7 @@ import { supabase, dbService } from '../../lib/supabase';
 import { formatSalaryRange } from '../../lib/currency';
 import { getJobDateRangeInfo, formatDateDDMMYYYY } from '../../lib/deadline';
 import { formatJobType } from '../../lib/jobType';
+import { getPublicProfilesByIds } from '../../lib/profileService';
 
 export interface EmployerProfile {
   id: string;
@@ -111,73 +112,20 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
         }
       }
 
-      // Step 3: Batch-fetch employer public profiles using job.posted_by
+      // Step 3: Batch-fetch employer public profiles using canonical profileService
       const employerIds = [...new Set(Object.values(jobMap).map((j: any) => j.posted_by).filter(Boolean))];
-      
-      const employerMap: Record<string, EmployerProfile> = {};
-
-      if (employerIds.length > 0) {
-        // Query 3A: Batched lookup from profile_directory
-        const { data: pdRows, error: pdError } = await supabase
-          .from('profile_directory')
-          .select('id, full_name, company_name, avatar_url, username, verified, is_verified')
-          .in('id', employerIds);
-
-        if (pdError) {
-          console.warn('[Jobs Applied] profile_directory query warning:', pdError);
-        }
-
-        if (pdRows) {
-          pdRows.forEach((pd: any) => {
-            const rawName = pd.full_name || pd.company_name || pd.username;
-            const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer' && rawName !== 'Employer') 
-              ? rawName.trim() 
-              : 'OpenComm User';
-
-            employerMap[pd.id] = {
-              id: pd.id,
-              name: cleanName,
-              avatarUrl: pd.avatar_url || null,
-              verified: Boolean(pd.verified || pd.is_verified),
-            };
-          });
-        }
-
-        // Query 3B: Fallback batched lookup for any IDs missing from profile_directory
-        const missingIds = employerIds.filter(id => !employerMap[id]);
-        if (missingIds.length > 0) {
-          const { data: profRows } = await supabase
-            .from('profiles')
-            .select('id, full_name, company_name, avatar_url, username, verified')
-            .in('id', missingIds);
-
-          if (profRows) {
-            profRows.forEach((prof: any) => {
-              const rawName = prof.full_name || prof.company_name || prof.username;
-              const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer' && rawName !== 'Employer') 
-                ? rawName.trim() 
-                : 'OpenComm User';
-
-              employerMap[prof.id] = {
-                id: prof.id,
-                name: cleanName,
-                avatarUrl: prof.avatar_url || null,
-                verified: Boolean(prof.verified),
-              };
-            });
-          }
-        }
-      }
+      const profilesMap = await getPublicProfilesByIds(employerIds);
 
       // Step 4: Merge all datasets ensuring strict employer resolution via job.posted_by
       const mergedApplications: AppliedJobRecord[] = rawApps.map(app => {
         const job = jobMap[app.job_id];
         const employerId = job?.posted_by || '';
-        const employer = employerMap[employerId] || {
+        const canonical = profilesMap.get(employerId);
+        const employer: EmployerProfile = {
           id: employerId,
-          name: 'OpenComm User',
-          avatarUrl: null,
-          verified: false,
+          name: canonical?.name || 'OpenComm User',
+          avatarUrl: canonical?.avatarUrl || null,
+          verified: canonical?.verified || false,
         };
 
         return {

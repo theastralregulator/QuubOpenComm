@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Briefcase, Plus, AlertCircle } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
+import { getPublicProfileById } from '../../lib/profileService';
 import MyJobCard, { MyJobItem, OwnerProfile } from './MyJobCard';
 
 export default function MyJobPostsPage() {
@@ -77,34 +78,13 @@ export default function MyJobPostsPage() {
         }
       }
 
-      // Step C: Fetch owner profile details
-      const { data: profileDir } = await supabase
-        .from('profile_directory')
-        .select('full_name, company_name, avatar_url, verified, is_verified')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (profileDir) {
-        setOwnerProfile({
-          full_name: profileDir.full_name || profileDir.company_name || 'My Profile',
-          avatar_url: profileDir.avatar_url || '',
-          verified: Boolean(profileDir.verified || profileDir.is_verified),
-        });
-      } else {
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('full_name, avatar_url, verified')
-          .eq('id', user.id)
-          .maybeSingle();
-          
-        if (prof) {
-          setOwnerProfile({
-            full_name: prof.full_name || 'My Profile',
-            avatar_url: prof.avatar_url || '',
-            verified: Boolean(prof.verified),
-          });
-        }
-      }
+      // Step C: Fetch owner profile details via canonical profileService
+      const canonical = await getPublicProfileById(user.id);
+      setOwnerProfile({
+        full_name: canonical.name,
+        avatar_url: canonical.avatarUrl || '',
+        verified: canonical.verified,
+      });
     } catch (err: any) {
       console.error('[My Job Posts] Fetch error:', err);
       setError(err.message || "Unable to load your job posts. Please try again.");
