@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
   ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, Clock, RefreshCw,
-  MessageSquare, Shield, X
+  MessageSquare, Shield, X, AlertCircle
 } from 'lucide-react';
 import { Job } from '../../types';
 import { supabase, dbService } from '../../lib/supabase';
@@ -47,6 +47,21 @@ export default function JobDetailPage({
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
   const [existingApp, setExistingApp] = useState<any>(null);
+
+  // Real Employer Metrics State (No hardcoded/fake defaults)
+  const [employerMetrics, setEmployerMetrics] = useState<{
+    avgRating: number | null;
+    reviewCount: number;
+    jobsCount: number | null;
+    memberSinceYear: number | null;
+    loading: boolean;
+  }>({
+    avgRating: null,
+    reviewCount: 0,
+    jobsCount: null,
+    memberSinceYear: null,
+    loading: true,
+  });
 
   useEffect(() => {
     async function fetchJob() {
@@ -133,6 +148,61 @@ export default function JobDetailPage({
     fetchJob();
   }, [jobId, jobs]);
 
+  // Fetch real employer metrics when job.posted_by is available
+  useEffect(() => {
+    async function fetchEmployerMetrics() {
+      if (!job?.posted_by || !supabase) {
+        setEmployerMetrics(prev => ({ ...prev, loading: false }));
+        return;
+      }
+
+      try {
+        const [reviewsRes, jobsRes, profileRes] = await Promise.all([
+          supabase
+            .from('reviews')
+            .select('rating')
+            .eq('reviewee_id', job.posted_by),
+          supabase
+            .from('jobs')
+            .select('id', { count: 'exact', head: true })
+            .eq('posted_by', job.posted_by),
+          supabase
+            .from('profile_directory')
+            .select('created_at')
+            .eq('id', job.posted_by)
+            .maybeSingle()
+        ]);
+
+        let avgRating: number | null = null;
+        let count = 0;
+        if (reviewsRes.data && reviewsRes.data.length > 0) {
+          count = reviewsRes.data.length;
+          const sum = reviewsRes.data.reduce((acc: number, r: any) => acc + (r.rating || 0), 0);
+          avgRating = Number((sum / count).toFixed(1));
+        }
+
+        const jobsCount = jobsRes.count !== null ? jobsRes.count : null;
+        let year: number | null = null;
+        if (profileRes.data?.created_at) {
+          year = new Date(profileRes.data.created_at).getFullYear();
+        }
+
+        setEmployerMetrics({
+          avgRating,
+          reviewCount: count,
+          jobsCount,
+          memberSinceYear: year,
+          loading: false,
+        });
+      } catch (err) {
+        console.error('Error fetching employer metrics:', err);
+        setEmployerMetrics(prev => ({ ...prev, loading: false }));
+      }
+    }
+
+    fetchEmployerMetrics();
+  }, [job?.posted_by]);
+
   useEffect(() => {
     if (job) {
       analytics.trackEvent('view_job_detail', { job_id: job.id, job_title: job.title });
@@ -168,34 +238,24 @@ export default function JobDetailPage({
     }
   };
 
-  const handleDirectMessage = async () => {
-    if (!job) return;
-
-    if (!isLoggedIn || !loggedInId) {
-      onOpenAuth('locked');
-      return;
-    }
-
-    if (job.posted_by === loggedInId) {
-      triggerToast("You cannot message yourself.");
-      return;
-    }
-
-    if (!job.posted_by) {
-      triggerToast("Employer details unavailable for direct messaging.");
+  const handleOpenApplicationConversation = async () => {
+    if (!existingApp?.id) return;
+    if (applicationStatus !== 'accepted') {
+      triggerToast("Messaging is only available after your application is accepted.");
       return;
     }
 
     try {
-      const convId = await dbService.getOrCreateWorkerConversation(job.posted_by);
+      triggerToast("Opening application conversation...");
+      const convId = await dbService.getOrCreateApplicationConversation(existingApp.id);
       if (convId) {
         navigate(`/messages/${convId}`);
       } else {
-        triggerToast("Unable to start direct message conversation.");
+        triggerToast("Unable to open conversation.");
       }
     } catch (err: any) {
-      console.error('Error starting conversation:', err);
-      triggerToast(err.message || 'Failed to open message conversation.');
+      console.error('Error opening conversation:', err);
+      triggerToast(err.message || 'Unable to open conversation.');
     }
   };
 
@@ -306,8 +366,8 @@ export default function JobDetailPage({
   return (
     <div className="min-h-screen bg-[#FAFBFF] dark:bg-[#080C14] text-[#111827] dark:text-white pb-32">
       
-      {/* MAIN CONTENT CONTAINER */}
-      <main className="w-full max-w-4xl mx-auto px-3 sm:px-4 pt-3 sm:pt-5 space-y-3.5 text-left">
+      {/* MAIN CONTENT CONTAINER - Optimized Mobile Width & Reduced Margins */}
+      <main className="w-full max-w-4xl mx-auto px-2 sm:px-4 pt-3 sm:pt-5 space-y-3 text-left">
 
         {/* COMPACT PAGE BACK BUTTON */}
         <div className="flex items-center justify-between pb-1">
@@ -327,35 +387,34 @@ export default function JobDetailPage({
           transition={{ duration: 0.25 }} 
           className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 shadow-[0_4px_20px_rgba(108,77,255,0.04)] relative overflow-hidden space-y-4"
         >
-          {/* Top Employer Row */}
+          {/* Top Employer Row - Clickable Employer Profile */}
           <div className="flex items-center justify-between flex-wrap gap-2.5">
-            <div className="flex items-center space-x-3">
+            <button
+              onClick={() => job.posted_by && navigate(`/profile/${job.posted_by}`)}
+              aria-label={`View ${job.company}'s profile`}
+              className="flex items-center space-x-3 text-left group cursor-pointer"
+            >
               <div className="relative shrink-0">
                 <img 
                   src={job.companyLogo} 
                   alt={job.company} 
-                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs" 
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs group-hover:brightness-95 transition-all" 
                 />
                 <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-[#0F172A] rounded-full" title="Online" />
               </div>
               <div>
                 <div className="flex items-center space-x-1.5">
-                  <h3 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white tracking-tight">{job.company}</h3>
+                  <h3 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white tracking-tight group-hover:text-[#6C4DFF] group-hover:underline transition-colors">
+                    {job.company}
+                  </h3>
                   {job.verified && <ShieldCheck className="w-4 h-4 text-[#6C4DFF] shrink-0" />}
                 </div>
-                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Verified Employer</span>
+                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Verified</span>
               </div>
-            </div>
+            </button>
 
-            {/* Three Circular Action Buttons */}
+            {/* Circular Action Buttons - Pre-acceptance: Share & Save only */}
             <div className="flex items-center space-x-2">
-              <button
-                onClick={handleDirectMessage}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-[#6C4DFF]/10 text-[#6C4DFF] flex items-center justify-center transition-all cursor-pointer shadow-xs"
-                title="Message Employer"
-              >
-                <MessageSquare className="w-4 h-4" />
-              </button>
               <button
                 onClick={handleShare}
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-slate-100 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs relative"
@@ -382,12 +441,12 @@ export default function JobDetailPage({
             </div>
           </div>
 
-          {/* Job Title - Max 3-4 lines, no truncation */}
+          {/* Job Title */}
           <h1 className="text-lg sm:text-2xl font-black text-[#111827] dark:text-white tracking-tight leading-snug break-words">
             {job.title}
           </h1>
 
-          {/* Subtle Gradient Chips */}
+          {/* Subtle Gradient Chips - "Verified" Label */}
           <div className="flex flex-wrap gap-2 pt-0.5">
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-gradient-to-r from-[#6C4DFF]/10 to-[#9D4EDD]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shadow-xs">
               ✓ {job.category}
@@ -396,12 +455,12 @@ export default function JobDetailPage({
               ✓ Full Time
             </span>
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/30 shadow-xs">
-              ✓ Verified Employer
+              ✓ Verified
             </span>
           </div>
         </motion.div>
 
-        {/* 2. 4-CARD INFORMATION GRID - NO ELLIPSIS / TRUNCATION */}
+        {/* 2. 4-CARD INFORMATION GRID - NO TRUNCATION / NO ELLIPSIS */}
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
           {/* Location */}
           <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-3.5 sm:p-4 space-y-2 flex flex-col justify-between shadow-xs min-h-[90px]">
@@ -456,21 +515,53 @@ export default function JobDetailPage({
           </div>
         </div>
 
-        {/* APPLICATION STATUS BANNER IF APPLIED */}
+        {/* APPLICATION STATUS CARD (POST-APPLICATION UX & MESSAGING GATEWAY) */}
         {dbApplied && (
-          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-[20px] p-3.5 sm:p-4 flex items-center justify-between shadow-xs">
-            <div className="space-y-0.5">
-              <h4 className="font-extrabold text-amber-900 dark:text-amber-300 text-xs sm:text-sm">Application Status</h4>
-              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
-                Status: {applicationStatus ? applicationStatus.toUpperCase() : 'PENDING'}
-              </p>
+          <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Application Status</span>
+                <div className="flex items-center space-x-2 pt-0.5">
+                  {applicationStatus === 'accepted' ? (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-black uppercase tracking-wider">
+                      Application Accepted
+                    </span>
+                  ) : applicationStatus === 'rejected' ? (
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 text-xs font-black uppercase tracking-wider">
+                      Application Rejected
+                    </span>
+                  ) : applicationStatus === 'shortlisted' ? (
+                    <span className="px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 text-xs font-black uppercase tracking-wider">
+                      Shortlisted
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 text-xs font-black uppercase tracking-wider">
+                      Pending Review
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {applicationStatus === 'accepted' && (
+                <button
+                  onClick={handleOpenApplicationConversation}
+                  className="px-4 py-2 bg-[#6C4DFF] hover:bg-[#5b3edf] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Message Employer</span>
+                </button>
+              )}
             </div>
-            <button
-              onClick={() => navigate('/profile/jobs-applied')}
-              className="px-3.5 py-1.5 bg-amber-600 text-white font-extrabold text-xs rounded-xl hover:bg-amber-700 transition-colors shadow-xs"
-            >
-              View Application
-            </button>
+
+            <p className="text-xs font-semibold text-[#6B7280] dark:text-slate-400 leading-relaxed pt-1 border-t border-[#ECEEF5] dark:border-slate-800/60">
+              {applicationStatus === 'accepted' ? (
+                "Your application has been accepted! You can now message the employer directly."
+              ) : applicationStatus === 'rejected' ? (
+                "Your application was not selected for this opportunity."
+              ) : (
+                "You can message the employer after your application is accepted."
+              )}
+            </p>
           </div>
         )}
 
@@ -510,45 +601,74 @@ export default function JobDetailPage({
           )}
         </div>
 
-        {/* 5. EMPLOYER TRUST SECTION */}
+        {/* 5. EMPLOYER TRUST SECTION - REAL METRICS ONLY */}
         <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <button
+              onClick={() => job.posted_by && navigate(`/profile/${job.posted_by}`)}
+              aria-label={`View ${job.company}'s profile`}
+              className="flex items-center space-x-3 text-left group cursor-pointer"
+            >
               <img 
                 src={job.companyLogo} 
                 alt={job.company} 
-                className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50" 
+                className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 group-hover:brightness-95 transition-all" 
               />
               <div>
                 <div className="flex items-center space-x-1.5">
-                  <h4 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white">{job.company}</h4>
+                  <h4 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white group-hover:text-[#6C4DFF] group-hover:underline transition-colors">
+                    {job.company}
+                  </h4>
                   {job.verified && <ShieldCheck className="w-4 h-4 text-[#6C4DFF] shrink-0" />}
                 </div>
-                <span className="text-[11px] font-semibold text-[#6B7280]">Verified Employer</span>
+                <span className="text-[11px] font-semibold text-[#6B7280]">Verified</span>
               </div>
-            </div>
+            </button>
+            
             <button
-              onClick={() => triggerToast(`Employer details for ${job.company}`)}
+              onClick={() => job.posted_by && navigate(`/profile/${job.posted_by}`)}
               className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-[#6C4DFF] text-[#6C4DFF] font-bold text-xs hover:bg-[#6C4DFF]/10 transition-colors cursor-pointer"
             >
               View Profile
             </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 pt-2 text-center border-t border-[#ECEEF5] dark:border-slate-800/60">
-            <div className="p-1.5">
-              <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Rating</span>
-              <span className="text-xs font-extrabold text-[#111827] dark:text-white">★ 4.9</span>
+          {/* Metrics Row: Only show if real DB data exists */}
+          {!employerMetrics.loading && (
+            <div className="flex items-center justify-around gap-2 pt-2 text-center border-t border-[#ECEEF5] dark:border-slate-800/60">
+              {employerMetrics.avgRating !== null ? (
+                <div className="p-1.5">
+                  <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Rating</span>
+                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
+                    ★ {employerMetrics.avgRating} ({employerMetrics.reviewCount})
+                  </span>
+                </div>
+              ) : (
+                <div className="p-1.5">
+                  <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Rating</span>
+                  <span className="text-xs font-bold text-[#6B7280]">No reviews yet</span>
+                </div>
+              )}
+
+              {employerMetrics.jobsCount !== null && (
+                <div className="p-1.5">
+                  <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Jobs</span>
+                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
+                    {employerMetrics.jobsCount} Posted
+                  </span>
+                </div>
+              )}
+
+              {employerMetrics.memberSinceYear !== null && (
+                <div className="p-1.5">
+                  <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Member</span>
+                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
+                    Since {employerMetrics.memberSinceYear}
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="p-1.5">
-              <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Jobs</span>
-              <span className="text-xs font-extrabold text-[#111827] dark:text-white">12 Posted</span>
-            </div>
-            <div className="p-1.5">
-              <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Member</span>
-              <span className="text-xs font-extrabold text-[#111827] dark:text-white">Since 2024</span>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* 6. SAFETY SECTION */}
@@ -559,45 +679,59 @@ export default function JobDetailPage({
 
       </main>
 
-      {/* 7. BOTTOM STICKY ACTION BAR */}
+      {/* 7. BOTTOM STICKY ACTION BAR - 1 FULL-WIDTH APPLY BUTTON OR STATUS */}
       <div className="fixed bottom-0 left-0 right-0 p-3.5 sm:p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
         <div className="max-w-4xl mx-auto flex items-center gap-2.5 sm:gap-3">
-          <button
-            onClick={handleDirectMessage}
-            className="flex-1 h-11 sm:h-12 rounded-2xl border-2 border-[#6C4DFF] text-[#6C4DFF] font-extrabold text-xs sm:text-sm hover:bg-[#6C4DFF]/10 transition-all flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
-          >
-            <MessageSquare className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-            <span>Message Employer</span>
-          </button>
-          
-          <button
-            onClick={() => {
-              if (job.applied || deadlineInfo.isExpired) return;
-              setShowApplyForm(true);
-            }}
-            disabled={job.applied || deadlineInfo.isExpired}
-            className={`flex-1 h-11 sm:h-12 rounded-2xl text-white font-extrabold text-xs sm:text-sm transition-all flex items-center justify-center space-x-1.5 sm:space-x-2 shadow-lg ${
-              deadlineInfo.isExpired
-                ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
-                : job.applied
-                ? 'bg-emerald-600 text-white cursor-default'
-                : 'bg-gradient-to-r from-[#6C4DFF] to-[#9D4EDD] hover:opacity-95 shadow-[#6C4DFF]/25 cursor-pointer'
-            }`}
-          >
-            {job.applied ? (
-              <>
-                <CheckCircle2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-                <span>Applied</span>
-              </>
-            ) : deadlineInfo.isExpired ? (
-              <span>Applications Closed</span>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-                <span>I'm Interested</span>
-              </>
-            )}
-          </button>
+          {!dbApplied ? (
+            <button
+              onClick={() => {
+                if (deadlineInfo.isExpired) return;
+                setShowApplyForm(true);
+              }}
+              disabled={deadlineInfo.isExpired || isSubmitting}
+              className={`w-full h-11 sm:h-12 rounded-2xl text-white font-extrabold text-sm transition-all flex items-center justify-center space-x-2 shadow-lg ${
+                deadlineInfo.isExpired
+                  ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-[#6C4DFF] to-[#9D4EDD] hover:opacity-95 shadow-[#6C4DFF]/25 cursor-pointer'
+              }`}
+            >
+              {deadlineInfo.isExpired ? (
+                <span>Applications Closed</span>
+              ) : isSubmitting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Applying...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4.5 h-4.5" />
+                  <span>Apply</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="w-full flex flex-col sm:flex-row items-center gap-2">
+              <div className="w-full h-11 sm:h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-extrabold text-xs sm:text-sm flex items-center justify-center space-x-2 border border-slate-200 dark:border-slate-700">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>
+                  {applicationStatus === 'accepted' 
+                    ? 'Application Accepted' 
+                    : applicationStatus === 'rejected' 
+                    ? 'Application Rejected' 
+                    : 'Applied · Pending Review'}
+                </span>
+              </div>
+              {applicationStatus === 'accepted' && (
+                <button
+                  onClick={handleOpenApplicationConversation}
+                  className="w-full sm:w-auto h-11 sm:h-12 px-6 rounded-2xl bg-[#6C4DFF] hover:bg-[#5b3edf] text-white font-extrabold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer shrink-0 shadow-md"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Message Employer</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -682,7 +816,7 @@ export default function JobDetailPage({
                   ) : (
                     <Send className="w-4 h-4" />
                   )}
-                  <span>{isSubmitting ? 'Submitting...' : 'Send Application'}</span>
+                  <span>{isSubmitting ? 'Applying...' : 'Submit Application'}</span>
                 </button>
               </div>
             </motion.form>

@@ -1445,6 +1445,22 @@ export const dbService = {
   // Messaging Service Methods
   async getOrCreateApplicationConversation(applicationId: string): Promise<string | null> {
     if (!supabase) return null;
+    
+    // Pre-flight check: Enforce that messaging is ONLY allowed after application acceptance
+    const { data: appData, error: appError } = await supabase
+      .from('job_applications')
+      .select('id, status, applicant_id, job_id')
+      .eq('id', applicationId)
+      .maybeSingle();
+
+    if (appError || !appData) {
+      throw new Error('Application details could not be verified.');
+    }
+
+    if (appData.status !== 'accepted') {
+      throw new Error('Messaging is only allowed after the application has been accepted by the employer.');
+    }
+
     const { data, error } = await supabase.rpc('get_or_create_application_conversation', {
       p_application_id: applicationId
     });

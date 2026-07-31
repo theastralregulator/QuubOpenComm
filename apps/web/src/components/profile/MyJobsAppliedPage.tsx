@@ -345,7 +345,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                     </div>
                     
                     <div className="flex items-center gap-2">
-                      {app.status !== 'withdrawn' && (
+                      {app.status === 'accepted' && (
                         <button
                           onClick={() => handleStartConversation(app.id)}
                           className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-sm font-bold rounded-lg transition-colors cursor-pointer"
