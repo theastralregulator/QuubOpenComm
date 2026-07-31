@@ -4,14 +4,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
   ShieldCheck, CheckCircle2, Bookmark, Share2, Sparkles, Send, Clock, RefreshCw,
-  MessageSquare, Bell, Shield, X, User, ExternalLink
+  MessageSquare, Shield, X
 } from 'lucide-react';
 import { Job } from '../../types';
 import { supabase, dbService } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import { getDeadlineInfo } from '../../lib/deadline';
-import OpenCommLogo from '../common/OpenCommLogo';
-import UserAvatar from '../common/UserAvatar';
 
 interface JobDetailPageProps {
   jobs: Job[];
@@ -45,7 +43,6 @@ export default function JobDetailPage({
   const [copied, setCopied] = useState(false);
 
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
-  const [loggedInUser, setLoggedInUser] = useState<any>(null);
   const isOwner = job?.posted_by && loggedInId === job.posted_by;
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
@@ -65,7 +62,6 @@ export default function JobDetailPage({
         }
         currentAuthUserId = user?.id ?? null;
         setLoggedInId(currentAuthUserId);
-        setLoggedInUser(user);
 
         if (currentAuthUserId) {
           const { data: existingApplication } = await supabase
@@ -310,90 +306,71 @@ export default function JobDetailPage({
   return (
     <div className="min-h-screen bg-[#FAFBFF] dark:bg-[#080C14] text-[#111827] dark:text-white pb-32">
       
-      {/* 1. STICKY TOP NAVIGATION HEADER */}
-      <header className="sticky top-0 z-40 bg-[#FAFBFF]/90 dark:bg-[#080C14]/90 backdrop-blur-xl border-b border-[#ECEEF5] dark:border-slate-800/80 px-4 py-3 shadow-xs">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <button 
-            onClick={() => navigate(-1)} 
-            className="p-2.5 rounded-2xl bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-slate-50 transition-all cursor-pointer shadow-xs"
-            title="Go back"
+      {/* MAIN CONTENT CONTAINER */}
+      <main className="w-full max-w-4xl mx-auto px-3 sm:px-4 pt-3 sm:pt-5 space-y-3.5 text-left">
+
+        {/* COMPACT PAGE BACK BUTTON */}
+        <div className="flex items-center justify-between pb-1">
+          <button
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/80 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-50 transition-all cursor-pointer shadow-xs"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back</span>
           </button>
-
-          <OpenCommLogo variant="navbar" onClick={() => navigate('/')} />
-
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={() => navigate('/messages')}
-              className="p-2.5 rounded-2xl bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-all cursor-pointer shadow-xs"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4" />
-            </button>
-            <UserAvatar 
-              avatarUrl={loggedInUser?.user_metadata?.avatar_url} 
-              fullName={loggedInUser?.user_metadata?.full_name || 'User'} 
-              size="xs" 
-            />
-          </div>
         </div>
-      </header>
 
-      {/* MAIN CONTAINER */}
-      <main className="max-w-4xl mx-auto px-4 pt-4 sm:pt-6 space-y-4">
-
-        {/* 2. PREMIUM HERO CARD */}
+        {/* 1. HERO CARD */}
         <motion.div 
-          initial={{ opacity: 0, y: 15 }} 
+          initial={{ opacity: 0, y: 12 }} 
           animate={{ opacity: 1, y: 0 }} 
-          transition={{ duration: 0.3 }} 
-          className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-5 sm:p-7 shadow-[0_4px_20px_rgba(108,77,255,0.04)] relative overflow-hidden space-y-5"
+          transition={{ duration: 0.25 }} 
+          className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 shadow-[0_4px_20px_rgba(108,77,255,0.04)] relative overflow-hidden space-y-4"
         >
           {/* Top Employer Row */}
-          <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center justify-between flex-wrap gap-2.5">
             <div className="flex items-center space-x-3">
               <div className="relative shrink-0">
                 <img 
                   src={job.companyLogo} 
                   alt={job.company} 
-                  className="w-12 h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs" 
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs" 
                 />
-                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-[#0F172A] rounded-full" title="Online" />
+                <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-[#0F172A] rounded-full" title="Online" />
               </div>
               <div>
                 <div className="flex items-center space-x-1.5">
-                  <h3 className="text-sm font-extrabold text-[#111827] dark:text-white tracking-tight">{job.company}</h3>
+                  <h3 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white tracking-tight">{job.company}</h3>
                   {job.verified && <ShieldCheck className="w-4 h-4 text-[#6C4DFF] shrink-0" />}
                 </div>
-                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Verified Employer</span>
+                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Verified Employer</span>
               </div>
             </div>
 
             {/* Three Circular Action Buttons */}
-            <div className="flex items-center space-x-2.5">
+            <div className="flex items-center space-x-2">
               <button
                 onClick={handleDirectMessage}
-                className="w-10 h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-[#6C4DFF]/10 hover:border-[#6C4DFF]/30 text-[#6C4DFF] flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-[#6C4DFF]/10 text-[#6C4DFF] flex items-center justify-center transition-all cursor-pointer shadow-xs"
                 title="Message Employer"
               >
                 <MessageSquare className="w-4 h-4" />
               </button>
               <button
                 onClick={handleShare}
-                className="w-10 h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-slate-100 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs relative"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] hover:bg-slate-100 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs relative"
                 title="Share"
               >
                 <Share2 className="w-4 h-4" />
                 {copied && (
-                  <div className="absolute bottom-full mb-1 bg-slate-900 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow whitespace-nowrap animate-bounce">
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow whitespace-nowrap animate-bounce z-10">
                     Copied!
                   </div>
                 )}
               </button>
               <button
                 onClick={(e) => toggleBookmark(job.id, e)}
-                className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all cursor-pointer shadow-xs ${
+                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all cursor-pointer shadow-xs ${
                   job.bookmarked 
                     ? 'border-[#6C4DFF]/40 bg-[#6C4DFF]/10 text-[#6C4DFF]' 
                     : 'border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] text-[#6B7280] dark:text-slate-300 hover:text-[#6C4DFF]'
@@ -405,65 +382,75 @@ export default function JobDetailPage({
             </div>
           </div>
 
-          {/* Job Title */}
-          <h1 className="text-xl sm:text-2xl font-black text-[#111827] dark:text-white tracking-tight leading-snug">
+          {/* Job Title - Max 3-4 lines, no truncation */}
+          <h1 className="text-lg sm:text-2xl font-black text-[#111827] dark:text-white tracking-tight leading-snug break-words">
             {job.title}
           </h1>
 
           {/* Subtle Gradient Chips */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-[#6C4DFF]/10 to-[#9D4EDD]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shadow-xs">
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-gradient-to-r from-[#6C4DFF]/10 to-[#9D4EDD]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shadow-xs">
               ✓ {job.category}
             </span>
-            <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-slate-100 to-slate-200/60 dark:from-slate-800 dark:to-slate-800/60 text-slate-700 dark:text-slate-300 border border-[#ECEEF5] dark:border-slate-700/50 shadow-xs">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-gradient-to-r from-slate-100 to-slate-200/60 dark:from-slate-800 dark:to-slate-800/60 text-slate-700 dark:text-slate-300 border border-[#ECEEF5] dark:border-slate-700/50 shadow-xs">
               ✓ Full Time
             </span>
-            <span className="inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/30 shadow-xs">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/30 shadow-xs">
               ✓ Verified Employer
             </span>
           </div>
         </motion.div>
 
-        {/* 3. 4-CARD INFORMATION GRID */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
-            <div className="w-8 h-8 rounded-xl bg-[#6C4DFF]/10 text-[#6C4DFF] flex items-center justify-center shrink-0">
-              <MapPin className="w-4 h-4" />
+        {/* 2. 4-CARD INFORMATION GRID - NO ELLIPSIS / TRUNCATION */}
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
+          {/* Location */}
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-3.5 sm:p-4 space-y-2 flex flex-col justify-between shadow-xs min-h-[90px]">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Location</span>
-              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white truncate block">{job.location}</span>
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider mb-0.5">Location</span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
+                {job.location}
+              </span>
             </div>
           </div>
 
-          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <IndianRupee className="w-4 h-4" />
+          {/* Salary / Budget */}
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-3.5 sm:p-4 space-y-2 flex flex-col justify-between shadow-xs min-h-[90px]">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <IndianRupee className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Salary</span>
-              <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 truncate block">{job.salary}</span>
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider mb-0.5">Salary / Budget</span>
+              <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 leading-snug whitespace-normal break-words overflow-visible block">
+                {job.salary}
+              </span>
             </div>
           </div>
 
-          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
-            <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-              <Calendar className="w-4 h-4" />
+          {/* Posted Date */}
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-3.5 sm:p-4 space-y-2 flex flex-col justify-between shadow-xs min-h-[90px]">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+              <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Posted Date</span>
-              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white truncate block">{job.datePosted}</span>
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider mb-0.5">Posted Date</span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
+                {job.datePosted}
+              </span>
             </div>
           </div>
 
-          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 space-y-2.5 shadow-xs">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-              <Clock className="w-4 h-4" />
+          {/* Application Deadline */}
+          <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-3.5 sm:p-4 space-y-2 flex flex-col justify-between shadow-xs min-h-[90px]">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider">Deadline</span>
-              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white truncate block">
-                {job.applicationDeadline ? new Date(job.applicationDeadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Flexible'}
+              <span className="block text-[10px] font-black uppercase text-[#6B7280] tracking-wider mb-0.5">Deadline</span>
+              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
+                {job.applicationDeadline ? new Date(job.applicationDeadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Flexible'}
               </span>
             </div>
           </div>
@@ -471,7 +458,7 @@ export default function JobDetailPage({
 
         {/* APPLICATION STATUS BANNER IF APPLIED */}
         {dbApplied && (
-          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-[20px] p-4 sm:p-5 flex items-center justify-between shadow-xs">
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-[20px] p-3.5 sm:p-4 flex items-center justify-between shadow-xs">
             <div className="space-y-0.5">
               <h4 className="font-extrabold text-amber-900 dark:text-amber-300 text-xs sm:text-sm">Application Status</h4>
               <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
@@ -487,34 +474,34 @@ export default function JobDetailPage({
           </div>
         )}
 
-        {/* 4. ABOUT THE OPPORTUNITY */}
-        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-6 shadow-xs space-y-3">
+        {/* 3. ABOUT THE OPPORTUNITY */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 shadow-xs space-y-3">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-xl bg-[#6C4DFF]/10 text-[#6C4DFF]">
-              <Briefcase className="w-4.5 h-4.5" />
+            <div className="p-2 rounded-xl bg-[#6C4DFF]/10 text-[#6C4DFF] shrink-0">
+              <Briefcase className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             </div>
-            <h3 className="text-base font-black text-[#111827] dark:text-white">About the Opportunity</h3>
+            <h3 className="text-sm sm:text-base font-black text-[#111827] dark:text-white">About the Opportunity</h3>
           </div>
-          <div className="text-base text-[#111827] dark:text-slate-200 leading-relaxed font-normal whitespace-pre-wrap pt-1 space-y-3">
+          <div className="text-sm sm:text-[15px] text-[#111827] dark:text-slate-200 leading-[1.65] font-normal whitespace-pre-wrap pt-0.5 space-y-3">
             {job.description}
           </div>
         </div>
 
-        {/* 5. REQUIREMENTS (PILL CARDS) */}
-        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-6 shadow-xs space-y-4">
-          <h3 className="text-base font-black text-[#111827] dark:text-white flex items-center space-x-2">
+        {/* 4. REQUIREMENTS (PILL CARDS) */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 shadow-xs space-y-3.5">
+          <h3 className="text-sm sm:text-base font-black text-[#111827] dark:text-white flex items-center space-x-2">
             <span>Requirements</span>
           </h3>
           {job.requirements && job.requirements.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {job.requirements.map((req, i) => (
                 <motion.div
                   key={i}
-                  whileHover={{ scale: 1.01 }}
-                  className="flex items-center space-x-3 p-3.5 rounded-2xl bg-[#F7F8FE] dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/60 transition-all"
+                  whileHover={{ scale: 1.005 }}
+                  className="flex items-start space-x-2.5 p-3 rounded-xl bg-[#F7F8FE] dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800/60 transition-all"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-[#6C4DFF] shrink-0" />
-                  <span className="text-xs font-bold text-[#111827] dark:text-slate-200">{req}</span>
+                  <CheckCircle2 className="w-4 h-4 text-[#6C4DFF] shrink-0 mt-0.5" />
+                  <span className="text-xs font-bold text-[#111827] dark:text-slate-200 leading-snug whitespace-normal break-words">{req}</span>
                 </motion.div>
               ))}
             </div>
@@ -523,63 +510,63 @@ export default function JobDetailPage({
           )}
         </div>
 
-        {/* 6. EMPLOYER TRUST SECTION */}
-        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[24px] p-6 shadow-xs space-y-4">
+        {/* 5. EMPLOYER TRUST SECTION */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[22px] p-4 sm:p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <img 
                 src={job.companyLogo} 
                 alt={job.company} 
-                className="w-12 h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50" 
+                className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50" 
               />
               <div>
                 <div className="flex items-center space-x-1.5">
-                  <h4 className="text-sm font-extrabold text-[#111827] dark:text-white">{job.company}</h4>
+                  <h4 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white">{job.company}</h4>
                   {job.verified && <ShieldCheck className="w-4 h-4 text-[#6C4DFF] shrink-0" />}
                 </div>
-                <span className="text-xs font-semibold text-[#6B7280]">Verified Employer</span>
+                <span className="text-[11px] font-semibold text-[#6B7280]">Verified Employer</span>
               </div>
             </div>
             <button
               onClick={() => triggerToast(`Employer details for ${job.company}`)}
-              className="px-4 py-2 rounded-xl border border-[#6C4DFF] text-[#6C4DFF] font-bold text-xs hover:bg-[#6C4DFF]/10 transition-colors cursor-pointer"
+              className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-[#6C4DFF] text-[#6C4DFF] font-bold text-xs hover:bg-[#6C4DFF]/10 transition-colors cursor-pointer"
             >
               View Profile
             </button>
           </div>
 
           <div className="grid grid-cols-3 gap-2 pt-2 text-center border-t border-[#ECEEF5] dark:border-slate-800/60">
-            <div className="p-2">
+            <div className="p-1.5">
               <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Rating</span>
               <span className="text-xs font-extrabold text-[#111827] dark:text-white">★ 4.9</span>
             </div>
-            <div className="p-2">
+            <div className="p-1.5">
               <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Jobs</span>
               <span className="text-xs font-extrabold text-[#111827] dark:text-white">12 Posted</span>
             </div>
-            <div className="p-2">
+            <div className="p-1.5">
               <span className="block text-[10px] uppercase font-black text-[#6B7280] tracking-wider">Member</span>
               <span className="text-xs font-extrabold text-[#111827] dark:text-white">Since 2024</span>
             </div>
           </div>
         </div>
 
-        {/* 7. SAFETY SECTION */}
-        <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-4 flex items-center space-x-3 text-xs font-medium text-[#6B7280] dark:text-slate-400">
+        {/* 6. SAFETY SECTION */}
+        <div className="bg-[#F7F8FE] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800/80 rounded-[20px] p-3.5 sm:p-4 flex items-center space-x-3 text-xs font-medium text-[#6B7280] dark:text-slate-400">
           <Shield className="w-5 h-5 text-[#6C4DFF] shrink-0" />
           <span>Your personal contact information remains hidden until you choose to share it.</span>
         </div>
 
       </main>
 
-      {/* 8. BOTTOM STICKY ACTION BAR */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
-        <div className="max-w-4xl mx-auto flex items-center gap-3">
+      {/* 7. BOTTOM STICKY ACTION BAR */}
+      <div className="fixed bottom-0 left-0 right-0 p-3.5 sm:p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+        <div className="max-w-4xl mx-auto flex items-center gap-2.5 sm:gap-3">
           <button
             onClick={handleDirectMessage}
-            className="flex-1 h-12 rounded-2xl border-2 border-[#6C4DFF] text-[#6C4DFF] font-extrabold text-sm hover:bg-[#6C4DFF]/10 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+            className="flex-1 h-11 sm:h-12 rounded-2xl border-2 border-[#6C4DFF] text-[#6C4DFF] font-extrabold text-xs sm:text-sm hover:bg-[#6C4DFF]/10 transition-all flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer"
           >
-            <MessageSquare className="w-4.5 h-4.5" />
+            <MessageSquare className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             <span>Message Employer</span>
           </button>
           
@@ -589,7 +576,7 @@ export default function JobDetailPage({
               setShowApplyForm(true);
             }}
             disabled={job.applied || deadlineInfo.isExpired}
-            className={`flex-1 h-12 rounded-2xl text-white font-extrabold text-sm transition-all flex items-center justify-center space-x-2 shadow-lg ${
+            className={`flex-1 h-11 sm:h-12 rounded-2xl text-white font-extrabold text-xs sm:text-sm transition-all flex items-center justify-center space-x-1.5 sm:space-x-2 shadow-lg ${
               deadlineInfo.isExpired
                 ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
                 : job.applied
@@ -599,14 +586,14 @@ export default function JobDetailPage({
           >
             {job.applied ? (
               <>
-                <CheckCircle2 className="w-4.5 h-4.5" />
+                <CheckCircle2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                 <span>Applied</span>
               </>
             ) : deadlineInfo.isExpired ? (
               <span>Applications Closed</span>
             ) : (
               <>
-                <Sparkles className="w-4.5 h-4.5" />
+                <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                 <span>I'm Interested</span>
               </>
             )}
@@ -631,7 +618,7 @@ export default function JobDetailPage({
               exit={{ opacity: 0, y: 100 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               onSubmit={handleApplySubmit}
-              className="relative w-full max-w-lg bg-white dark:bg-[#0F172A] rounded-t-[28px] sm:rounded-[28px] p-6 shadow-2xl space-y-4 border border-[#ECEEF5] dark:border-slate-800 z-10"
+              className="relative w-full max-w-lg bg-white dark:bg-[#0F172A] rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 shadow-2xl space-y-4 border border-[#ECEEF5] dark:border-slate-800 z-10"
             >
               <div className="flex items-center justify-between border-b border-[#ECEEF5] dark:border-slate-800 pb-3">
                 <div className="flex items-center space-x-2">
