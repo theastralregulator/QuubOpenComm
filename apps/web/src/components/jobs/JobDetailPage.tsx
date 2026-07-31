@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
   CheckCircle2, Bookmark, Share2, Send, Clock, RefreshCw,
-  MessageSquare, Shield, X, Edit3, Trash2
+  MessageSquare, Shield, X, Edit3, Trash2, MoreVertical
 } from 'lucide-react';
 import { Job } from '../../types';
 import { supabase, dbService } from '../../lib/supabase';
@@ -54,6 +54,8 @@ export default function JobDetailPage({
   const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
   const canEdit = isOwner && (Date.now() <= (createdAtTime + FIVE_HOURS_MS));
 
+  // Three-dot owner menu state
+  const [showOwnerMenu, setShowOwnerMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -384,38 +386,27 @@ export default function JobDetailPage({
   return (
     <div className="w-full bg-[linear-gradient(180deg,#FAFBFF_0%,#F7F5FF_50%,#F9FBFF_100%)] dark:bg-[linear-gradient(180deg,#080C14_0%,#0F1424_50%,#080C14_100%)] min-h-screen text-left pb-[calc(90px+env(safe-area-inset-bottom))]" id="job-detail-container">
       
-      {/* 1. TOP HEADER NAVIGATION - CLEAN BACK BUTTON */}
+      {/* 1. CLEAN TOP NAVIGATION - SIMPLE BACK BUTTON ONLY */}
       <div className="sticky top-0 z-30 bg-white/90 dark:bg-[#080C14]/90 backdrop-blur-md border-b border-[#ECEEF5] dark:border-slate-800/80 px-2 sm:px-4 py-2.5">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <button
             onClick={() => navigate('/jobs')}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-extrabold transition-all cursor-pointer shadow-2xs"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer shadow-2xs"
             title="Back to Jobs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Jobs</span>
           </button>
-          
-          <div className="flex items-center space-x-2">
-            {isOwner && (
-              <span className="px-2.5 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/40 border border-purple-200 text-purple-700 dark:text-purple-300 text-[10px] font-black uppercase tracking-wider">
-                Your Job Post
-              </span>
-            )}
-            <span className="text-[10px] font-black text-[#6B7280] uppercase tracking-wider font-mono">
-              Job ID: {job.id.slice(0, 8)}
-            </span>
-          </div>
         </div>
       </div>
 
-      <main className="max-w-4xl mx-auto px-2 sm:px-4 pt-3 sm:pt-5 space-y-4">
+      <main className="max-w-4xl mx-auto px-2 sm:px-4 pt-3 sm:pt-5 space-y-3.5 sm:space-y-4">
         
-        {/* 2. PREMIUM HERO CARD */}
+        {/* 2. HERO CARD - CLEAN & ELEGANT DESIGN WITH OWNER THREE-DOT MENU */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-[linear-gradient(135deg,#FFFFFF_0%,#F6F2FF_55%,#F1F6FF_100%)] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-4 sm:p-6 space-y-4 shadow-xs relative overflow-hidden"
+          className="bg-[linear-gradient(135deg,#FFFFFF_0%,#F6F2FF_55%,#F1F6FF_100%)] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-6 space-y-3.5 shadow-xs relative overflow-hidden"
         >
           {/* Top Row: Employer Profile & Actions */}
           <div className="flex justify-between items-start">
@@ -435,7 +426,7 @@ export default function JobDetailPage({
               </div>
               <div>
                 <div className="flex items-center space-x-1.5 flex-wrap gap-1">
-                  <h3 className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white tracking-tight group-hover:text-[#6C4DFF] group-hover:underline transition-colors">
+                  <h3 className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white tracking-tight group-hover:text-[#6C4DFF] group-hover:underline transition-colors">
                     {job.company}
                   </h3>
                   {job.verified && (
@@ -448,8 +439,8 @@ export default function JobDetailPage({
               </div>
             </button>
 
-            {/* Action Buttons: Share & Bookmark */}
-            <div className="flex items-center space-x-2">
+            {/* Action Buttons: Share, Save & Owner Three-Dot Menu */}
+            <div className="flex items-center space-x-2 relative">
               <button
                 onClick={handleShare}
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-white/90 dark:bg-[#111827] hover:bg-slate-100 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs relative"
@@ -462,6 +453,7 @@ export default function JobDetailPage({
                   </div>
                 )}
               </button>
+
               <button
                 onClick={(e) => toggleBookmark(job.id, e)}
                 className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all cursor-pointer shadow-xs ${
@@ -473,6 +465,89 @@ export default function JobDetailPage({
               >
                 <Bookmark className={`w-4 h-4 ${job.bookmarked ? 'fill-current' : ''}`} />
               </button>
+
+              {/* Compact Owner Three-Dot Menu */}
+              {isOwner && (
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowOwnerMenu(!showOwnerMenu);
+                    }}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-white/90 dark:bg-[#111827] hover:bg-purple-50 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                    title="Owner Actions"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+
+                  <AnimatePresence>
+                    {showOwnerMenu && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setShowOwnerMenu(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-0 top-12 z-50 w-56 bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-2xl shadow-xl py-1.5 overflow-hidden text-left"
+                        >
+                          <button
+                            onClick={() => {
+                              setShowOwnerMenu(false);
+                              navigate('/profile/manage-applications');
+                            }}
+                            className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <Briefcase className="w-4 h-4 text-[#6C4DFF] shrink-0" />
+                            <span>Manage Applications</span>
+                          </button>
+
+                          <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
+
+                          {canEdit ? (
+                            <button
+                              onClick={() => {
+                                setShowOwnerMenu(false);
+                                if (onEditJob) onEditJob(job);
+                              }}
+                              className="w-full px-4 py-3 min-h-[48px] flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <Edit3 className="w-4 h-4 text-amber-600 shrink-0" />
+                                <span>Edit Post</span>
+                              </div>
+                              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+                                5h window
+                              </span>
+                            </button>
+                          ) : (
+                            <div className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-medium text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60">
+                              <Edit3 className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span>Edit Expired (5h passed)</span>
+                            </div>
+                          )}
+
+                          <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
+
+                          <button
+                            onClick={() => {
+                              setShowOwnerMenu(false);
+                              setShowDeleteConfirm(true);
+                            }}
+                            className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
+                            <span>Delete Post</span>
+                          </button>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
             </div>
           </div>
 
@@ -481,71 +556,18 @@ export default function JobDetailPage({
             {job.title}
           </h1>
 
-          {/* Category & Real Job Type Chips */}
+          {/* Category & Job Type Chips */}
           <div className="flex flex-wrap gap-2 pt-0.5">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-[#6C4DFF]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shadow-2xs">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold bg-[#6C4DFF]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shadow-2xs">
               {job.category}
             </span>
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#ECEEF5] dark:border-slate-700/50 shadow-2xs">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#ECEEF5] dark:border-slate-700/50 shadow-2xs">
               {job.jobType || 'Full-time'}
             </span>
           </div>
         </motion.div>
 
-        {/* 3. OWNER ACTION CARD (Rendered if authenticated user is post creator) */}
-        {isOwner && (
-          <div className="bg-purple-50/80 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/40 rounded-[22px] p-4 text-left space-y-3 shadow-2xs">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-2 text-purple-900 dark:text-purple-300 font-extrabold text-xs uppercase tracking-wider">
-                <Briefcase className="w-4 h-4 text-[#6C4DFF]" />
-                <span>Job Owner Controls</span>
-              </div>
-              <span className="text-[11px] font-bold text-slate-500">
-                {canEdit ? 'Edit Window Active (5h)' : 'Edit Window Passed'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-              <button
-                onClick={() => navigate('/profile/manage-applications')}
-                className="h-11 px-4 rounded-xl bg-[#6C4DFF] hover:bg-[#5b3edf] text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer"
-              >
-                <Briefcase className="w-4 h-4" />
-                <span>Manage Applications</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  if (!canEdit) {
-                    triggerToast("The 5-hour edit window for this post has expired.");
-                    return;
-                  }
-                  if (onEditJob) onEditJob(job);
-                }}
-                disabled={!canEdit}
-                className={`h-11 px-4 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 border transition-all cursor-pointer ${
-                  canEdit
-                    ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700'
-                    : 'bg-slate-100 text-slate-400 border-slate-200 dark:bg-slate-800 dark:border-slate-700 cursor-not-allowed'
-                }`}
-                title={canEdit ? "Edit post details (5h window)" : "Edit window expired (first 5h only)"}
-              >
-                <Edit3 className="w-4 h-4" />
-                <span>{canEdit ? 'Edit Post' : 'Edit Expired'}</span>
-              </button>
-
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="h-11 px-4 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800 font-extrabold text-xs flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Delete Post</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 4. 4-CARD INFORMATION GRID - REAL DEADLINE & SOFT COLOR GRADING */}
+        {/* 3. 4-CARD INFORMATION GRID - SOFT TINTS & FULL READABILITY */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3">
           {/* Location */}
           <div className="bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100/80 dark:border-blue-900/30 rounded-[20px] p-3.5 sm:p-4 space-y-1.5 flex flex-col justify-between shadow-2xs min-h-[85px]">
@@ -553,8 +575,8 @@ export default function JobDetailPage({
               <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-blue-900/60 dark:text-blue-400/80 tracking-wider mb-0.5">Location</span>
-              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
+              <span className="block text-[10px] font-bold uppercase text-blue-900/60 dark:text-blue-400/80 tracking-wider mb-0.5">Location</span>
+              <span className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
                 {job.location}
               </span>
             </div>
@@ -566,8 +588,8 @@ export default function JobDetailPage({
               <IndianRupee className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-emerald-900/60 dark:text-emerald-400/80 tracking-wider mb-0.5">Salary / Budget</span>
-              <span className="text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-400 leading-snug whitespace-normal break-words overflow-visible block">
+              <span className="block text-[10px] font-bold uppercase text-emerald-900/60 dark:text-emerald-400/80 tracking-wider mb-0.5">Salary / Budget</span>
+              <span className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 leading-snug whitespace-normal break-words overflow-visible block">
                 {job.salary}
               </span>
             </div>
@@ -579,36 +601,36 @@ export default function JobDetailPage({
               <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-purple-900/60 dark:text-purple-400/80 tracking-wider mb-0.5">Posted Date</span>
-              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
+              <span className="block text-[10px] font-bold uppercase text-purple-900/60 dark:text-purple-400/80 tracking-wider mb-0.5">Posted Date</span>
+              <span className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
                 {job.datePosted}
               </span>
             </div>
           </div>
 
-          {/* Application Deadline - REAL DEADLINE RENDERING */}
+          {/* Application Deadline */}
           <div className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100/80 dark:border-amber-900/30 rounded-[20px] p-3.5 sm:p-4 space-y-1.5 flex flex-col justify-between shadow-2xs min-h-[85px]">
             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="block text-[10px] font-black uppercase text-amber-900/60 dark:text-amber-400/80 tracking-wider mb-0.5">Deadline</span>
-              <span className="text-xs sm:text-sm font-extrabold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
+              <span className="block text-[10px] font-bold uppercase text-amber-900/60 dark:text-amber-400/80 tracking-wider mb-0.5">Deadline</span>
+              <span className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white leading-snug whitespace-normal break-words overflow-visible block">
                 {deadlineInfo.label}
               </span>
             </div>
           </div>
         </div>
 
-        {/* 5. APPLICANT STATUS CARD (For non-owners who applied) */}
+        {/* 4. APPLICANT STATUS CARD (For non-owners who applied) */}
         {!isOwner && dbApplied && (
-          <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-4 sm:p-5 text-left space-y-3 shadow-xs">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-5 text-left space-y-3 shadow-xs">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                <h4 className="text-sm font-black text-[#111827] dark:text-white">Your Application Status</h4>
+                <h4 className="text-sm font-bold text-[#111827] dark:text-white">Your Application Status</h4>
               </div>
-              <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${
+              <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
                 applicationStatus === 'accepted'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300'
                   : applicationStatus === 'rejected'
@@ -626,7 +648,7 @@ export default function JobDetailPage({
                 </p>
                 <button
                   onClick={handleOpenApplicationConversation}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition-all flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all flex items-center space-x-1.5 cursor-pointer shadow-xs"
                 >
                   <MessageSquare className="w-4 h-4" />
                   <span>Open Application Chat</span>
@@ -640,10 +662,10 @@ export default function JobDetailPage({
           </div>
         )}
 
-        {/* 6. JOB DESCRIPTION SECTION */}
-        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-4 sm:p-6 space-y-4 shadow-xs">
-          <h2 className="text-sm sm:text-base font-black text-[#111827] dark:text-white tracking-tight uppercase font-mono">
-            Job Overview & Deliverables
+        {/* 5. ABOUT THE OPPORTUNITY SECTION */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-6 space-y-3.5 shadow-xs">
+          <h2 className="text-sm sm:text-base font-bold text-[#111827] dark:text-white tracking-tight">
+            About the Opportunity
           </h2>
           <div className="text-xs sm:text-sm text-[#475569] dark:text-slate-300 leading-relaxed whitespace-pre-line font-medium">
             {job.description}
@@ -651,14 +673,14 @@ export default function JobDetailPage({
 
           {job.requirements && job.requirements.length > 0 && (
             <div className="pt-3 border-t border-[#ECEEF5] dark:border-slate-800 space-y-2.5">
-              <h3 className="text-xs font-black text-[#111827] dark:text-white uppercase font-mono tracking-wider">
-                Requirements & Qualifications
+              <h3 className="text-xs font-bold text-[#111827] dark:text-white tracking-tight">
+                Requirements
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {job.requirements.map((req, idx) => (
                   <span
                     key={idx}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#F7F8FE] dark:bg-slate-800/60 border border-[#ECEEF5] dark:border-slate-700/50 text-[#475569] dark:text-slate-300 text-xs font-semibold"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#F7F8FE] dark:bg-slate-800/60 border border-[#ECEEF5] dark:border-slate-700/50 text-[#475569] dark:text-slate-300 text-xs font-medium"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#6C4DFF] shrink-0" />
                     <span>{req}</span>
@@ -669,40 +691,45 @@ export default function JobDetailPage({
           )}
         </div>
 
-        {/* 7. REAL EMPLOYER METRICS CARD */}
-        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-4 sm:p-6 space-y-4 shadow-xs">
+        {/* 6. COMPACT EMPLOYER CARD */}
+        <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-5 space-y-3.5 shadow-xs">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm sm:text-base font-black text-[#111827] dark:text-white uppercase font-mono">
+            <h3 className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white tracking-tight">
               About the Employer
             </h3>
             <button
               onClick={handleEmployerProfileClick}
-              className="text-xs font-extrabold text-[#6C4DFF] hover:underline"
+              className="text-xs font-bold text-[#6C4DFF] hover:underline cursor-pointer"
             >
-              View Public Profile
+              View Profile
             </button>
           </div>
 
           {employerMetrics.loading ? (
-            <div className="flex items-center space-x-2 text-xs text-slate-400 py-2">
+            <div className="flex items-center space-x-2 text-xs text-slate-400 py-1">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>Loading employer stats...</span>
+              <span>Loading stats...</span>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
               {employerMetrics.avgRating !== null ? (
                 <div className="p-2.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
-                  <span className="block text-[10px] uppercase font-black text-amber-900/60 dark:text-amber-400/80 tracking-wider">Rating</span>
-                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
+                  <span className="block text-[10px] uppercase font-bold text-amber-900/60 dark:text-amber-400/80 tracking-wider">Rating</span>
+                  <span className="text-xs font-bold text-[#111827] dark:text-white">
                     ⭐ {employerMetrics.avgRating} ({employerMetrics.reviewCount})
                   </span>
                 </div>
-              ) : null}
+              ) : (
+                <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+                  <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">Rating</span>
+                  <span className="text-xs font-medium text-slate-500">No reviews yet</span>
+                </div>
+              )}
 
               {employerMetrics.jobsCount !== null && (
                 <div className="p-2.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
-                  <span className="block text-[10px] uppercase font-black text-blue-900/60 dark:text-blue-400/80 tracking-wider">Active Jobs</span>
-                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
+                  <span className="block text-[10px] uppercase font-bold text-blue-900/60 dark:text-blue-400/80 tracking-wider">Active Jobs</span>
+                  <span className="text-xs font-bold text-[#111827] dark:text-white">
                     {employerMetrics.jobsCount} Posted
                   </span>
                 </div>
@@ -710,8 +737,8 @@ export default function JobDetailPage({
 
               {employerMetrics.memberSinceYear !== null && (
                 <div className="p-2.5 rounded-2xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30">
-                  <span className="block text-[10px] uppercase font-black text-purple-900/60 dark:text-purple-400/80 tracking-wider">Member</span>
-                  <span className="text-xs font-extrabold text-[#111827] dark:text-white">
+                  <span className="block text-[10px] uppercase font-bold text-purple-900/60 dark:text-purple-400/80 tracking-wider">Member</span>
+                  <span className="text-xs font-bold text-[#111827] dark:text-white">
                     Since {employerMetrics.memberSinceYear}
                   </span>
                 </div>
@@ -720,7 +747,7 @@ export default function JobDetailPage({
           )}
         </div>
 
-        {/* 8. PRIVACY NOTE */}
+        {/* 7. PRIVACY NOTE */}
         <div className="bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100/80 dark:border-indigo-900/30 rounded-[20px] p-3.5 sm:p-4 flex items-center space-x-3 text-xs font-medium text-indigo-900/80 dark:text-indigo-300">
           <Shield className="w-5 h-5 text-[#6C4DFF] shrink-0" />
           <span>Your contact information remains private until you choose to share it.</span>
@@ -728,93 +755,57 @@ export default function JobDetailPage({
 
       </main>
 
-      {/* 9. STICKY BOTTOM ACTION BAR */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
-        <div className="max-w-4xl mx-auto flex items-center gap-2.5 sm:gap-3">
-          {isOwner ? (
-            <div className="w-full flex items-center justify-between gap-2">
+      {/* 8. STICKY BOTTOM ACTION BAR (APPLICANTS ONLY) */}
+      {!isOwner && (
+        <div className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+          <div className="max-w-4xl mx-auto flex items-center gap-2.5 sm:gap-3">
+            {!dbApplied ? (
               <button
-                onClick={() => navigate('/profile/manage-applications')}
-                className="flex-1 h-[52px] rounded-2xl bg-[#6C4DFF] hover:bg-[#5b3edf] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center space-x-1.5 shadow-md cursor-pointer"
-              >
-                <Briefcase className="w-4 h-4" />
-                <span>Manage Applications</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  if (!canEdit) {
-                    triggerToast("The 5-hour edit window for this job post has expired.");
-                    return;
-                  }
-                  if (onEditJob) onEditJob(job);
-                }}
-                disabled={!canEdit}
-                className={`h-[52px] px-4 sm:px-5 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-1.5 border transition-all cursor-pointer ${
-                  canEdit 
-                    ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700' 
-                    : 'bg-slate-100 text-slate-400 border-slate-200 dark:bg-slate-800 dark:border-slate-700 cursor-not-allowed'
+                onClick={handleApplyClick}
+                disabled={deadlineInfo.isExpired || isSubmitting}
+                className={`w-full h-[52px] rounded-2xl text-white font-bold text-[15px] sm:text-base transition-all flex items-center justify-center space-x-2 shadow-md ${
+                  deadlineInfo.isExpired
+                    ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-[#6C4DFF] to-[#4F46E5] hover:opacity-95 shadow-[#6C4DFF]/20 cursor-pointer'
                 }`}
-                title={canEdit ? "Edit post details (5h window)" : "Edit window expired (first 5h only)"}
               >
-                <Edit3 className="w-4 h-4" />
-                <span>{canEdit ? 'Edit Post' : 'Edit Expired'}</span>
+                {deadlineInfo.isExpired ? (
+                  <span>Applications Closed</span>
+                ) : isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Applying...</span>
+                  </>
+                ) : (
+                  <span>Apply</span>
+                )}
               </button>
-
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="h-[52px] px-4 rounded-2xl bg-rose-100 hover:bg-rose-200 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800 font-extrabold text-xs sm:text-sm flex items-center justify-center space-x-1.5 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Delete</span>
-              </button>
-            </div>
-          ) : !dbApplied ? (
-            <button
-              onClick={handleApplyClick}
-              disabled={deadlineInfo.isExpired || isSubmitting}
-              className={`w-full h-[52px] rounded-2xl text-white font-semibold text-[15px] sm:text-base transition-all flex items-center justify-center space-x-2 shadow-md ${
-                deadlineInfo.isExpired
-                  ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-[#6C4DFF] to-[#4F46E5] hover:opacity-95 shadow-[#6C4DFF]/20 cursor-pointer'
-              }`}
-            >
-              {deadlineInfo.isExpired ? (
-                <span>Applications Closed</span>
-              ) : isSubmitting ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Applying...</span>
-                </>
-              ) : (
-                <span>Apply</span>
-              )}
-            </button>
-          ) : (
-            <div className="w-full flex flex-col sm:flex-row items-center gap-2">
-              <div className="w-full h-[52px] rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs sm:text-sm flex items-center justify-center space-x-2 border border-slate-200 dark:border-slate-700">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>
-                  {applicationStatus === 'accepted' 
-                    ? 'Application Accepted' 
-                    : applicationStatus === 'rejected' 
-                    ? 'Application Rejected' 
-                    : 'Applied · Pending Review'}
-                </span>
+            ) : (
+              <div className="w-full flex flex-col sm:flex-row items-center gap-2">
+                <div className="w-full h-[52px] rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs sm:text-sm flex items-center justify-center space-x-2 border border-slate-200 dark:border-slate-700">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span>
+                    {applicationStatus === 'accepted' 
+                      ? 'Application Accepted' 
+                      : applicationStatus === 'rejected' 
+                      ? 'Application Rejected' 
+                      : 'Applied · Pending Review'}
+                  </span>
+                </div>
+                {applicationStatus === 'accepted' && (
+                  <button
+                    onClick={handleOpenApplicationConversation}
+                    className="w-full sm:w-auto h-[52px] px-6 rounded-2xl bg-[#6C4DFF] hover:bg-[#5b3edf] text-white font-semibold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer shrink-0 shadow-md"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Message Employer</span>
+                  </button>
+                )}
               </div>
-              {applicationStatus === 'accepted' && (
-                <button
-                  onClick={handleOpenApplicationConversation}
-                  className="w-full sm:w-auto h-[52px] px-6 rounded-2xl bg-[#6C4DFF] hover:bg-[#5b3edf] text-white font-semibold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer shrink-0 shadow-md"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span>Message Employer</span>
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* PROPOSAL APPLICATION DRAWER / MODAL */}
       <AnimatePresence>
@@ -838,7 +829,7 @@ export default function JobDetailPage({
               <div className="flex items-center justify-between border-b border-[#ECEEF5] dark:border-slate-800 pb-3">
                 <div className="flex items-center space-x-2">
                   <Send className="w-5 h-5 text-[#6C4DFF]" />
-                  <h3 className="text-base font-black text-[#111827] dark:text-white">Submit Proposal</h3>
+                  <h3 className="text-base font-bold text-[#111827] dark:text-white">Submit Proposal</h3>
                 </div>
                 <button
                   type="button"
@@ -851,7 +842,7 @@ export default function JobDetailPage({
 
               <div className="space-y-4 text-left">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-200">
                     Proposed Rate / Budget
                   </label>
                   <input 
@@ -865,7 +856,7 @@ export default function JobDetailPage({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-extrabold text-[#111827] dark:text-slate-200">
+                  <label className="block text-xs font-bold text-[#111827] dark:text-slate-200">
                     Proposal / Cover Note
                   </label>
                   <textarea 
@@ -890,7 +881,7 @@ export default function JobDetailPage({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-[#6C4DFF] to-[#4F46E5] text-white font-semibold text-xs flex items-center justify-center space-x-1.5 shadow-md hover:opacity-95 transition-all cursor-pointer"
+                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-[#6C4DFF] to-[#4F46E5] text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md hover:opacity-95 transition-all cursor-pointer"
                 >
                   {isSubmitting ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
@@ -920,12 +911,12 @@ export default function JobDetailPage({
                   <Trash2 className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-[#111827] dark:text-white">Delete Job Post</h3>
-                  <p className="text-xs text-slate-500">Confirm post deletion</p>
+                  <h3 className="text-base font-bold text-[#111827] dark:text-white">Delete Job Post</h3>
+                  <p className="text-xs text-slate-500 font-medium">Confirm post deletion</p>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
                 Are you sure you want to delete <strong className="text-slate-900 dark:text-white">"{job.title}"</strong>? This will remove the job post from the public marketplace. Existing applications and messages will remain safely preserved in your history.
               </p>
 
@@ -958,7 +949,7 @@ export default function JobDetailPage({
                     }
                   }}
                   disabled={isDeleting}
-                  className="flex-1 h-11 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs transition-all flex items-center justify-center space-x-1.5 shadow-md cursor-pointer"
+                  className="flex-1 h-11 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 shadow-md cursor-pointer"
                 >
                   {isDeleting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Confirm Delete</span>}
                 </button>
