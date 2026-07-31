@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
 import { ConversationViewModel, DbMessage } from '../types';
+import { normalizeJobType } from './jobType';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
@@ -1052,13 +1053,16 @@ export const dbService = {
         const { data: { user } } = await supabase.auth.getUser();
         const authenticatedUserId = user?.id || postedBy;
 
+        const rawJobType = job.jobType || job.job_type;
+        const normalizedType = normalizeJobType(rawJobType) || rawJobType || 'full_time';
+
         const { data, error } = await supabase.from('jobs').insert({
           title: job.title,
           description: job.description,
           salary_range: job.salary,
           location: job.location,
           category: job.category,
-          job_type: job.jobType || job.job_type || 'Full-time',
+          job_type: normalizedType,
           application_deadline: job.applicationDeadline || job.application_deadline || null,
           requirements: job.requirements || [],
           posted_by: authenticatedUserId,
@@ -1119,7 +1123,10 @@ export const dbService = {
     if (updatedJob.location) payload.location = updatedJob.location;
     if (updatedJob.category) payload.category = updatedJob.category;
     if (updatedJob.requirements) payload.requirements = updatedJob.requirements;
-    if (updatedJob.jobType || updatedJob.job_type) payload.job_type = updatedJob.jobType || updatedJob.job_type;
+    if (updatedJob.jobType || updatedJob.job_type) {
+      const rawType = updatedJob.jobType || updatedJob.job_type;
+      payload.job_type = normalizeJobType(rawType) || rawType;
+    }
     if (updatedJob.applicationDeadline !== undefined || updatedJob.application_deadline !== undefined) {
       payload.application_deadline = updatedJob.applicationDeadline || updatedJob.application_deadline || null;
     }
@@ -1199,7 +1206,7 @@ export const dbService = {
               salary: job.salary_range || 'Contract',
               location: job.location || 'Remote',
               category: job.category || 'Professional',
-              jobType: job.job_type || 'Full-time',
+              jobType: job.job_type || null,
               description: job.description || '',
               requirements: Array.isArray(job.requirements) ? job.requirements : [],
               verified: true,

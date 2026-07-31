@@ -97,6 +97,8 @@ export default function RecommendedForYou({
                     location={job.location}
                     salaryRange={job.salary}
                     category={job.category}
+                    jobType={job.jobType}
+                    created_at={job.created_at || job.datePosted}
                     saved={job.bookmarked}
                     applied={job.applied}
                     applicationDeadline={job.applicationDeadline}

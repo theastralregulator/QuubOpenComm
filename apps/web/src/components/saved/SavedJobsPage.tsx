@@ -60,6 +60,9 @@ export default function SavedJobsPage({
               location={job.location}
               salaryRange={job.salary}
               category={job.category}
+              jobType={job.jobType}
+              created_at={job.created_at || job.datePosted}
+              applicationDeadline={job.applicationDeadline}
               saved={job.bookmarked}
               applied={job.applied}
               onSave={toggleBookmark}

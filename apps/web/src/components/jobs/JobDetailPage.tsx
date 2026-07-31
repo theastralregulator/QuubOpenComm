@@ -11,6 +11,7 @@ import { Job } from '../../types';
 import { supabase, dbService } from '../../lib/supabase';
 import { analytics } from '../../lib/analytics';
 import { getDeadlineInfo } from '../../lib/deadline';
+import { formatJobType } from '../../lib/jobType';
 
 interface JobDetailPageProps {
   jobs: Job[];
@@ -657,7 +658,7 @@ export default function JobDetailPage({
               {job.category}
             </span>
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#ECEEF5] dark:border-slate-700/50 shadow-2xs">
-              {job.jobType || 'Full-time'}
+              {formatJobType(job.jobType)}
             </span>
           </div>
         </motion.div>

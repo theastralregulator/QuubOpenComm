@@ -176,7 +176,9 @@ export default function JobsPage({
 
   const categoriesList = ['All', 'Developer', 'Designer', 'Electrician', 'Carpenter', 'Driver', 'Chef', 'Teacher', 'Photographer', 'Mechanic', 'Cleaner'];
 
-  const handleApplyClick = (job: Job, e: React.MouseEvent) => {
+  const [submittingJobId, setSubmittingJobId] = useState<string | null>(null);
+
+  const handleApplyClick = async (job: Job, e: React.MouseEvent) => {
     e.stopPropagation();
 
     if (!isLoggedIn && !currentUserId) {
@@ -187,14 +189,13 @@ export default function JobsPage({
 
     if (currentUserId && job.posted_by === currentUserId) {
       triggerToast("You cannot apply to your own job.");
-      navigate('/profile/my-job-posts');
+      navigate('/profile/my-jobs');
       return;
     }
 
     const existingApp = applicationsMap.get(job.id);
     if (existingApp) {
-      triggerToast(`Application already submitted (Status: ${existingApp.status}).`);
-      navigate(`/jobs/${job.id}`);
+      triggerToast(`You have already applied for this job (Status: ${existingApp.status || 'pending'}).`);
       return;
     }
 
@@ -204,8 +205,60 @@ export default function JobsPage({
       return;
     }
 
-    // Open Job Details page to submit proposal cleanly
-    navigate(`/jobs/${job.id}`);
+    // Direct submit application from card
+    setSubmittingJobId(job.id);
+    try {
+      if (supabase && currentUserId) {
+        const { data: newApp, error: insertErr } = await supabase
+          .from('job_applications')
+          .insert({
+            job_id: job.id,
+            applicant_id: currentUserId,
+            proposed_rate: job.salary || 'As per listing',
+            cover_letter: 'Hi! I am interested in this job opportunity and would love to collaborate on this project.',
+            status: 'pending',
+          })
+          .select()
+          .single();
+
+        if (insertErr) {
+          if (insertErr.code === '23505') {
+            triggerToast("You have already applied for this job.");
+            setApplicationsMap(prev => {
+              const next = new Map(prev);
+              next.set(job.id, { id: 'existing', status: 'pending' });
+              return next;
+            });
+          } else {
+            console.error('[Direct Apply] Error submitting application:', insertErr);
+            triggerToast(`Unable to submit your application: ${insertErr.message}`);
+          }
+          setSubmittingJobId(null);
+          return;
+        }
+
+        if (newApp) {
+          triggerToast("Application submitted successfully!");
+          setApplicationsMap(prev => {
+            const next = new Map(prev);
+            next.set(job.id, { id: newApp.id, status: 'pending' });
+            return next;
+          });
+        }
+      } else {
+        triggerToast("Application submitted successfully!");
+        setApplicationsMap(prev => {
+          const next = new Map(prev);
+          next.set(job.id, { id: 'local-app', status: 'pending' });
+          return next;
+        });
+      }
+    } catch (err: any) {
+      console.error('[Direct Apply] Exception:', err);
+      triggerToast(err.message || "Unable to submit application. Please try again.");
+    } finally {
+      setSubmittingJobId(null);
+    }
   };
 
   return (
@@ -405,17 +458,20 @@ export default function JobsPage({
                       location={job.location}
                       salaryRange={job.salary}
                       category={job.category}
+                      jobType={job.jobType}
+                      employmentType={job.employment_type}
+                      created_at={job.created_at || job.datePosted}
                       saved={job.bookmarked}
                       applied={isApplied}
                       applicationStatus={appStatus}
                       isOwner={isOwner}
                       isActive={job.is_active !== undefined ? job.is_active : true}
+                      isSubmitting={submittingJobId === job.id}
                       applicationDeadline={job.applicationDeadline}
                       onSave={toggleBookmark}
-                      onViewDetails={() => {
-                        navigate(`/jobs/${job.id}`);
-                      }}
+                      onViewDetails={() => navigate(`/jobs/${job.id}`)}
                       onApply={(id, e) => handleApplyClick(job, e)}
+                      onManageJob={() => navigate('/profile/my-jobs')}
                     />
                   );
                 })}

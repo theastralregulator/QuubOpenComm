@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Bookmark, MapPin, IndianRupee, CheckCircle2, Share2, Calendar, Clock } from 'lucide-react';
+import { Bookmark, MapPin, IndianRupee, CheckCircle2, Share2, Calendar, Briefcase, RefreshCw } from 'lucide-react';
 import { analytics } from '../../lib/analytics';
 import { formatSalaryRange } from '../../lib/currency';
-import { getDeadlineInfo } from '../../lib/deadline';
+import { getJobDateRangeInfo } from '../../lib/deadline';
+import { formatJobType } from '../../lib/jobType';
 
 export interface JobCardProps {
   key?: React.Key;
@@ -17,15 +19,19 @@ export interface JobCardProps {
   salaryRange: string;
   category: string;
   employmentType?: string;
+  jobType?: string;
+  created_at?: string;
   saved: boolean;
   applied?: boolean;
   applicationStatus?: string | null;
   isOwner?: boolean;
   isActive?: boolean;
+  isSubmitting?: boolean;
   applicationDeadline?: string;
   onSave: (id: string, e: React.MouseEvent) => void;
   onViewDetails: () => void;
   onApply: (id: string, e: React.MouseEvent) => void;
+  onManageJob?: (id: string) => void;
   className?: string;
 }
 
@@ -39,22 +45,29 @@ export default function JobCard({
   location,
   salaryRange,
   category,
-  employmentType = 'Full-time',
+  employmentType,
+  jobType,
+  created_at,
   saved,
   applied = false,
   applicationStatus = null,
   isOwner = false,
   isActive = true,
+  isSubmitting = false,
   applicationDeadline,
   onSave,
   onViewDetails,
   onApply,
+  onManageJob,
   className = '',
 }: JobCardProps) {
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
-  const deadlineInfo = getDeadlineInfo(applicationDeadline);
-  const isClosed = !isActive || deadlineInfo.isExpired;
+  const dateRangeInfo = getJobDateRangeInfo(created_at, applicationDeadline);
+  const isClosed = !isActive || dateRangeInfo.isExpired;
+
+  const displayJobType = formatJobType(jobType || employmentType);
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -86,13 +99,24 @@ export default function JobCard({
 
   const formattedSalary = formatSalaryRange(undefined, undefined, salaryRange);
 
+  const handleManageJobClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onManageJob) {
+      onManageJob(id);
+    } else {
+      navigate('/profile/my-jobs');
+    }
+  };
+
   const renderStatusButton = () => {
     if (isOwner) {
       return (
         <button
-          onClick={onViewDetails}
-          className="h-10 rounded-xl bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/40 hover:bg-purple-100 transition-all cursor-pointer flex items-center justify-center"
+          type="button"
+          onClick={handleManageJobClick}
+          className="h-10 rounded-xl bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/40 hover:bg-purple-100 transition-all cursor-pointer flex items-center justify-center space-x-1"
         >
+          <Briefcase className="w-3.5 h-3.5 shrink-0" />
           <span>Manage Job</span>
         </button>
       );
@@ -101,6 +125,7 @@ export default function JobCard({
     if (isClosed) {
       return (
         <button
+          type="button"
           disabled
           aria-disabled="true"
           className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs border border-slate-200 dark:border-slate-700 cursor-not-allowed flex items-center justify-center"
@@ -134,6 +159,7 @@ export default function JobCard({
 
       return (
         <button
+          type="button"
           onClick={onViewDetails}
           className={`h-10 rounded-xl font-bold text-xs transition-all flex items-center justify-center space-x-1 cursor-pointer ${styleClass}`}
         >
@@ -145,10 +171,19 @@ export default function JobCard({
 
     return (
       <button
+        type="button"
+        disabled={isSubmitting}
         onClick={(e) => onApply(id, e)}
-        className="h-10 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#4F46E5] hover:opacity-95 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1 cursor-pointer shadow-xs hover:shadow-md hover:scale-[1.01]"
+        className="h-10 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#4F46E5] hover:opacity-95 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs hover:shadow-md hover:scale-[1.01] disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        <span>Apply</span>
+        {isSubmitting ? (
+          <>
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            <span>Applying...</span>
+          </>
+        ) : (
+          <span>Apply</span>
+        )}
       </button>
     );
   };
@@ -186,6 +221,7 @@ export default function JobCard({
             {/* Share Button */}
             <div className="relative">
               <button
+                type="button"
                 onClick={handleShare}
                 aria-label="Share Job"
                 className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 cursor-pointer bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800/50 dark:hover:bg-slate-800"
@@ -202,6 +238,7 @@ export default function JobCard({
 
             {/* Bookmark Button */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onSave(id, e);
@@ -228,7 +265,7 @@ export default function JobCard({
           {shortDescription}
         </p>
 
-        {/* Job Details: Location, Salary & Deadline */}
+        {/* Job Details: Location, Salary & Real Posted Date - Deadline Range */}
         <div className="mt-3 space-y-1.5 text-xs text-[#475569] dark:text-slate-300 text-left">
           <div className="flex items-center space-x-1.5">
             <MapPin className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
@@ -238,22 +275,22 @@ export default function JobCard({
             <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span className="font-semibold whitespace-normal break-words">{formattedSalary}</span>
           </div>
-          {/* Real Application Deadline */}
-          <div className="flex items-center space-x-1.5 pt-0.5">
+          {/* Posted Date – Application Deadline Range */}
+          <div className="flex items-center space-x-1.5 pt-0.5" title={dateRangeInfo.tooltipText}>
             <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${deadlineInfo.badgeColorClass}`}>
-              {deadlineInfo.label}
+            <span className={`text-[11px] px-2 py-0.5 rounded-full border whitespace-normal break-words ${dateRangeInfo.badgeColorClass}`}>
+              {dateRangeInfo.rangeLabel}
             </span>
           </div>
         </div>
 
-        {/* Category & Employment Type Tags */}
+        {/* Category & Job Type Tags */}
         <div className="mt-3 flex flex-wrap gap-1">
           <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
             {category || 'Professional'}
           </span>
-          <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800/60 text-[#475569] dark:text-slate-300 px-2 py-0.5 rounded-full">
-            {employmentType}
+          <span className="text-[10px] font-bold tracking-wide bg-slate-100 dark:bg-slate-800/60 text-[#475569] dark:text-slate-300 px-2 py-0.5 rounded-full">
+            {displayJobType}
           </span>
         </div>
       </div>
@@ -261,6 +298,7 @@ export default function JobCard({
       {/* Bottom Actions: View Details & Apply / Status Button */}
       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#273449]/30 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
         <button
+          type="button"
           onClick={onViewDetails}
           className="h-10 rounded-xl border border-slate-200 dark:border-[#273449] hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-bold text-[#475569] dark:text-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1"
         >
