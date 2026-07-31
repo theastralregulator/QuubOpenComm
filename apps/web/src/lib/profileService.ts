@@ -1,6 +1,12 @@
 /**
  * Canonical Profile Service for OpenComm
  * Provides a single source of truth for resolving user, employer, and worker identity across the application.
+ * 
+ * CANONICAL SCHEMA & KEY MAPPING:
+ * - Table: public.profile_directory (backed by trigger from public.profiles)
+ * - Key Column: id (UUID referencing auth.users.id)
+ * - Reference Column: jobs.posted_by references profiles(id)
+ * - Valid Columns: id, username, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type
  */
 
 import { supabase } from './supabase';
@@ -35,9 +41,9 @@ export function getInitials(nameStr?: string | null): string {
   return clean.substring(0, 2).toUpperCase();
 }
 
-export function resolveDisplayName(profile?: { full_name?: string | null; company_name?: string | null; username?: string | null } | null): string {
+export function resolveDisplayName(profile?: { full_name?: string | null; username?: string | null } | null): string {
   if (!profile) return 'OpenComm User';
-  const raw = profile.full_name || profile.company_name || profile.username;
+  const raw = profile.full_name || profile.username;
   if (!raw || !raw.trim() || raw === 'Verified Employer' || raw === 'Employer') {
     return 'OpenComm User';
   }
@@ -60,23 +66,26 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
   }
 
   if (!supabase) {
-    const fallback: CanonicalPublicProfile = {
+    return {
       id: userId,
       name: 'OpenComm User',
       fullName: 'OpenComm User',
       avatarUrl: null,
       verified: false,
     };
-    return fallback;
   }
 
   try {
-    // 1. Primary lookup: profile_directory
-    const { data: pdData } = await supabase
+    // 1. Query profile_directory with ONLY existing valid schema columns
+    const { data: pdData, error: pdError } = await supabase
       .from('profile_directory')
-      .select('id, full_name, company_name, avatar_url, banner_url, bio, city, state, country, verified, is_verified, profile_type, username')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username')
       .eq('id', userId)
       .maybeSingle();
+
+    if (pdError) {
+      console.error(`[Employer Identity Debug] profile_directory query error for ${userId}:`, pdError);
+    }
 
     if (pdData) {
       const name = resolveDisplayName(pdData);
@@ -84,26 +93,29 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
         id: pdData.id,
         name,
         fullName: pdData.full_name || name,
-        companyName: pdData.company_name || null,
         avatarUrl: pdData.avatar_url || null,
         bannerUrl: pdData.banner_url || null,
         bio: pdData.bio || null,
         city: pdData.city || null,
         state: pdData.state || null,
         country: pdData.country || null,
-        verified: Boolean(pdData.verified || pdData.is_verified),
+        verified: false,
         profileType: pdData.profile_type || null,
       };
       profileCache.set(userId, profile);
       return profile;
     }
 
-    // 2. Secondary fallback lookup: profiles
-    const { data: profData } = await supabase
+    // 2. Query profiles as fallback with ONLY existing valid schema columns
+    const { data: profData, error: profError } = await supabase
       .from('profiles')
-      .select('id, full_name, company_name, avatar_url, banner_url, bio, city, state, country, verified, profile_type, username')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, email_verified_for_actions')
       .eq('id', userId)
       .maybeSingle();
+
+    if (profError) {
+      console.error(`[Employer Identity Debug] profiles query error for ${userId}:`, profError);
+    }
 
     if (profData) {
       const name = resolveDisplayName(profData);
@@ -111,24 +123,29 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
         id: profData.id,
         name,
         fullName: profData.full_name || name,
-        companyName: profData.company_name || null,
         avatarUrl: profData.avatar_url || null,
         bannerUrl: profData.banner_url || null,
         bio: profData.bio || null,
         city: profData.city || null,
         state: profData.state || null,
         country: profData.country || null,
-        verified: Boolean(profData.verified),
+        verified: Boolean(profData.email_verified_for_actions),
         profileType: profData.profile_type || null,
       };
       profileCache.set(userId, profile);
       return profile;
     }
+
+    console.warn(`[Employer Identity Debug]
+job.posted_by: ${userId}
+canonical table: profile_directory & profiles
+canonical key column: id
+rows returned: 0
+error: Profile row genuinely does not exist in DB for user ID ${userId}`);
   } catch (err) {
     console.error(`[profileService] Error fetching profile for ${userId}:`, err);
   }
 
-  // Stable Fallback if genuinely missing in DB
   const fallbackProfile: CanonicalPublicProfile = {
     id: userId,
     name: 'OpenComm User',
@@ -161,18 +178,21 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
 
   if (!supabase) {
     for (const id of missingFromCache) {
-      const fb: CanonicalPublicProfile = { id, name: 'OpenComm User', fullName: 'OpenComm User', avatarUrl: null, verified: false };
-      result.set(id, fb);
+      result.set(id, { id, name: 'OpenComm User', fullName: 'OpenComm User', avatarUrl: null, verified: false });
     }
     return result;
   }
 
   try {
-    // 1. Batched lookup from profile_directory
-    const { data: pdRows } = await supabase
+    // 1. Batched lookup from profile_directory (using only valid columns!)
+    const { data: pdRows, error: pdError } = await supabase
       .from('profile_directory')
-      .select('id, full_name, company_name, avatar_url, banner_url, bio, city, state, country, verified, is_verified, profile_type, username')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username')
       .in('id', missingFromCache);
+
+    if (pdError) {
+      console.error('[Employer Identity Debug] profile_directory batch query error:', pdError);
+    }
 
     if (pdRows) {
       pdRows.forEach((pd: any) => {
@@ -181,14 +201,13 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
           id: pd.id,
           name,
           fullName: pd.full_name || name,
-          companyName: pd.company_name || null,
           avatarUrl: pd.avatar_url || null,
           bannerUrl: pd.banner_url || null,
           bio: pd.bio || null,
           city: pd.city || null,
           state: pd.state || null,
           country: pd.country || null,
-          verified: Boolean(pd.verified || pd.is_verified),
+          verified: false,
           profileType: pd.profile_type || null,
         };
         profileCache.set(pd.id, profile);
@@ -199,10 +218,14 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
     // 2. Batched fallback lookup from profiles for any remaining missing IDs
     const stillMissing = missingFromCache.filter(id => !result.has(id));
     if (stillMissing.length > 0) {
-      const { data: profRows } = await supabase
+      const { data: profRows, error: profError } = await supabase
         .from('profiles')
-        .select('id, full_name, company_name, avatar_url, banner_url, bio, city, state, country, verified, profile_type, username')
+        .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, email_verified_for_actions')
         .in('id', stillMissing);
+
+      if (profError) {
+        console.error('[Employer Identity Debug] profiles batch query error:', profError);
+      }
 
       if (profRows) {
         profRows.forEach((prof: any) => {
@@ -211,14 +234,13 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
             id: prof.id,
             name,
             fullName: prof.full_name || name,
-            companyName: prof.company_name || null,
             avatarUrl: prof.avatar_url || null,
             bannerUrl: prof.banner_url || null,
             bio: prof.bio || null,
             city: prof.city || null,
             state: prof.state || null,
             country: prof.country || null,
-            verified: Boolean(prof.verified),
+            verified: Boolean(prof.email_verified_for_actions),
             profileType: prof.profile_type || null,
           };
           profileCache.set(prof.id, profile);
@@ -226,11 +248,20 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
         });
       }
     }
+
+    const unmappedIds = missingFromCache.filter(id => !result.has(id));
+    if (unmappedIds.length > 0) {
+      console.warn(`[Employer Identity Debug]
+canonical table: profile_directory & profiles
+canonical key column: id
+unmapped profile IDs count: ${unmappedIds.length}
+unmapped IDs: ${unmappedIds.join(', ')}`);
+    }
+
   } catch (err) {
-    console.error('[profileService] Error batch fetching profiles:', err);
+    console.error('[profileService] Exception in batch fetching profiles:', err);
   }
 
-  // Fill any remaining un-resolved IDs with stable fallback
   for (const id of missingFromCache) {
     if (!result.has(id)) {
       const fb: CanonicalPublicProfile = { id, name: 'OpenComm User', fullName: 'OpenComm User', avatarUrl: null, verified: false };

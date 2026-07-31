@@ -116,6 +116,24 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
       const employerIds = [...new Set(Object.values(jobMap).map((j: any) => j.posted_by).filter(Boolean))];
       const profilesMap = await getPublicProfilesByIds(employerIds);
 
+      // Diagnostic Live Data Trace for Section 1
+      if (rawApps.length > 0) {
+        const firstApp = rawApps[0];
+        const firstJob = jobMap[firstApp.job_id];
+        const firstEmp = firstJob?.posted_by ? profilesMap.get(firstJob.posted_by) : null;
+        console.log('[Jobs Applied Live Data Trace]', {
+          application_id: firstApp.id,
+          application_applicant_id: firstApp.applicant_id,
+          application_job_id: firstApp.job_id,
+          fetched_job_id: firstJob?.id,
+          fetched_job_posted_by: firstJob?.posted_by,
+          authenticated_user_id: user.id,
+          profile_lookup_table: 'profile_directory & profiles',
+          profile_lookup_id_column: 'id',
+          returned_profile_row: firstEmp,
+        });
+      }
+
       // Step 4: Merge all datasets ensuring strict employer resolution via job.posted_by
       const mergedApplications: AppliedJobRecord[] = rawApps.map(app => {
         const job = jobMap[app.job_id];
