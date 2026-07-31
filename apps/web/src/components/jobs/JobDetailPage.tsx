@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -54,14 +55,32 @@ export default function JobDetailPage({
   const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
   const canEdit = isOwner && (Date.now() <= (createdAtTime + FIVE_HOURS_MS));
 
-  // Three-dot owner menu state
+  // Three-dot owner menu state & portal positioning
   const [showOwnerMenu, setShowOwnerMenu] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 280 });
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
   const [existingApp, setExistingApp] = useState<any>(null);
+
+  // Canonical Employer Profile State (Prevents Flicker)
+  const [employerProfile, setEmployerProfile] = useState<{
+    id: string | null;
+    name: string;
+    avatarUrl: string | null;
+    loading: boolean;
+    avatarError: boolean;
+  }>({
+    id: null,
+    name: '',
+    avatarUrl: null,
+    loading: true,
+    avatarError: false,
+  });
 
   // Real Employer Metrics State
   const [employerMetrics, setEmployerMetrics] = useState<{
@@ -133,8 +152,8 @@ export default function JobDetailPage({
             const mappedJob: Job = {
               id: data.id,
               title: data.title,
-              company: data.companies?.name || data.company_name || 'Verified Employer',
-              companyLogo: data.companies?.logo_url || data.company_logo || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80',
+              company: data.companies?.name || data.company_name || 'OpenComm User',
+              companyLogo: data.companies?.logo_url || data.company_logo || '',
               salary: data.salary_range || 'Contract',
               location: data.location || 'Remote',
               category: data.category || 'Professional',
@@ -166,6 +185,103 @@ export default function JobDetailPage({
 
     fetchJob();
   }, [jobId, jobs]);
+
+  // CANONICAL EMPLOYER PROFILE FETCH (SINGLE SOURCE OF TRUTH)
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadEmployerProfile() {
+      if (!job?.posted_by) {
+        if (isCurrent) {
+          setEmployerProfile({
+            id: null,
+            name: 'OpenComm User',
+            avatarUrl: null,
+            loading: false,
+            avatarError: false,
+          });
+        }
+        return;
+      }
+
+      if (isCurrent) {
+        setEmployerProfile(prev => ({ ...prev, loading: true }));
+      }
+
+      try {
+        if (supabase) {
+          // 1. Query profile_directory
+          const { data: pdData } = await supabase
+            .from('profile_directory')
+            .select('id, full_name, company_name, avatar_url, username')
+            .eq('id', job.posted_by)
+            .maybeSingle();
+
+          if (pdData && isCurrent) {
+            const rawName = pdData.full_name || pdData.company_name || pdData.username;
+            const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer') ? rawName.trim() : 'OpenComm User';
+            setEmployerProfile({
+              id: pdData.id,
+              name: cleanName,
+              avatarUrl: pdData.avatar_url || null,
+              loading: false,
+              avatarError: false,
+            });
+            return;
+          }
+
+          // 2. Query profiles as fallback
+          const { data: profData } = await supabase
+            .from('profiles')
+            .select('id, full_name, company_name, avatar_url, username')
+            .eq('id', job.posted_by)
+            .maybeSingle();
+
+          if (profData && isCurrent) {
+            const rawName = profData.full_name || profData.company_name || profData.username;
+            const cleanName = (rawName && rawName.trim() && rawName !== 'Verified Employer') ? rawName.trim() : 'OpenComm User';
+            setEmployerProfile({
+              id: profData.id,
+              name: cleanName,
+              avatarUrl: profData.avatar_url || null,
+              loading: false,
+              avatarError: false,
+            });
+            return;
+          }
+        }
+
+        // 3. Fallback if missing in DB
+        if (isCurrent) {
+          const fallbackName = (job.company && job.company !== 'Verified Employer') ? job.company : 'OpenComm User';
+          setEmployerProfile({
+            id: job.posted_by,
+            name: fallbackName,
+            avatarUrl: job.companyLogo || null,
+            loading: false,
+            avatarError: false,
+          });
+        }
+      } catch (err) {
+        console.error('[Employer Profile] Error loading canonical employer profile:', err);
+        if (isCurrent) {
+          setEmployerProfile({
+            id: job.posted_by,
+            name: 'OpenComm User',
+            avatarUrl: null,
+            loading: false,
+            avatarError: false,
+          });
+        }
+      }
+    }
+
+    loadEmployerProfile();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [job?.posted_by]);
 
   // Fetch real employer metrics
   useEffect(() => {
@@ -229,11 +345,23 @@ export default function JobDetailPage({
     fetchEmployerMetrics();
   }, [job?.posted_by]);
 
+  // Auto-close owner menu on window scroll or resize
+  useEffect(() => {
+    if (!showOwnerMenu) return;
+    const handleScrollOrResize = () => setShowOwnerMenu(false);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
+  }, [showOwnerMenu]);
+
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!job) return;
     const shareUrl = `${window.location.origin}/jobs/${job.id}`;
-    const shareText = `Check out this job on OpenComm: ${job.title} at ${job.company}!`;
+    const shareText = `Check out this job on OpenComm: ${job.title} at ${employerProfile.name || job.company}!`;
 
     analytics.trackEvent('share', { item_type: 'job', item_id: job.id, item_title: job.title });
 
@@ -353,6 +481,15 @@ export default function JobDetailPage({
     }
   };
 
+  const getInitials = (name: string) => {
+    if (!name || name === 'OpenComm User') return 'OU';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
   if (loading) {
     return (
       <div className="w-full min-h-[60vh] flex flex-col items-center justify-center p-6 space-y-4">
@@ -402,33 +539,46 @@ export default function JobDetailPage({
 
       <main className="max-w-4xl mx-auto px-2 sm:px-4 pt-3 sm:pt-5 space-y-3.5 sm:space-y-4">
         
-        {/* 2. HERO CARD - CLEAN & ELEGANT DESIGN WITH OWNER THREE-DOT MENU */}
+        {/* 2. HERO CARD - CLEAN & ELEGANT DESIGN WITH UNCLIPPED OWNER THREE-DOT MENU */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-[linear-gradient(135deg,#FFFFFF_0%,#F6F2FF_55%,#F1F6FF_100%)] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-6 space-y-3.5 shadow-xs relative overflow-hidden"
+          className="bg-[linear-gradient(135deg,#FFFFFF_0%,#F6F2FF_55%,#F1F6FF_100%)] dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-6 space-y-3.5 shadow-xs relative"
         >
           {/* Top Row: Employer Profile & Actions */}
           <div className="flex justify-between items-start">
             
-            {/* Clickable Employer Avatar & Name */}
+            {/* Clickable Employer Avatar & Name (STABLE CANONICAL SOURCE) */}
             <button
               onClick={handleEmployerProfileClick}
               className="flex items-center space-x-3 text-left group cursor-pointer"
             >
               <div className="relative shrink-0">
-                <img 
-                  src={job.companyLogo} 
-                  alt={job.company} 
-                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs group-hover:brightness-95 transition-all" 
-                />
+                {employerProfile.loading ? (
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
+                ) : employerProfile.avatarUrl && !employerProfile.avatarError ? (
+                  <img 
+                    src={employerProfile.avatarUrl} 
+                    alt={employerProfile.name} 
+                    onError={() => setEmployerProfile(prev => ({ ...prev, avatarError: true }))}
+                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-[#ECEEF5] dark:border-slate-800 bg-slate-50 shadow-xs group-hover:brightness-95 transition-all" 
+                  />
+                ) : (
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-[#6C4DFF] to-[#4F46E5] text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                    {getInitials(employerProfile.name)}
+                  </div>
+                )}
                 <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-[#0F172A] rounded-full" title="Online" />
               </div>
               <div>
                 <div className="flex items-center space-x-1.5 flex-wrap gap-1">
-                  <h3 className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white tracking-tight group-hover:text-[#6C4DFF] group-hover:underline transition-colors">
-                    {job.company}
-                  </h3>
+                  {employerProfile.loading ? (
+                    <div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+                  ) : (
+                    <h3 className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white tracking-tight group-hover:text-[#6C4DFF] group-hover:underline transition-colors">
+                      {employerProfile.name}
+                    </h3>
+                  )}
                   {job.verified && (
                     <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-[#ECFDF5] dark:bg-emerald-950/40 border border-[#A7F3D0] dark:border-emerald-800/60 text-[#059669] dark:text-emerald-400 text-[11px] font-bold shadow-2xs">
                       <CheckCircle2 className="w-3.5 h-3.5 text-[#059669] dark:text-emerald-400 shrink-0" />
@@ -466,12 +616,24 @@ export default function JobDetailPage({
                 <Bookmark className={`w-4 h-4 ${job.bookmarked ? 'fill-current' : ''}`} />
               </button>
 
-              {/* Compact Owner Three-Dot Menu */}
+              {/* Compact Owner Three-Dot Menu (Portal Rendered to Prevent Clipping) */}
               {isOwner && (
-                <div className="relative">
+                <div>
                   <button
+                    ref={menuButtonRef}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (!showOwnerMenu && menuButtonRef.current) {
+                        const rect = menuButtonRef.current.getBoundingClientRect();
+                        const menuWidth = Math.min(280, window.innerWidth - 24);
+                        let left = rect.right - menuWidth;
+                        if (left < 12) left = 12;
+                        setMenuPos({
+                          top: rect.bottom + 6,
+                          left,
+                          width: menuWidth,
+                        });
+                      }
                       setShowOwnerMenu(!showOwnerMenu);
                     }}
                     className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#ECEEF5] dark:border-slate-800 bg-white/90 dark:bg-[#111827] hover:bg-purple-50 text-[#6B7280] dark:text-slate-300 flex items-center justify-center transition-all cursor-pointer shadow-xs"
@@ -479,73 +641,6 @@ export default function JobDetailPage({
                   >
                     <MoreVertical className="w-4 h-4" />
                   </button>
-
-                  <AnimatePresence>
-                    {showOwnerMenu && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-40" 
-                          onClick={() => setShowOwnerMenu(false)} 
-                        />
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute right-0 top-12 z-50 w-56 bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-2xl shadow-xl py-1.5 overflow-hidden text-left"
-                        >
-                          <button
-                            onClick={() => {
-                              setShowOwnerMenu(false);
-                              navigate(`/jobs/${job.id}/applications`);
-                            }}
-                            className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                          >
-                            <Briefcase className="w-4 h-4 text-[#6C4DFF] shrink-0" />
-                            <span>Manage Applications</span>
-                          </button>
-
-                          <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
-
-                          {canEdit ? (
-                            <button
-                              onClick={() => {
-                                setShowOwnerMenu(false);
-                                if (onEditJob) onEditJob(job);
-                              }}
-                              className="w-full px-4 py-3 min-h-[48px] flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
-                            >
-                              <div className="flex items-center space-x-3">
-                                <Edit3 className="w-4 h-4 text-amber-600 shrink-0" />
-                                <span>Edit Post</span>
-                              </div>
-                              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
-                                5h window
-                              </span>
-                            </button>
-                          ) : (
-                            <div className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-medium text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60">
-                              <Edit3 className="w-4 h-4 text-slate-400 shrink-0" />
-                              <span>Edit Expired (5h passed)</span>
-                            </div>
-                          )}
-
-                          <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
-
-                          <button
-                            onClick={() => {
-                              setShowOwnerMenu(false);
-                              setShowDeleteConfirm(true);
-                            }}
-                            className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
-                            <span>Delete Post</span>
-                          </button>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
                 </div>
               )}
             </div>
@@ -691,7 +786,7 @@ export default function JobDetailPage({
           )}
         </div>
 
-        {/* 6. COMPACT EMPLOYER CARD */}
+        {/* 6. COMPACT EMPLOYER CARD (STABLE CANONICAL DATA) */}
         <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 sm:p-5 space-y-3.5 shadow-xs">
           <div className="flex items-center justify-between">
             <h3 className="text-xs sm:text-sm font-bold text-[#111827] dark:text-white tracking-tight">
@@ -958,6 +1053,87 @@ export default function JobDetailPage({
           </div>
         )}
       </AnimatePresence>
+
+      {/* THREE-DOT OWNER MENU (PORTAL MOUNTED TO DOCUMENT.BODY TO PREVENT CLIPPING) */}
+      {isOwner && showOwnerMenu && createPortal(
+        <AnimatePresence>
+          <div 
+            className="fixed inset-0 z-[9998]" 
+            onClick={() => setShowOwnerMenu(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -4 }}
+              transition={{ duration: 0.15 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'fixed',
+                top: `${menuPos.top}px`,
+                left: `${menuPos.left}px`,
+                width: `${menuPos.width}px`,
+              }}
+              className="z-[9999] bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[18px] shadow-2xl py-1.5 overflow-hidden text-left"
+            >
+              {/* Manage Applications */}
+              <button
+                onClick={() => {
+                  setShowOwnerMenu(false);
+                  navigate(`/jobs/${job.id}/applications`);
+                }}
+                className="w-full px-4 py-3 min-h-[52px] flex items-center space-x-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <Briefcase className="w-4.5 h-4.5 text-[#6C4DFF] shrink-0" />
+                <span>Manage Applications</span>
+              </button>
+
+              <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
+
+              {/* Edit Post / Edit period expired */}
+              {canEdit ? (
+                <button
+                  onClick={() => {
+                    setShowOwnerMenu(false);
+                    if (onEditJob) onEditJob(job);
+                  }}
+                  className="w-full px-4 py-3 min-h-[52px] flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3">
+                    <Edit3 className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                    <span>Edit Post</span>
+                  </div>
+                  <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md">
+                    5h window
+                  </span>
+                </button>
+              ) : (
+                <div className="w-full px-4 py-3 min-h-[52px] flex items-center space-x-3 text-xs font-medium text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-75">
+                  <Edit3 className="w-4.5 h-4.5 text-slate-400 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-slate-600 dark:text-slate-400">Edit period expired</span>
+                    <span className="text-[10px] text-slate-400">5-hour edit window ended</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
+
+              {/* Delete Post */}
+              <button
+                onClick={() => {
+                  setShowOwnerMenu(false);
+                  setShowDeleteConfirm(true);
+                }}
+                className="w-full px-4 py-3 min-h-[52px] flex items-center space-x-3 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-4.5 h-4.5 text-rose-600 shrink-0" />
+                <span>Delete Post</span>
+              </button>
+            </motion.div>
+          </div>
+        </AnimatePresence>,
+        document.body
+      )}
 
     </div>
   );
