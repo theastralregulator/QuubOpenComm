@@ -14,6 +14,7 @@ export interface Job {
   datePosted: string;
   applicationDeadline?: string;
   posted_by?: string;
+  is_active?: boolean;
 }
 
 export interface Worker {

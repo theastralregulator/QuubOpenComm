@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Bookmark, MapPin, IndianRupee, ShieldCheck, CheckCircle2, Share2, Calendar, Clock } from 'lucide-react';
+import { Bookmark, MapPin, IndianRupee, CheckCircle2, Share2, Calendar, Clock } from 'lucide-react';
 import { analytics } from '../../lib/analytics';
 import { formatSalaryRange } from '../../lib/currency';
 import { getDeadlineInfo } from '../../lib/deadline';
@@ -19,6 +19,9 @@ export interface JobCardProps {
   employmentType?: string;
   saved: boolean;
   applied?: boolean;
+  applicationStatus?: string | null;
+  isOwner?: boolean;
+  isActive?: boolean;
   applicationDeadline?: string;
   onSave: (id: string, e: React.MouseEvent) => void;
   onViewDetails: () => void;
@@ -39,6 +42,9 @@ export default function JobCard({
   employmentType = 'Full-time',
   saved,
   applied = false,
+  applicationStatus = null,
+  isOwner = false,
+  isActive = true,
   applicationDeadline,
   onSave,
   onViewDetails,
@@ -48,6 +54,7 @@ export default function JobCard({
   const [copied, setCopied] = useState(false);
 
   const deadlineInfo = getDeadlineInfo(applicationDeadline);
+  const isClosed = !isActive || deadlineInfo.isExpired;
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -79,30 +86,97 @@ export default function JobCard({
 
   const formattedSalary = formatSalaryRange(undefined, undefined, salaryRange);
 
+  const renderStatusButton = () => {
+    if (isOwner) {
+      return (
+        <button
+          onClick={onViewDetails}
+          className="h-10 rounded-xl bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/40 hover:bg-purple-100 transition-all cursor-pointer flex items-center justify-center"
+        >
+          <span>Manage Job</span>
+        </button>
+      );
+    }
+
+    if (isClosed) {
+      return (
+        <button
+          disabled
+          aria-disabled="true"
+          className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs border border-slate-200 dark:border-slate-700 cursor-not-allowed flex items-center justify-center"
+        >
+          <span>Closed</span>
+        </button>
+      );
+    }
+
+    if (applied || applicationStatus) {
+      const status = applicationStatus || 'pending';
+      let label = 'Applied · Pending';
+      let styleClass = 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200/60';
+
+      if (status === 'under_review') {
+        label = 'Under Review';
+        styleClass = 'bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border border-blue-200/60';
+      } else if (status === 'shortlisted') {
+        label = 'Shortlisted';
+        styleClass = 'bg-purple-50 dark:bg-purple-950/30 text-purple-800 dark:text-purple-300 border border-purple-200/60';
+      } else if (status === 'accepted') {
+        label = 'Accepted';
+        styleClass = 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200/60';
+      } else if (status === 'rejected') {
+        label = 'Rejected';
+        styleClass = 'bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border border-rose-200/60';
+      } else if (status === 'withdrawn') {
+        label = 'Withdrawn';
+        styleClass = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200';
+      }
+
+      return (
+        <button
+          onClick={onViewDetails}
+          className={`h-10 rounded-xl font-bold text-xs transition-all flex items-center justify-center space-x-1 cursor-pointer ${styleClass}`}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          <span>{label}</span>
+        </button>
+      );
+    }
+
+    return (
+      <button
+        onClick={(e) => onApply(id, e)}
+        className="h-10 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#4F46E5] hover:opacity-95 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1 cursor-pointer shadow-xs hover:shadow-md hover:scale-[1.01]"
+      >
+        <span>Apply</span>
+      </button>
+    );
+  };
+
   return (
     <motion.div
-      whileHover={{ y: -4, scale: 1.01 }}
+      whileHover={{ y: -3, scale: 1.005 }}
       onClick={onViewDetails}
-      className={`bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden h-full shadow-xs hover:shadow-md cursor-pointer ${className}`}
+      className={`bg-[linear-gradient(180deg,#FFFFFF_0%,#FBF9FF_60%,#FAFBFF_100%)] dark:bg-[#111827] border border-[#ECEEF5] dark:border-[#273449]/40 rounded-[20px] p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden h-full shadow-xs hover:shadow-md cursor-pointer ${className}`}
     >
       <div>
-        {/* Header: Company, Logo & Bookmark */}
-        <div className="flex justify-between items-start mb-3">
+        {/* Header: Company, Logo & Green Circular Verified Badge */}
+        <div className="flex justify-between items-start mb-2.5">
           <div className="flex items-center space-x-2.5 min-w-0">
             <img 
               src={companyLogo} 
               alt={companyName} 
               referrerPolicy="no-referrer"
-              className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800" 
+              className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0" 
             />
             <div className="min-w-0 text-left">
               <h4 className="text-xs font-bold text-[#475569] dark:text-slate-300 truncate">
                 {companyName}
               </h4>
               {companyVerified && (
-                <span className="inline-flex items-center text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 dark:bg-emerald-500/5 px-1.5 py-0.5 rounded-md mt-0.5">
-                  <ShieldCheck className="w-3 h-3 mr-0.5 stroke-[2.5]" />
-                  Verified
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[#ECFDF5] dark:bg-emerald-950/40 border border-[#A7F3D0] dark:border-emerald-800/60 text-[#059669] dark:text-emerald-400 text-[10px] font-bold mt-0.5">
+                  <CheckCircle2 className="w-3 h-3 text-[#059669] dark:text-emerald-400 shrink-0" />
+                  <span>Verified</span>
                 </span>
               )}
             </div>
@@ -144,8 +218,8 @@ export default function JobCard({
           </div>
         </div>
 
-        {/* Title */}
-        <h3 className="text-sm sm:text-base font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-tight hover:text-blue-600 transition-colors line-clamp-1 text-left">
+        {/* Title - UN-TRUNCATED 2-3 LINES FULL VISIBILITY */}
+        <h3 className="text-sm sm:text-base font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-tight leading-snug whitespace-normal break-words overflow-visible text-left hover:text-[#2563EB] transition-colors">
           {title}
         </h3>
 
@@ -158,13 +232,13 @@ export default function JobCard({
         <div className="mt-3 space-y-1.5 text-xs text-[#475569] dark:text-slate-300 text-left">
           <div className="flex items-center space-x-1.5">
             <MapPin className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
-            <span className="truncate">{location}</span>
+            <span className="whitespace-normal break-words">{location}</span>
           </div>
           <div className="flex items-center space-x-1.5">
             <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="font-semibold">{formattedSalary}</span>
+            <span className="font-semibold whitespace-normal break-words">{formattedSalary}</span>
           </div>
-          {/* Application Deadline Badge Line */}
+          {/* Real Application Deadline */}
           <div className="flex items-center space-x-1.5 pt-0.5">
             <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
             <span className={`text-[11px] px-2 py-0.5 rounded-full border ${deadlineInfo.badgeColorClass}`}>
@@ -173,7 +247,7 @@ export default function JobCard({
           </div>
         </div>
 
-        {/* Tags */}
+        {/* Category & Employment Type Tags */}
         <div className="mt-3 flex flex-wrap gap-1">
           <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
             {category || 'Professional'}
@@ -184,37 +258,16 @@ export default function JobCard({
         </div>
       </div>
 
-      {/* Actions: View Details & Apply */}
-      <div className="mt-5 pt-3 border-t border-slate-100 dark:border-[#273449]/30 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
+      {/* Bottom Actions: View Details & Apply / Status Button */}
+      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#273449]/30 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onViewDetails}
-          className="h-11 sm:h-9 rounded-xl border border-slate-200 dark:border-[#273449] hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-bold text-[#475569] dark:text-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"
+          className="h-10 rounded-xl border border-slate-200 dark:border-[#273449] hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-bold text-[#475569] dark:text-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1"
         >
           <span>View Details</span>
         </button>
-        <button
-          onClick={(e) => onApply(id, e)}
-          disabled={applied || deadlineInfo.isExpired}
-          aria-disabled={applied || deadlineInfo.isExpired}
-          className={`h-11 sm:h-9 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer ${
-            deadlineInfo.isExpired
-              ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700'
-              : applied 
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 cursor-default' 
-                : 'bg-gradient-to-r from-[#2563EB] to-blue-600 hover:opacity-95 text-white shadow-xs hover:shadow-md hover:scale-102'
-          }`}
-        >
-          {deadlineInfo.isExpired ? (
-            <span>Applications Closed</span>
-          ) : applied ? (
-            <>
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Applied</span>
-            </>
-          ) : (
-            <span>Apply</span>
-          )}
-        </button>
+
+        {renderStatusButton()}
       </div>
     </motion.div>
   );

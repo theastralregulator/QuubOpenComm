@@ -5,7 +5,7 @@
 export interface DeadlineInfo {
   formattedDate: string;
   daysRemaining: number;
-  status: 'active' | 'closing_soon' | 'today' | 'expired';
+  status: 'active' | 'closing_soon' | 'today' | 'expired' | 'none';
   label: string;
   badgeColorClass: string;
   isExpired: boolean;
@@ -13,17 +13,26 @@ export interface DeadlineInfo {
 
 export function getDeadlineInfo(deadlineDateStr?: string | Date | null): DeadlineInfo {
   if (!deadlineDateStr) {
-    // Default fallback if missing (14 days from now)
-    const future = new Date();
-    future.setDate(future.getDate() + 14);
-    return calculateDeadline(future);
+    return {
+      formattedDate: '',
+      daysRemaining: 999,
+      status: 'none',
+      label: 'No deadline',
+      badgeColorClass: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/40',
+      isExpired: false,
+    };
   }
 
   const deadline = new Date(deadlineDateStr);
   if (isNaN(deadline.getTime())) {
-    const future = new Date();
-    future.setDate(future.getDate() + 14);
-    return calculateDeadline(future);
+    return {
+      formattedDate: '',
+      daysRemaining: 999,
+      status: 'none',
+      label: 'No deadline',
+      badgeColorClass: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/40',
+      isExpired: false,
+    };
   }
 
   return calculateDeadline(deadline);
@@ -32,7 +41,7 @@ export function getDeadlineInfo(deadlineDateStr?: string | Date | null): Deadlin
 function calculateDeadline(deadline: Date): DeadlineInfo {
   const now = new Date();
   
-  // Normalize dates to start-of-day for local date comparison (avoid timezone off-by-one errors)
+  // Normalize dates to start-of-day for local date comparison
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const deadlineStart = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
   
@@ -61,7 +70,7 @@ function calculateDeadline(deadline: Date): DeadlineInfo {
       formattedDate,
       daysRemaining: 0,
       status: 'today',
-      label: 'Ends today',
+      label: 'Closes today',
       badgeColorClass: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-700/50 font-bold',
       isExpired: false
     };
@@ -83,19 +92,8 @@ function calculateDeadline(deadline: Date): DeadlineInfo {
       formattedDate,
       daysRemaining,
       status: 'closing_soon',
-      label: `Ends in ${daysRemaining} days`,
+      label: `Apply by ${formattedDate}`,
       badgeColorClass: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800/40',
-      isExpired: false
-    };
-  }
-
-  if (daysRemaining <= 7) {
-    return {
-      formattedDate,
-      daysRemaining,
-      status: 'closing_soon',
-      label: `Ends in ${daysRemaining} days`,
-      badgeColorClass: 'bg-amber-50/80 text-amber-700 border-amber-200/60 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800/30',
       isExpired: false
     };
   }

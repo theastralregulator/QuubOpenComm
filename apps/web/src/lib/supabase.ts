@@ -1119,6 +1119,8 @@ export const dbService = {
               bookmarked: false,
               applied: false,
               datePosted: new Date(job.created_at).toLocaleDateString(),
+              applicationDeadline: job.application_deadline || job.deadline || job.expires_at || null,
+              is_active: job.is_active !== undefined ? job.is_active : true,
               posted_by: job.posted_by,
               created_at: job.created_at
             };
