@@ -28,6 +28,7 @@ export interface OwnerProfile {
 }
 
 interface MyJobCardProps {
+  key?: React.Key;
   job: MyJobItem;
   ownerProfile?: OwnerProfile;
   applicationCount: number;
