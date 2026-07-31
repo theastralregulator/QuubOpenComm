@@ -420,7 +420,7 @@ export default function WorkerDetailPage({
               className="mt-6 border-t border-slate-100 dark:border-slate-800/60 pt-6 overflow-hidden space-y-4"
             >
               <div className="bg-purple-500/5 dark:bg-purple-500/2 border border-purple-500/10 p-4 rounded-2xl flex items-start space-x-2 text-left mb-2">
-                <Sparkles className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
+                <ShieldCheck className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
                 <div>
                   <h4 className="text-xs font-extrabold text-[#0F172A] dark:text-white">Direct Hire Escrow Enabled</h4>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Funds are held safely in multi-party escrow until milestones are achieved.</p>

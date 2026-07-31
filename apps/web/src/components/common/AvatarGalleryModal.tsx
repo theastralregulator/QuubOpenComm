@@ -41,7 +41,7 @@ export default function AvatarGalleryModal({
         <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center bg-slate-50/50 dark:bg-zinc-950/40">
           <div className="flex items-center space-x-2.5">
             <div className="w-9 h-9 rounded-xl bg-indigo-600/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
-              <Sparkles className="w-5 h-5" />
+              <User className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight">Choose Professional Avatar</h3>

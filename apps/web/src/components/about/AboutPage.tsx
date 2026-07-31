@@ -109,7 +109,7 @@ export default function AboutPage({ isLoggedIn = false, onOpenAuth }: AboutPageP
       {/* Page Header */}
       <div className="space-y-4 border-b border-slate-200/80 dark:border-zinc-800/80 pb-8">
         <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
-          <Sparkles className="w-3.5 h-3.5" />
+          <Briefcase className="w-3.5 h-3.5" />
           <span className="text-[10px] font-bold uppercase tracking-widest font-mono">ABOUT OPENCOMM</span>
         </div>
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-display font-black tracking-tight text-slate-900 dark:text-white leading-tight">

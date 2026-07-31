@@ -2321,7 +2321,7 @@ export default function App() {
           {authCallbackStatus === 'success' && (
             <>
               <div className="w-16 h-16 bg-emerald-500/10 dark:bg-emerald-600/10 rounded-full flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400">
-                <Sparkles className="w-8 h-8 animate-bounce" />
+                <CheckCircle2 className="w-8 h-8 animate-bounce" />
               </div>
               <div className="space-y-2">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Email Verified Successfully</h3>
@@ -2440,8 +2440,8 @@ export default function App() {
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             className="fixed bottom-20 md:bottom-6 right-6 z-50 bg-slate-900/95 dark:bg-[#121620] text-white px-5 py-3.5 rounded-2xl shadow-xl flex items-center space-x-3 border border-slate-200/10"
           >
-            <div className="p-1 rounded-full bg-blue-500/20 text-blue-400">
-              <Sparkles className="w-4 h-4" />
+            <div className="p-1 rounded-full bg-emerald-500/20 text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" />
             </div>
             <p className="text-xs sm:text-sm font-semibold tracking-wide">{successToast}</p>
           </motion.div>
@@ -3483,7 +3483,7 @@ export default function App() {
               {/* Header */}
               <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
                 <div className="flex items-center space-x-2">
-                  <Sparkles className="w-5 h-5 text-purple-500" />
+                  <Briefcase className="w-5 h-5 text-purple-500" />
                   <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Initialize Contract Offer</span>
                 </div>
                 <button 
