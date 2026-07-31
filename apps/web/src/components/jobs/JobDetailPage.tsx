@@ -497,7 +497,7 @@ export default function JobDetailPage({
                           <button
                             onClick={() => {
                               setShowOwnerMenu(false);
-                              navigate('/profile/manage-applications');
+                              navigate(`/jobs/${job.id}/applications`);
                             }}
                             className="w-full px-4 py-3 min-h-[48px] flex items-center space-x-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                           >

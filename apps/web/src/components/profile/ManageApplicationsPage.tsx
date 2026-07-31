@@ -79,8 +79,8 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
         .eq('id', jobId)
         .single();
         
-      if (jobError || !jobData) throw new Error('Job not found');
-      if (jobData.posted_by !== userData.user.id) throw new Error('Unauthorized');
+      if (jobError || !jobData) throw new Error('This job is unavailable.');
+      if (jobData.posted_by !== userData.user.id) throw new Error('You are not authorized to manage applications for this job.');
 
       setJobTitle(jobData.title);
 
@@ -232,8 +232,9 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
           <div className="flex flex-col space-y-5">
             <div className="flex items-center space-x-4">
               <button 
-                onClick={() => navigate('/profile')}
+                onClick={() => jobId ? navigate(`/jobs/${jobId}`) : navigate('/jobs')}
                 className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors bg-white dark:bg-[#0B0F19] shadow-sm border border-slate-200 dark:border-slate-800"
+                title="Back to Job Details"
               >
                 <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
               </button>

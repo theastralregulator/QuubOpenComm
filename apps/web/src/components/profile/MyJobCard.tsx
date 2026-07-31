@@ -80,6 +80,14 @@ export const MyJobCard: React.FC<MyJobCardProps> = ({ job, onEdit, onView, onCha
                 <Eye className="w-4 h-4" />
                 <span>View Job</span>
               </button>
+
+              <button
+                onClick={() => { setShowMenu(false); window.location.href = `/jobs/${job.id}/applications`; }}
+                className="w-full flex items-center space-x-2 px-4 py-2.5 text-sm text-[#6C4DFF] hover:bg-purple-50 dark:hover:bg-purple-950/20 font-semibold"
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>Manage Applications</span>
+              </button>
               
               {canEdit ? (
                 <button
