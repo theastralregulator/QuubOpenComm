@@ -582,7 +582,7 @@ export default function WorkersPage({
                     availability={worker.availability}
                     saved={isBookmarked}
                     onSave={toggleWorkerBookmark}
-                    onViewProfile={() => navigate(`/workers/${worker.id}`)}
+                    onViewProfile={() => navigate(`/workers/${worker.id}`, { state: { from: '/workers' } })}
                     onMessage={(e) => handleMessageClick(e, worker.id)}
                     onHire={(e) => {
                       requireAuthGuard('Hire Worker', () => onOpenHire(worker, e));

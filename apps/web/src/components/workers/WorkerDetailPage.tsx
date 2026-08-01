@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, Star, Bookmark, Share2, Sparkles, Send, 
-  MessageSquare, CheckCircle2, ShieldCheck, Briefcase, Award, Clock 
+  MessageSquare, CheckCircle2, ShieldCheck, Briefcase, Award, Clock,
+  Calendar, Globe, ExternalLink, UserCheck, Check, Layers, ChevronRight
 } from 'lucide-react';
 import { Worker } from '../../types';
 import { supabase, dbService } from '../../lib/supabase';
 import { getPublicProfileById } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
+import { resolveReturnRoute, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
 
 interface WorkerDetailPageProps {
@@ -22,6 +24,8 @@ interface WorkerDetailPageProps {
   onOpenAuth: (tab: 'signin' | 'signup' | 'locked') => void;
 }
 
+type PublicTabType = 'overview' | 'portfolio' | 'reviews' | 'about';
+
 export default function WorkerDetailPage({
   workers,
   toggleWorkerBookmark,
@@ -33,12 +37,23 @@ export default function WorkerDetailPage({
 }: WorkerDetailPageProps) {
   const { workerId } = useParams<{ workerId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [worker, setWorker] = useState<Worker | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Hire Form / Message form state
+  // Tab State
+  const [activeTab, setActiveTab] = useState<PublicTabType>('overview');
+
+  // Real Database Records State
+  const [portfolioItems, setPortfolioItems] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [joinedYear, setJoinedYear] = useState<string | null>(null);
+  const [preferredLanguage, setPreferredLanguage] = useState<string>('English');
+  const [isBioExpanded, setIsBioExpanded] = useState(false);
+
+  // Hire / Message Form State
   const [copied, setCopied] = useState(false);
   const [showHireForm, setShowHireForm] = useState(false);
   const [projectTitle, setProjectTitle] = useState('');
@@ -50,7 +65,7 @@ export default function WorkerDetailPage({
 
   useEffect(() => {
     async function checkAuth() {
-      if (isLoggedIn) {
+      if (isLoggedIn && supabase) {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setLoggedInId(user.id);
@@ -68,10 +83,11 @@ export default function WorkerDetailPage({
       setLoading(true);
       setError(null);
 
-      console.log('[WorkerDetail Trace] Route workerId:', workerId);
-
       if (supabase) {
         try {
+          let targetId = workerId;
+          let rawWorkerData: any = null;
+
           // 1. Query dedicated secure view: worker_directory
           const { data: dirWorker, error: dirError } = await supabase
             .from('worker_directory')
@@ -79,83 +95,62 @@ export default function WorkerDetailPage({
             .eq('id', workerId)
             .maybeSingle();
 
-          console.log('[WorkerDetail Trace] worker_directory query result:', { dirWorker, dirError });
-
           if (!dirError && dirWorker) {
-            const canonical = await getPublicProfileById(dirWorker.id);
-            const mappedWorker: Worker = {
-              id: dirWorker.id,
-              name: canonical.name || dirWorker.full_name || 'Worker',
-              photo: canonical.avatarUrl || dirWorker.avatar_url || '',
-              title: dirWorker.professional_title || dirWorker.profession || 'Professional',
-              experience: dirWorker.experience_years || dirWorker.years_experience || 0,
-              rating: 0,
-              availability: dirWorker.availability_status || dirWorker.availability || 'Available Now',
-              location: [canonical.city || dirWorker.city, canonical.state || dirWorker.state, canonical.country || dirWorker.country].filter(Boolean).join(', ') || 'Not provided',
-              bio: canonical.bio || dirWorker.bio_summary || 'No biography provided.',
-              skills: dirWorker.skills || [],
-              completedWorks: 0,
-              hourlyRate: dirWorker.hourly_rate || 0,
-              verified: canonical.verified || dirWorker.verification_status === 'verified',
-            };
-            setWorker(mappedWorker);
-            setLoading(false);
-            return;
+            rawWorkerData = dirWorker;
+            targetId = dirWorker.id;
+          } else {
+            // 2. Fallback: Query worker_profiles directly (by id or user_id)
+            const { data: wpData } = await supabase
+              .from('worker_profiles')
+              .select('*')
+              .or(`id.eq.${workerId},user_id.eq.${workerId}`)
+              .maybeSingle();
+
+            if (wpData) {
+              rawWorkerData = wpData;
+              targetId = wpData.id || wpData.user_id || workerId;
+            }
           }
 
-          // 2. Fallback: Query worker_profiles directly (by id or user_id)
-          const { data: wpData, error: wpError } = await supabase
-            .from('worker_profiles')
-            .select('*')
-            .or(`id.eq.${workerId},user_id.eq.${workerId}`)
-            .maybeSingle();
-
-          console.log('[WorkerDetail Trace] worker_profiles query result:', { wpData, wpError });
-
-          if (!wpError && wpData) {
-            const targetProfileId = wpData.id || wpData.user_id || workerId;
-            const canonical = await getPublicProfileById(targetProfileId);
-            const mappedWorker: Worker = {
-              id: targetProfileId,
-              name: canonical.name || 'Worker',
-              photo: canonical.avatarUrl || '',
-              title: wpData.professional_title || wpData.profession || 'Professional',
-              experience: wpData.experience_years || wpData.years_experience || 0,
-              rating: 0,
-              availability: wpData.availability_status || wpData.availability || 'Available Now',
-              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || 'Not provided',
-              bio: canonical.bio || wpData.bio_summary || 'No biography provided.',
-              skills: wpData.skills || [],
-              completedWorks: 0,
-              hourlyRate: wpData.hourly_rate || 0,
-              verified: canonical.verified,
-            };
-            setWorker(mappedWorker);
-            setLoading(false);
-            return;
-          }
-
-          // 3. Fallback: Check canonical profile in profiles table directly
-          const canonical = await getPublicProfileById(workerId);
-          console.log('[WorkerDetail Trace] canonical profile fallback:', canonical);
+          // Fetch canonical profile data for verified details
+          const canonical = await getPublicProfileById(targetId);
 
           if (canonical && canonical.id) {
             const mappedWorker: Worker = {
               id: canonical.id,
-              name: canonical.name || '',
-              photo: canonical.avatarUrl || '',
-              title: canonical.profileType === 'worker' ? 'Service Provider' : '',
-              experience: 0,
+              name: canonical.name || rawWorkerData?.full_name || '',
+              photo: canonical.avatarUrl || rawWorkerData?.avatar_url || '',
+              title: rawWorkerData?.professional_title || rawWorkerData?.profession || (canonical.profileType === 'worker' ? 'Service Provider' : ''),
+              experience: rawWorkerData?.experience_years || rawWorkerData?.years_experience || 0,
               rating: 0,
-              availability: 'Available Now',
-              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || '',
-              bio: canonical.bio || '',
-              skills: [],
+              availability: rawWorkerData?.availability_status || rawWorkerData?.availability || 'Available Now',
+              location: [canonical.city || rawWorkerData?.city, canonical.state || rawWorkerData?.state, canonical.country || rawWorkerData?.country].filter(Boolean).join(', ') || '',
+              bio: canonical.bio || rawWorkerData?.bio_summary || '',
+              skills: Array.isArray(rawWorkerData?.skills) ? rawWorkerData.skills : [],
               completedWorks: 0,
-              hourlyRate: 0,
-              verified: canonical.verified,
+              hourlyRate: rawWorkerData?.hourly_rate || 0,
+              verified: canonical.verified || rawWorkerData?.verification_status === 'verified',
             };
+
             setWorker(mappedWorker);
+
+            // Extract Joined Date
+            const rawCreatedAt = (canonical as any).created_at || (canonical as any).createdAt || rawWorkerData?.created_at;
+            if (rawCreatedAt) {
+              const dateObj = new Date(rawCreatedAt);
+              if (!isNaN(dateObj.getTime())) {
+                setJoinedYear(dateObj.getFullYear().toString());
+              }
+            }
+
+            // Fetch Real Portfolio Items from Database
+            const fetchedPortfolio = await dbService.getPortfolioItemsFromDb(canonical.id);
+            setPortfolioItems(fetchedPortfolio || []);
+
+            // Fetch Real Reviews from Database
+            const fetchedReviews = await dbService.getReviewsFromDb(canonical.id);
+            setReviews(fetchedReviews || []);
+
             setLoading(false);
             return;
           }
@@ -178,10 +173,20 @@ export default function WorkerDetailPage({
     }
   }, [worker]);
 
+  // Back Button Navigation
+  const handleBack = () => {
+    if (location.state?.from) {
+      navigate(location.state.from);
+    } else {
+      const returnRoute = resolveReturnRoute(location, '/workers', SESSION_STORAGE_KEYS.SAVED_WORKERS);
+      navigate(returnRoute);
+    }
+  };
+
   const handleShare = async () => {
     if (!worker) return;
     const shareUrl = window.location.href;
-    const shareText = `Check out this certified professional on OpenComm: ${worker.name} (${worker.title})!`;
+    const shareText = `Check out this certified professional on OpenComm: ${worker.name} (${worker.title || 'Service Provider'})!`;
 
     analytics.trackEvent('share', { item_type: 'worker', item_id: worker.id, item_title: worker.name });
 
@@ -200,7 +205,7 @@ export default function WorkerDetailPage({
         await navigator.clipboard.writeText(shareUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-        triggerToast('Profile URL copied to clipboard!');
+        triggerToast('Profile link copied to clipboard!');
       } catch (err) {
         console.error('Clipboard copy failed:', err);
       }
@@ -239,7 +244,6 @@ export default function WorkerDetailPage({
 
     setIsSubmitting(true);
     try {
-      // Mock triggering real hire proposal
       onOpenHire(worker, e as any);
       setIsSubmitting(false);
       setShowHireForm(false);
@@ -252,20 +256,11 @@ export default function WorkerDetailPage({
 
   if (loading) {
     return (
-      <div className="w-full max-w-4xl mx-auto py-12 px-4 space-y-6 animate-pulse text-left">
-        <div className="h-6 w-24 bg-slate-200 dark:bg-slate-800 rounded" />
-        <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 bg-slate-200 dark:bg-slate-800 rounded-full" />
-          <div className="space-y-2">
-            <div className="h-5 w-48 bg-slate-200 dark:bg-slate-800 rounded" />
-            <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
-          </div>
-        </div>
-        <div className="space-y-3 pt-6">
-          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-full" />
-          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-5/6" />
-          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-2/3" />
-        </div>
+      <div className="w-full max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-6 animate-pulse text-left">
+        <div className="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl" />
+        <div className="h-64 bg-slate-200 dark:bg-slate-800 rounded-3xl" />
+        <div className="h-12 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+        <div className="h-48 bg-slate-200 dark:bg-slate-800 rounded-3xl" />
       </div>
     );
   }
@@ -277,10 +272,10 @@ export default function WorkerDetailPage({
           <Briefcase className="w-8 h-8 text-rose-500" />
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white">Profile Not Found</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{error || 'This contractor is no longer active.'}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{error || 'This contractor is no longer active.'}</p>
         <button
-          onClick={() => navigate('/workers')}
-          className="inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors"
+          onClick={handleBack}
+          className="inline-flex items-center space-x-1.5 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to Specialists</span>
@@ -289,183 +284,182 @@ export default function WorkerDetailPage({
     );
   }
 
-  const availColor = worker.availability === 'Available Now' ? 'bg-emerald-500' : 'bg-amber-500';
+  // Calculate Rating & Reviews Count
+  const realRating = reviews.length > 0 
+    ? (reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0) / reviews.length) 
+    : 0;
+  const reviewsCount = reviews.length;
+  const isAvailableNow = worker.availability === 'Available Now';
+  const availColor = isAvailableNow ? 'bg-emerald-500' : 'bg-amber-500';
 
   return (
-    <div className="w-full max-w-4xl mx-auto py-6 px-4 space-y-6 text-left pb-[calc(110px+env(safe-area-inset-bottom))]" id="worker-detail-page">
+    <div className="w-full max-w-4xl mx-auto py-4 sm:py-6 px-4 sm:px-6 space-y-6 text-left pb-24 sm:pb-12" id="public-worker-profile-page">
       
-      {/* Back Button */}
-      <button
-        onClick={() => navigate(-1)}
-        className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Back</span>
-      </button>
+      {/* Top Header: Back Button & Public Actions */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={handleBack}
+          className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-xs cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back</span>
+        </button>
 
-      {/* Main Profile Details */}
-      <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 rounded-3xl p-6 md:p-8 shadow-xs relative overflow-hidden">
-        
-        {/* Ambient background decoration */}
-        <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/10 dark:bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-          
-          {/* Photo & Identity Section */}
-          <div className="flex items-start space-x-4 min-w-0">
-            <div className="relative shrink-0">
-              <UserAvatar
-                avatarUrl={worker.photo}
-                fullName={worker.name}
-                size="xl"
-                className="border-2 border-white dark:border-[#111827] shadow-md bg-slate-50"
-              />
-              <span className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full border-3 border-white dark:border-[#111827] ${availColor} animate-pulse`} />
-            </div>
-
-            <div className="space-y-1 text-left min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-[#0F172A] dark:text-white tracking-tight leading-none">
-                  {worker.name}
-                </h1>
-                {worker.verified && (
-                  <span className="inline-flex items-center text-[10px] text-purple-600 dark:text-purple-400 font-bold bg-purple-500/10 dark:bg-purple-500/5 px-2 py-0.5 rounded-md">
-                    <ShieldCheck className="w-3.5 h-3.5 mr-0.5 stroke-[2.5]" />
-                    Verified Specialist
-                  </span>
-                )}
+        {/* Public Share & Save Actions */}
+        <div className="flex items-center space-x-2">
+          {/* Share Profile */}
+          <div className="relative">
+            <button
+              onClick={handleShare}
+              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs"
+              title="Share Profile"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+            {copied && (
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-md whitespace-nowrap z-20 animate-bounce">
+                Copied Link!
               </div>
-              <p className="text-sm font-bold text-slate-500 dark:text-slate-400">
-                {worker.title}
-              </p>
-              <div className="flex items-center space-x-1.5 pt-1">
-                <MapPin className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
-                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{worker.location}</span>
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Top Right Header Buttons */}
-          <div className="flex items-center space-x-2 shrink-0 self-end md:self-start">
-            {/* Share */}
-            <div className="relative">
-              <button
-                onClick={handleShare}
-                className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-700 dark:bg-slate-800/40 dark:hover:bg-slate-800 dark:text-slate-300 transition-all cursor-pointer hover:scale-105"
-                title="Share Profile"
-              >
-                <Share2 className="w-4.5 h-4.5" />
-              </button>
-              {copied && (
-                <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-slate-950 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow-md whitespace-nowrap z-10 animate-bounce">
-                  Copied URL!
+          {/* Bookmark / Save Profile */}
+          <button
+            onClick={(e) => toggleWorkerBookmark(worker.id, e)}
+            className={`p-2.5 rounded-xl border transition-all cursor-pointer shadow-xs ${
+              worker.saved 
+                ? 'border-purple-200 bg-purple-50 text-purple-600 dark:border-purple-900/50 dark:bg-purple-950/40 dark:text-purple-400' 
+                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+            }`}
+            title={worker.saved ? 'Saved' : 'Save Profile'}
+          >
+            <Bookmark className={`w-4 h-4 ${worker.saved ? 'fill-current' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* 1. PUBLIC PROFILE HERO CARD */}
+      <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-7 relative overflow-hidden shadow-xs space-y-6">
+        
+        {/* Ambient background blur */}
+        <div className="absolute top-0 right-0 w-48 h-48 bg-purple-500/10 dark:bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6 relative z-10">
+          
+          {/* Circular Avatar */}
+          <div className="relative shrink-0 mx-auto sm:mx-0">
+            <UserAvatar
+              avatarUrl={worker.photo}
+              fullName={worker.name}
+              size="2xl"
+              className="border-3 border-white dark:border-[#111827] shadow-md bg-white dark:bg-slate-900"
+            />
+            <span className={`absolute bottom-1 right-1 w-4 h-4 rounded-full border-2 border-white dark:border-[#111827] ${availColor}`} />
+          </div>
+
+          {/* Identity & Header Details */}
+          <div className="flex-1 text-center sm:text-left space-y-2 min-w-0">
+            
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-tight">
+                {worker.name}
+              </h1>
+              {worker.verified && (
+                <span className="inline-flex items-center text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-500/15 dark:bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/20">
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-purple-600 dark:text-purple-400 fill-current/10" />
+                  Verified
+                </span>
+              )}
+              <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                isAvailableNow 
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' 
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+              }`}>
+                ● {worker.availability}
+              </span>
+            </div>
+
+            {worker.title && (
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                {worker.title}
+              </p>
+            )}
+
+            {/* Meta Row: Location, Experience & Joined */}
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1.5 text-xs text-slate-600 dark:text-slate-400 pt-0.5">
+              {worker.location && (
+                <div className="flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span>{worker.location}</span>
+                </div>
+              )}
+
+              {worker.experience > 0 && (
+                <div className="flex items-center space-x-1">
+                  <Award className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span>{worker.experience} Yrs Exp</span>
+                </div>
+              )}
+
+              {joinedYear && (
+                <div className="flex items-center space-x-1">
+                  <Calendar className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400 shrink-0" />
+                  <span>Member since {joinedYear}</span>
                 </div>
               )}
             </div>
 
-            {/* Bookmark */}
-            <button
-              onClick={(e) => toggleWorkerBookmark(worker.id, e)}
-              className={`p-2.5 rounded-xl border transition-all cursor-pointer hover:scale-105 ${
-                worker.saved 
-                  ? 'border-purple-200 bg-purple-50 text-purple-600 dark:border-purple-900/50 dark:bg-purple-950/40 dark:text-purple-400' 
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800/40 dark:hover:bg-slate-800'
-              }`}
-            >
-              <Bookmark className={`w-4.5 h-4.5 ${worker.saved ? 'fill-current' : ''}`} />
-            </button>
+            {/* Short Bio Snippet */}
+            {worker.bio && (
+              <div className="pt-2">
+                <p className={`text-xs text-slate-600 dark:text-slate-300 leading-relaxed ${isBioExpanded ? '' : 'line-clamp-2'}`}>
+                  {worker.bio}
+                </p>
+                {worker.bio.length > 120 && (
+                  <button
+                    onClick={() => setIsBioExpanded(!isBioExpanded)}
+                    className="text-[11px] font-bold text-purple-600 dark:text-purple-400 mt-1 cursor-pointer hover:underline"
+                  >
+                    {isBioExpanded ? 'Show less' : 'Read more'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Stats Strip */}
-        <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4 border-y border-slate-100 dark:border-slate-800/60 py-5 text-center">
-          <div>
-            <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">RATING</span>
-            <div className="flex items-center justify-center mt-1 text-sm font-black text-slate-900 dark:text-white space-x-1">
-              <Star className="w-4 h-4 text-amber-500 fill-current" />
-              <span>{worker.rating.toFixed(1)}</span>
-            </div>
-          </div>
-
-          <div className="border-l sm:border-l border-slate-100 dark:border-slate-800/40">
-            <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">EXPERIENCE</span>
-            <span className="block text-sm font-black text-slate-900 dark:text-white mt-1">
-              {worker.experience} Years
-            </span>
-          </div>
-
-          <div className="border-l border-slate-100 dark:border-slate-800/40 col-span-1">
-            <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">HOURLY RATE</span>
-            <span className="block text-sm font-black text-slate-900 dark:text-white mt-1">
-              {formatINR(worker.hourlyRate)}/hr
-            </span>
-          </div>
-
-          <div className="border-l border-slate-100 dark:border-slate-800/40 col-span-1">
-            <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">COMPLETED WORKS</span>
-            <span className="block text-sm font-black text-slate-900 dark:text-white mt-1">
-              {worker.completedWorks} Jobs
-            </span>
-          </div>
-        </div>
-
-        {/* Bio Section */}
-        <div className="mt-8 space-y-4">
-          <h2 className="text-sm font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
-            Professional Biography
-          </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-350 leading-relaxed">
-            {worker.bio}
-          </p>
-        </div>
-
-        {/* Skills Section */}
-        {worker.skills && worker.skills.length > 0 && (
-          <div className="mt-8 space-y-4">
-            <h2 className="text-sm font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 font-mono">
-              Core Skills & Expertise
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {worker.skills.map((skill, index) => (
-                <span key={index} className="text-xs font-bold uppercase tracking-wide bg-purple-500/10 text-purple-600 dark:text-purple-400 px-3.5 py-1.5 rounded-xl border border-purple-500/10">
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Action Button Strip */}
-        <div className="mt-10 pt-6 border-t border-slate-100 dark:border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="text-left">
-            <span className="text-xs font-bold text-[#475569] dark:text-slate-400 block">Need custom work?</span>
-            <span className="text-xs text-slate-400 dark:text-slate-500">Contact or hire {worker.name} directly with escrow milestones.</span>
+        {/* Public Hero Action Buttons */}
+        <div className="pt-3 border-t border-purple-500/10 flex flex-wrap items-center justify-between gap-3 relative z-10">
+          <div className="text-left text-xs font-bold text-slate-700 dark:text-slate-300 hidden sm:block">
+            {worker.hourlyRate > 0 ? (
+              <span>Starting at <strong className="text-purple-600 dark:text-purple-400">{formatINR(worker.hourlyRate)}/hr</strong></span>
+            ) : (
+              <span>Contract & Fixed Rate</span>
+            )}
           </div>
 
           <div className="flex items-center space-x-3 w-full sm:w-auto">
-            {worker.id !== loggedInId && (
+            {loggedInId !== worker.id && (
               <button
                 onClick={handleMessageClick}
                 disabled={isMessaging}
-                className="h-11 px-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white hover:bg-slate-50 dark:bg-transparent dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer disabled:opacity-70"
+                className="h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs disabled:opacity-70"
               >
-                <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span>{isMessaging ? 'Starting...' : 'Direct Message'}</span>
+                <MessageSquare className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                <span>{isMessaging ? 'Starting...' : 'Message'}</span>
               </button>
             )}
             <button
-              onClick={() => {
-                setShowHireForm(!showHireForm);
-              }}
-              className="h-11 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-md hover:scale-102"
+              onClick={() => setShowHireForm(!showHireForm)}
+              className="h-10 px-5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs transition-all hover:scale-102"
             >
-              <Award className="w-4 h-4" />
-              <span>Hire {worker.name.split(' ')[0]}</span>
+              <Send className="w-3.5 h-3.5" />
+              <span>Hire / Send Enquiry</span>
             </button>
           </div>
         </div>
 
-        {/* Dynamic Hire Form Section */}
+        {/* Dynamic Hire Form */}
         <AnimatePresence>
           {showHireForm && (
             <motion.form
@@ -474,20 +468,20 @@ export default function WorkerDetailPage({
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.3 }}
               onSubmit={handleHireSubmit}
-              className="mt-6 border-t border-slate-100 dark:border-slate-800/60 pt-6 overflow-hidden space-y-4"
+              className="border-t border-purple-500/15 pt-5 space-y-4 text-left overflow-hidden"
             >
-              <div className="bg-purple-500/5 dark:bg-purple-500/2 border border-purple-500/10 p-4 rounded-2xl flex items-start space-x-2 text-left mb-2">
-                <ShieldCheck className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
+              <div className="bg-white/80 dark:bg-slate-900/80 border border-purple-500/15 p-3.5 rounded-2xl flex items-start space-x-2.5">
+                <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="text-xs font-extrabold text-[#0F172A] dark:text-white">Direct Hire Escrow Enabled</h4>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Funds are held safely in multi-party escrow until milestones are achieved.</p>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">Direct Hire Escrow Protection</h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Funds remain safely in escrow until project milestones are completed and verified.</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
-                <div className="md:col-span-1 space-y-1.5">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-zinc-300">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-1 space-y-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                       Project Title
                     </label>
                     <input 
@@ -495,61 +489,372 @@ export default function WorkerDetailPage({
                       required
                       value={projectTitle}
                       onChange={(e) => setProjectTitle(e.target.value)}
-                      className="w-full h-11 px-3.5 rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                      placeholder="e.g. Build Landing Page"
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
+                      placeholder="e.g. Mobile App UI Design"
                     />
                   </div>
 
-                  <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-zinc-300">
-                      Total Budget ($)
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Total Budget (INR ₹)
                     </label>
                     <input 
                       type="number" 
                       required
                       value={budget}
                       onChange={(e) => setBudget(e.target.value)}
-                      className="w-full h-11 px-3.5 rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
-                      placeholder="e.g. 500"
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
+                      placeholder="e.g. 15000"
                     />
                   </div>
                 </div>
 
-                <div className="md:col-span-2 space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-zinc-300">
-                    Project Requirements / Milestones
+                <div className="md:col-span-2 space-y-1">
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Requirements & Deliverables
                   </label>
                   <textarea 
-                    rows={5}
+                    rows={4}
                     required
                     value={projectDesc}
                     onChange={(e) => setProjectDesc(e.target.value)}
-                    className="w-full p-3.5 rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-zinc-950 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-medium"
-                    placeholder="Provide details about the work, expected timeline, and milestones..."
+                    className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
+                    placeholder="Describe your project scope, timeline, and deliverables..."
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-2">
+              <div className="flex justify-end space-x-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowHireForm(false)}
-                  className="h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="h-10 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white font-bold text-xs flex items-center space-x-1.5 transition-all shadow-md cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{isSubmitting ? 'Submitting...' : 'Send Hire Proposal'}</span>
+                  <span>{isSubmitting ? 'Submitting...' : 'Send Hire Request'}</span>
                 </button>
               </div>
             </motion.form>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* 2. PUBLIC STATISTICS GRID */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 p-3.5 rounded-2xl text-center shadow-xs">
+          <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 font-mono uppercase tracking-wider">COMPLETED JOBS</span>
+          <div className="flex items-center justify-center mt-1 text-sm font-extrabold text-slate-900 dark:text-white space-x-1">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            <span>{worker.completedWorks || 0}</span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 p-3.5 rounded-2xl text-center shadow-xs">
+          <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 font-mono uppercase tracking-wider">RATING</span>
+          <div className="flex items-center justify-center mt-1 text-sm font-extrabold text-slate-900 dark:text-white space-x-1">
+            <Star className="w-4 h-4 text-amber-500 fill-current" />
+            <span>{realRating > 0 ? realRating.toFixed(1) : 'New'}</span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 p-3.5 rounded-2xl text-center shadow-xs">
+          <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 font-mono uppercase tracking-wider">REVIEWS</span>
+          <div className="flex items-center justify-center mt-1 text-sm font-extrabold text-slate-900 dark:text-white space-x-1">
+            <MessageSquare className="w-4 h-4 text-purple-500" />
+            <span>{reviewsCount}</span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 p-3.5 rounded-2xl text-center shadow-xs">
+          <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 font-mono uppercase tracking-wider">EXPERIENCE</span>
+          <div className="flex items-center justify-center mt-1 text-sm font-extrabold text-slate-900 dark:text-white space-x-1">
+            <Award className="w-4 h-4 text-blue-500" />
+            <span>{worker.experience > 0 ? `${worker.experience} yrs` : 'New'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. PROFILE NAVIGATION TABS */}
+      <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 rounded-2xl p-1.5 flex items-center justify-around shadow-xs overflow-x-auto">
+        {(['overview', 'portfolio', 'reviews', 'about'] as PublicTabType[]).map((tab) => {
+          const isActive = activeTab === tab;
+          const labels: Record<PublicTabType, string> = {
+            overview: 'Overview',
+            portfolio: `Portfolio (${portfolioItems.length})`,
+            reviews: `Reviews (${reviewsCount})`,
+            about: 'About'
+          };
+
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer capitalize text-center border-b-2 ${
+                isActive 
+                  ? 'border-purple-600 text-purple-600 dark:text-purple-400 bg-purple-50/60 dark:bg-purple-950/30' 
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40'
+              }`}
+            >
+              {labels[tab]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 4. TAB CONTENTS */}
+      <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 rounded-3xl p-5 sm:p-7 shadow-xs">
+        
+        {/* OVERVIEW TAB */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6 text-left">
+            
+            {/* Bio / Summary */}
+            {worker.bio && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">
+                  Professional Summary
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                  {worker.bio}
+                </p>
+              </div>
+            )}
+
+            {/* Core Skills */}
+            {worker.skills && worker.skills.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">
+                  Core Skills & Expertise
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {worker.skills.map((skill, index) => (
+                    <span 
+                      key={index} 
+                      className="text-xs font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-3 py-1 rounded-xl border border-purple-500/15"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Service & Rate Details Table */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+              <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">
+                Key Professional Details
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Hourly Rate</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">
+                    {worker.hourlyRate > 0 ? `${formatINR(worker.hourlyRate)}/hr` : 'Contact for Quote'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Availability</span>
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                    {worker.availability}
+                  </span>
+                </div>
+
+                {worker.location && (
+                  <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Location</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white truncate max-w-[180px]">
+                      {worker.location}
+                    </span>
+                  </div>
+                )}
+
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Working Language</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">
+                    {preferredLanguage}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* PORTFOLIO TAB */}
+        {activeTab === 'portfolio' && (
+          <div className="space-y-4 text-left">
+            {portfolioItems.length === 0 ? (
+              <div className="bg-slate-50/60 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-8 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mx-auto">
+                  <Briefcase className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">No portfolio projects added yet</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
+                    This professional has not showcased any portfolio projects yet.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {portfolioItems.map((item: any, idx: number) => (
+                  <div 
+                    key={item.id || idx}
+                    className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-xs"
+                  >
+                    {item.file_url ? (
+                      <div className="w-full h-36 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800">
+                        <img 
+                          src={item.file_url} 
+                          alt={item.title} 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-full h-24 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                        <Briefcase className="w-8 h-8 opacity-60" />
+                      </div>
+                    )}
+
+                    <div>
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">{item.title}</h4>
+                      {item.description && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 line-clamp-2 leading-relaxed">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {item.link_url && (
+                      <a 
+                        href={item.link_url} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="inline-flex items-center space-x-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline pt-1"
+                      >
+                        <span>View Project</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* REVIEWS TAB */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-4 text-left">
+            {reviews.length === 0 ? (
+              <div className="bg-slate-50/60 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-8 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+                  <Star className="w-6 h-6 fill-current" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">No reviews yet</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
+                    This professional has not received any public client reviews yet.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {reviews.map((rev: any, idx: number) => (
+                  <div 
+                    key={rev.id || idx}
+                    className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-2 shadow-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <UserAvatar 
+                          avatarUrl={rev.reviewer?.avatar_url || ''} 
+                          fullName={rev.reviewer?.full_name || 'Client'} 
+                          size="sm" 
+                        />
+                        <div>
+                          <span className="font-extrabold text-xs text-slate-900 dark:text-white block">
+                            {rev.reviewer?.full_name || 'Client'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">Verified Client</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1 text-amber-500 text-xs font-extrabold">
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                        <span>{rev.rating || 5}.0</span>
+                      </div>
+                    </div>
+
+                    {rev.comment && (
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed pl-9">
+                        "{rev.comment}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ABOUT TAB */}
+        {activeTab === 'about' && (
+          <div className="space-y-5 text-left">
+            <div className="space-y-2">
+              <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">
+                Full Professional Biography
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                {worker.bio || 'No expanded biography provided.'}
+              </p>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+              <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">
+                Public Account & Service Verification
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Verification Status</span>
+                  <span className={`font-extrabold ${worker.verified ? 'text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>
+                    {worker.verified ? 'Verified Specialist' : 'Standard Account'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Primary Location</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">
+                    {worker.location || 'Not specified'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Member Since</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white">
+                    {joinedYear ? `Year ${joinedYear}` : 'Active Member'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Availability</span>
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                    {worker.availability}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
