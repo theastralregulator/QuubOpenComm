@@ -447,17 +447,38 @@ export default function ProfilePage({
 
       if (userType === 'worker' || workerProfile) {
         console.log('[Edit Profile Debug] Calling dbService.updateWorkerProfileData for targetUserId:', targetUserId);
+        
+        let formattedSalary = '';
+        let computedHourlyRate = 0;
+
+        if (editSalaryPeriod === 'hourly') {
+          computedHourlyRate = Number(editHourlyRate) || 0;
+          formattedSalary = computedHourlyRate > 0 ? `₹${computedHourlyRate}/hr` : '';
+        } else if (editSalaryPeriod === 'monthly') {
+          const minVal = Number(editSalaryMin) || 0;
+          const maxVal = Number(editSalaryMax) || 0;
+          if (minVal > 0 && maxVal > 0 && minVal !== maxVal) {
+            formattedSalary = `₹${minVal.toLocaleString('en-IN')} – ₹${maxVal.toLocaleString('en-IN')}/mo`;
+          } else if (minVal > 0 || maxVal > 0) {
+            formattedSalary = `₹${(minVal || maxVal).toLocaleString('en-IN')}/mo`;
+          } else {
+            formattedSalary = editExpectedSalary || '';
+          }
+        } else if (editSalaryPeriod === 'daily') {
+          const dailyRate = Number(editHourlyRate) || 0;
+          formattedSalary = dailyRate > 0 ? `₹${dailyRate.toLocaleString('en-IN')}/day` : '';
+        } else if (editSalaryPeriod === 'project') {
+          const projRate = Number(editHourlyRate) || 0;
+          formattedSalary = projRate > 0 ? `₹${projRate.toLocaleString('en-IN')}/project` : '';
+        } else {
+          formattedSalary = editExpectedSalary || '';
+        }
+
         await dbService.updateWorkerProfileData(targetUserId, {
           profession: editTitle,
-          professional_title: editTitle,
           experience_years: Number(editExperience) || 0,
-          hourly_rate: Number(editHourlyRate) || 0,
-          expected_salary: editExpectedSalary,
-          expected_salary_min: Number(editSalaryMin) || 0,
-          expected_salary_max: Number(editSalaryMax) || 0,
-          salary_period: editSalaryPeriod,
-          work_preference: editWorkPreference,
-          primary_category: editCategory,
+          hourly_rate: computedHourlyRate,
+          expected_salary: formattedSalary,
           availability: editAvailability,
           skills: editSkills.split(',').map(s => s.trim()).filter(Boolean),
           bio_summary: editBio,
@@ -503,16 +524,16 @@ export default function ProfilePage({
       setEditLocationVisibility(profile.location_visibility ?? true);
 
       if (workerProfile) {
-        setEditTitle(workerProfile.profession || workerProfile.professional_title || '');
-        setEditExperience(workerProfile.experience_years ?? workerProfile.years_experience ?? 0);
+        setEditTitle(workerProfile.profession || '');
+        setEditExperience(workerProfile.experience_years ?? 0);
         setEditHourlyRate(workerProfile.hourly_rate ?? 0);
-        setEditSalaryPeriod(workerProfile.salary_period || 'hourly');
-        setEditSalaryMin(workerProfile.expected_salary_min ?? '');
-        setEditSalaryMax(workerProfile.expected_salary_max ?? '');
+        setEditSalaryPeriod('hourly');
+        setEditSalaryMin('');
+        setEditSalaryMax('');
         setEditExpectedSalary(workerProfile.expected_salary || '');
-        setEditWorkPreference(workerProfile.work_preference || 'Onsite');
-        setEditCategory(workerProfile.primary_category || '');
-        setEditAvailability(workerProfile.availability_status || workerProfile.availability || 'Available Now');
+        setEditWorkPreference('Onsite');
+        setEditCategory('');
+        setEditAvailability(workerProfile.availability || 'Available Now');
         setEditSkills(Array.isArray(workerProfile.skills) ? workerProfile.skills.join(', ') : '');
       }
     }

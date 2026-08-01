@@ -518,14 +518,14 @@ export const dbService = {
         throw new Error(error.message);
       }
       
-      // Also update location_visibility directly on profiles table if needed
+      // Also update show_location_publicly directly on profiles table if needed
       if (updates.location_visibility !== undefined && userId) {
         const { error: directErr } = await supabase
           .from('profiles')
-          .update({ location_visibility: updates.location_visibility })
+          .update({ show_location_publicly: updates.location_visibility })
           .eq('id', userId);
         if (directErr) {
-          console.warn('[Supabase Debug] Direct location_visibility update warning:', directErr);
+          console.warn('[Supabase Debug] Direct show_location_publicly update warning:', directErr);
         }
       }
 
@@ -565,15 +565,9 @@ export const dbService = {
 
   async updateWorkerProfileData(userId: string, updates: {
     profession?: string;
-    professional_title?: string;
     experience_years?: number;
     hourly_rate?: number;
     expected_salary?: string;
-    expected_salary_min?: number;
-    expected_salary_max?: number;
-    salary_period?: string;
-    work_preference?: string;
-    primary_category?: string;
     availability?: string;
     skills?: string[];
     bio_summary?: string;
@@ -591,60 +585,33 @@ export const dbService = {
         console.warn('[Supabase Debug] sync_email_verification pre-check warning in worker update:', e);
       }
 
-      const titleVal = updates.professional_title !== undefined ? updates.professional_title : updates.profession;
-      const expVal = updates.experience_years;
-      const availVal = updates.availability;
+      const payload: any = {
+        id: userId,
+        updated_at: new Date().toISOString()
+      };
 
-      const payload: any = {};
-      if (titleVal !== undefined) payload.profession = titleVal;
-      if (expVal !== undefined) payload.experience_years = expVal;
+      if (updates.profession !== undefined) payload.profession = updates.profession;
+      if (updates.experience_years !== undefined) payload.experience_years = updates.experience_years;
       if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate;
       if (updates.expected_salary !== undefined) payload.expected_salary = updates.expected_salary;
-      if (updates.expected_salary_min !== undefined) payload.expected_salary_min = updates.expected_salary_min;
-      if (updates.expected_salary_max !== undefined) payload.expected_salary_max = updates.expected_salary_max;
-      if (updates.salary_period !== undefined) payload.salary_period = updates.salary_period;
-      if (updates.work_preference !== undefined) payload.work_preference = updates.work_preference;
-      if (updates.primary_category !== undefined) payload.primary_category = updates.primary_category;
-      if (availVal !== undefined) payload.availability = availVal;
+      if (updates.availability !== undefined) payload.availability = updates.availability;
       if (updates.skills !== undefined) payload.skills = updates.skills;
       if (updates.bio_summary !== undefined) payload.bio_summary = updates.bio_summary;
       if (updates.work_location !== undefined) payload.work_location = updates.work_location;
 
-      if (Object.keys(payload).length > 0) {
-        payload.updated_at = new Date().toISOString();
-        
-        console.log('[Supabase Debug] Executing worker_profiles upsert with payload:', payload);
+      console.log('[Supabase Debug] Executing worker_profiles upsert with clean live payload:', payload);
 
-        const { data, error } = await supabase
-          .from('worker_profiles')
-          .upsert({
-            id: userId,
-            user_id: userId,
-            ...payload
-          }, { onConflict: 'id' })
-          .select();
+      const { data, error } = await supabase
+        .from('worker_profiles')
+        .upsert(payload, { onConflict: 'id' })
+        .select()
+        .single();
 
-        console.log('[Supabase Debug] worker_profiles upsert response:', { data, error, affectedRows: data ? data.length : 0 });
+      console.log('[Supabase Debug] worker_profiles upsert response:', { data, error });
 
-        if (error) {
-          console.error('[Supabase Debug] CRITICAL worker_profiles upsert error:', error);
-          throw new Error(`Worker profile update failed: ${error.message}`);
-        }
-
-        if (!data || data.length === 0) {
-          console.warn('[Supabase Debug] worker_profiles upsert returned 0 rows. Attempting explicit UPDATE...');
-          const { data: updateData, error: updateErr } = await supabase
-            .from('worker_profiles')
-            .update(payload)
-            .eq('id', userId)
-            .select();
-
-          console.log('[Supabase Debug] worker_profiles explicit UPDATE response:', { updateData, updateErr });
-
-          if (updateErr) {
-            throw new Error(`Worker profile update failed: ${updateErr.message}`);
-          }
-        }
+      if (error) {
+        console.error('[Supabase Debug] CRITICAL worker_profiles upsert error:', error);
+        throw new Error(`Worker profile update failed: ${error.message}`);
       }
     }
     clearProfileCache(userId);
@@ -657,46 +624,30 @@ export const dbService = {
     await assertUserEmailConfirmed();
     if (supabase) {
       try {
-        await supabase.from('worker_profiles').upsert({
+        const payload: any = {
           id: worker.id,
-          user_id: worker.id,
-          profession: worker.professional_title || worker.profession,
-          professional_title: worker.professional_title || worker.profession,
-          primary_category: worker.primary_category || '',
-          skills: worker.skills,
-          experience_years: worker.years_experience ?? worker.experience_years,
-          years_experience: worker.years_experience ?? worker.experience_years,
-          experience_level: worker.experience_level || 'Entry',
+          profession: worker.profession || worker.professional_title || '',
+          skills: worker.skills || [],
+          experience_years: worker.experience_years ?? worker.years_experience ?? 0,
           work_location: worker.work_location || '',
-          availability: worker.availability_status || worker.availability,
-          availability_status: worker.availability_status || worker.availability,
+          availability: worker.availability || worker.availability_status || 'Available Now',
           bio_summary: worker.bio_summary || '',
           hourly_rate: worker.hourly_rate || 0,
           expected_salary: worker.expected_salary || '',
-          expected_salary_min: worker.expected_salary_min || null,
-          expected_salary_max: worker.expected_salary_max || null,
-          currency: worker.currency || 'USD',
-          work_preference: worker.work_preference || 'Remote',
-          willing_to_relocate: worker.willing_to_relocate || false,
-          service_radius: worker.service_radius || null,
-          current_employer: worker.current_employer || '',
-          linkedin_url: worker.linkedin_url || '',
-          github_url: worker.github_url || '',
           portfolio_url: worker.portfolio_url || '',
-          highest_qualification: worker.highest_qualification || '',
-          course_specialization: worker.course_specialization || '',
-          institution: worker.institution || '',
-          graduation_year: worker.graduation_year || null,
-          resume_path: worker.resume_path || '',
-          worker_profile_completed: worker.worker_profile_completed || false,
           certificates: worker.certificates || [],
           languages: worker.languages || [],
-          listing_enabled: worker.listing_enabled !== undefined ? worker.listing_enabled : true,
-          verification_status: worker.verification_status || 'unverified',
-          profile_status: worker.profile_status || 'active',
-          services_offered: worker.services_offered || [],
-          travel_radius_km: worker.travel_radius_km || null
-        });
+          updated_at: new Date().toISOString()
+        };
+
+        const { error } = await supabase
+          .from('worker_profiles')
+          .upsert(payload, { onConflict: 'id' });
+
+        if (error) {
+          console.error('[Supabase Debug] createWorkerProfile error:', error);
+          throw error;
+        }
 
         // Also sync old workers_directory table for complete safety
         await supabase.from('workers_directory').upsert({
@@ -2171,34 +2122,15 @@ export const dbService = {
 export function formatWorkerRate(worker: any): string {
   if (!worker) return 'Not added';
 
-  const period = worker.salary_period || worker.salaryPeriod || 'hourly';
   const hourly = Number(worker.hourly_rate || worker.hourlyRate) || 0;
-  const minSal = Number(worker.expected_salary_min || worker.expectedSalaryMin) || 0;
-  const maxSal = Number(worker.expected_salary_max || worker.expectedSalaryMax) || 0;
   const expSal = worker.expected_salary || worker.expectedSalary;
-
-  if (period === 'monthly') {
-    if (minSal > 0 && maxSal > 0) {
-      return `₹${minSal.toLocaleString('en-IN')}–₹${maxSal.toLocaleString('en-IN')}/mo`;
-    } else if (minSal > 0 || maxSal > 0) {
-      return `₹${(minSal || maxSal).toLocaleString('en-IN')}/mo`;
-    } else if (expSal) {
-      return expSal.includes('/mo') ? expSal : `${expSal}/mo`;
-    }
-  } else if (period === 'daily') {
-    if (hourly > 0) return `₹${hourly.toLocaleString('en-IN')}/day`;
-    if (expSal) return expSal.includes('/day') ? expSal : `${expSal}/day`;
-  } else if (period === 'project') {
-    if (hourly > 0) return `₹${hourly.toLocaleString('en-IN')}/project`;
-    if (expSal) return expSal.includes('/project') ? expSal : `${expSal}/project`;
-  }
 
   if (hourly > 0) {
     return `₹${hourly.toLocaleString('en-IN')}/hr`;
   }
 
-  if (expSal) {
-    return expSal;
+  if (expSal && typeof expSal === 'string' && expSal.trim()) {
+    return expSal.trim();
   }
 
   return 'Not added';

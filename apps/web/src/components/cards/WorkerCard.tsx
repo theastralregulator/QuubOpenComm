@@ -70,9 +70,6 @@ export default function WorkerCard({
 
   const displayRate = formatWorkerRate({
     hourly_rate: hourlyRate,
-    salary_period: salaryPeriod,
-    expected_salary_min: expectedSalaryMin,
-    expected_salary_max: expectedSalaryMax,
     expected_salary: expectedSalary
   });
 

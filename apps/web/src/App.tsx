@@ -1475,35 +1475,14 @@ export default function App() {
           await dbService.createWorkerProfile({
             id: userId,
             profession: workerForm.professionalTitle,
-            professional_title: workerForm.professionalTitle,
-            primary_category: workerForm.primaryCategory,
             skills: workerForm.skills,
             experience_years: workerForm.experienceLevel === 'Senior' ? 5 : workerForm.experienceLevel === 'Mid' ? 2 : 0,
-            years_experience: workerForm.experienceLevel === 'Senior' ? 5 : workerForm.experienceLevel === 'Mid' ? 2 : 0,
             work_location: `${workerForm.city}, ${workerForm.state}`,
-            listing_enabled: true,
-            verification_status: 'unverified',
-            profile_status: 'active',
-            services_offered: [],
-            travel_radius_km: null,
             availability: 'Available Now',
-            availability_status: 'Available Now',
             bio_summary: formBio,
             hourly_rate: workerForm.hourlyRate || 75,
-            expected_salary: `${workerForm.expectedSalaryMin || 50} - ${workerForm.expectedSalaryMax || 150}`,
-            expected_salary_min: workerForm.expectedSalaryMin || 50,
-            expected_salary_max: workerForm.expectedSalaryMax || 150,
-            portfolio_url: workerForm.portfolioUrl,
-            linkedin_url: workerForm.linkedinUrl,
-            github_url: workerForm.githubUrl,
-            highest_qualification: workerForm.highestQualification,
-            course_specialization: workerForm.courseSpecialization,
-            institution: workerForm.institution,
-            graduation_year: workerForm.graduationYear,
-            resume_path: workerForm.resumePath,
-            worker_profile_completed: true,
-            experience: workerForm.experience,
-            certifications: workerForm.certifications
+            expected_salary: workerForm.expectedSalaryMin && workerForm.expectedSalaryMax ? `₹${workerForm.expectedSalaryMin} – ₹${workerForm.expectedSalaryMax}/mo` : '',
+            portfolio_url: workerForm.portfolioUrl
           });
 
           const mappedWorker: Worker = {
@@ -1851,30 +1830,14 @@ export default function App() {
         await dbService.createWorkerProfile({
           id: verifiedUser.id,
           profession: workerForm.professionalTitle,
-          professional_title: workerForm.professionalTitle,
-          primary_category: workerForm.primaryCategory,
           skills: workerForm.skills,
           experience_years: workerForm.yearsExperience,
-          years_experience: workerForm.yearsExperience,
           work_location: `${workerForm.city}, ${workerForm.state}`,
           availability: workerForm.availabilityStatus as any,
-          availability_status: workerForm.availabilityStatus,
           bio_summary: formBio,
           hourly_rate: workerForm.hourlyRate,
-          expected_salary: `${workerForm.expectedSalaryMin} - ${workerForm.expectedSalaryMax}`,
-          expected_salary_min: workerForm.expectedSalaryMin,
-          expected_salary_max: workerForm.expectedSalaryMax,
-          portfolio_url: workerForm.portfolioUrl,
-          linkedin_url: workerForm.linkedinUrl,
-          github_url: workerForm.githubUrl,
-          highest_qualification: workerForm.highestQualification,
-          course_specialization: workerForm.courseSpecialization,
-          institution: workerForm.institution,
-          graduation_year: workerForm.graduationYear,
-          resume_path: workerForm.resumePath,
-          worker_profile_completed: true,
-          experience: workerForm.experience,
-          certifications: workerForm.certifications
+          expected_salary: workerForm.expectedSalaryMin && workerForm.expectedSalaryMax ? `₹${workerForm.expectedSalaryMin} – ₹${workerForm.expectedSalaryMax}/mo` : '',
+          portfolio_url: workerForm.portfolioUrl
         });
 
         const mappedWorker: Worker = {

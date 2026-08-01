@@ -101,16 +101,16 @@ export default function WorkerDetailPage({
             rawWorkerData = dirWorker;
             targetId = dirWorker.id;
           } else {
-            // 2. Fallback: Query worker_profiles directly (by id or user_id)
+            // 2. Fallback: Query worker_profiles directly by id
             const { data: wpData } = await supabase
               .from('worker_profiles')
               .select('*')
-              .or(`id.eq.${workerId},user_id.eq.${workerId}`)
+              .eq('id', workerId)
               .maybeSingle();
 
             if (wpData) {
               rawWorkerData = wpData;
-              targetId = wpData.id || wpData.user_id || workerId;
+              targetId = wpData.id || workerId;
             }
           }
 
@@ -122,10 +122,10 @@ export default function WorkerDetailPage({
               id: canonical.id,
               name: canonical.name || rawWorkerData?.full_name || '',
               photo: canonical.avatarUrl || rawWorkerData?.avatar_url || '',
-              title: rawWorkerData?.professional_title || rawWorkerData?.profession || (canonical.profileType === 'worker' ? 'Service Provider' : ''),
-              experience: rawWorkerData?.experience_years || rawWorkerData?.years_experience || 0,
+              title: rawWorkerData?.profession || (canonical.profileType === 'worker' ? 'Service Provider' : ''),
+              experience: rawWorkerData?.experience_years || 0,
               rating: 0,
-              availability: rawWorkerData?.availability_status || rawWorkerData?.availability || 'Available Now',
+              availability: rawWorkerData?.availability || 'Available Now',
               location: [canonical.city || rawWorkerData?.city, canonical.state || rawWorkerData?.state, canonical.country || rawWorkerData?.country].filter(Boolean).join(', ') || '',
               bio: canonical.bio || rawWorkerData?.bio_summary || '',
               skills: Array.isArray(rawWorkerData?.skills) ? rawWorkerData.skills : [],
