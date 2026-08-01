@@ -2735,6 +2735,12 @@ export default function App() {
             </ProtectedRoute>
           } />
 
+          <Route path="/profile/manage-applications" element={
+            <ProtectedRoute>
+              <Navigate to="/profile/my-job-posts" replace />
+            </ProtectedRoute>
+          } />
+
           <Route path="/profile/jobs-applied" element={
             <ProtectedRoute>
               <MyJobsAppliedPage handleStartConversation={handleOpenConversationForApplication} />

@@ -328,7 +328,7 @@ export default function WorkerDetailPage({
   const isOwnProfile = Boolean(loggedInId && worker?.id && loggedInId === worker.id);
 
   return (
-    <div className="w-full max-w-4xl mx-auto py-4 sm:py-6 px-2.5 sm:px-6 space-y-6 text-left pb-24 sm:pb-12" id="public-worker-profile-page">
+    <div className="w-full max-w-4xl mx-auto py-4 sm:py-6 px-2 sm:px-6 space-y-6 text-left pb-24 sm:pb-12" id="public-worker-profile-page">
       
       {/* Top Header: Back Button & Public Actions */}
       <div className="flex items-center justify-between">

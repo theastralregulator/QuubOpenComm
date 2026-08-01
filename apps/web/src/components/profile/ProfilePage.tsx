@@ -758,7 +758,7 @@ export default function ProfilePage({
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2.5 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
+    <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
       
       {/* 1. GUEST GATEWAY BANNER (If not logged in) */}
       {!isLoggedIn && (
@@ -1033,11 +1033,13 @@ export default function ProfilePage({
             
             {/* Manage button maintaining navigation origin */}
             <button
-              onClick={() => navigateWithOrigin(navigate, '/profile/manage-applications', location, SESSION_STORAGE_KEYS.MANAGE_APPLICATIONS)}
-              className="h-9 px-4 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer self-start sm:self-auto"
+              type="button"
+              onClick={() => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
+              className="h-9 px-4 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 active:scale-95 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500/50 self-start sm:self-auto shrink-0 select-none"
+              aria-label="Manage Applications across your job posts"
             >
               <span>Manage Applications</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
             </button>
           </div>
 
