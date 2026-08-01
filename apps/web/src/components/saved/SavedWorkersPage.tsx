@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bookmark, Inbox } from 'lucide-react';
 import { Worker } from '../../types';
 import WorkerCard from '../cards/WorkerCard';
@@ -18,6 +19,7 @@ export default function SavedWorkersPage({
   onOpenHire,
   onExplore,
 }: SavedWorkersPageProps) {
+  const navigate = useNavigate();
   const savedList = workers.filter(w => (w as any).bookmarked);
 
   return (
@@ -38,14 +40,14 @@ export default function SavedWorkersPage({
             <Inbox className="w-8 h-8" />
           </div>
           <h3 className="font-bold text-base text-slate-800 dark:text-slate-100">You have not saved any workers yet.</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-xs mx-auto leading-relaxed">
-            Discover verified experts and click the bookmark icon on any worker profile card to save them here.
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-6">
+            Explore the workers directory to bookmark professionals for future projects.
           </p>
           <button 
             onClick={onExplore}
-            className="mt-5 px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer hover:scale-103 active:scale-97"
+            className="px-5 py-2.5 bg-[#6C4DFF] hover:bg-[#5b3ee0] text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
           >
-            Explore Active Workers
+            Explore Directory
           </button>
         </div>
       ) : (
@@ -66,7 +68,7 @@ export default function SavedWorkersPage({
               availability={worker.availability}
               saved={true}
               onSave={toggleWorkerBookmark}
-              onViewProfile={onExplore}
+              onViewProfile={() => navigate(`/workers/${worker.id}`)}
               onMessage={() => onOpenMessage(worker.name)}
             />
           ))}

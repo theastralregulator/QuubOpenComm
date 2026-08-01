@@ -68,48 +68,114 @@ export default function WorkerDetailPage({
       setLoading(true);
       setError(null);
 
-      // 1. Try Supabase worker_profiles
+      console.log('[WorkerDetail Trace] Route workerId:', workerId);
+
       if (supabase) {
         try {
-          const { data, error: sbError } = await supabase
-            .from('worker_profiles')
-            .select(`
-              *,
-              profiles(full_name, avatar_url, city, state, district, profile_type)
-            `)
+          // 1. Query dedicated secure view: worker_directory
+          const { data: dirWorker, error: dirError } = await supabase
+            .from('worker_directory')
+            .select('*')
             .eq('id', workerId)
-            .eq('listing_enabled', true)
-            .single();
+            .maybeSingle();
 
-          if (sbError) {
-            console.error('Error fetching worker from Supabase:', sbError);
-          } else if (data) {
-            const canonical = await getPublicProfileById(data.id);
+          console.log('[WorkerDetail Trace] worker_directory query result:', { dirWorker, dirError });
+
+          if (!dirError && dirWorker) {
+            const canonical = await getPublicProfileById(dirWorker.id);
             const mappedWorker: Worker = {
-              id: data.id,
-              name: canonical.name,
-              photo: canonical.avatarUrl || '',
-              title: data.professional_title || data.profession || 'Professional',
-              experience: data.experience_years || data.years_experience || 0,
+              id: dirWorker.id,
+              name: canonical.name || dirWorker.full_name || 'Worker',
+              photo: canonical.avatarUrl || dirWorker.avatar_url || '',
+              title: dirWorker.professional_title || dirWorker.profession || 'Professional',
+              experience: dirWorker.experience_years || dirWorker.years_experience || 0,
               rating: 0,
-              availability: data.availability_status || data.availability || 'Available Now',
-              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || 'Not provided',
-              bio: canonical.bio || data.bio_summary || 'No biography provided.',
-              skills: data.skills || [],
+              availability: dirWorker.availability_status || dirWorker.availability || 'Available Now',
+              location: [canonical.city || dirWorker.city, canonical.state || dirWorker.state, canonical.country || dirWorker.country].filter(Boolean).join(', ') || 'Not provided',
+              bio: canonical.bio || dirWorker.bio_summary || 'No biography provided.',
+              skills: dirWorker.skills || [],
               completedWorks: 0,
-              hourlyRate: data.hourly_rate || 0,
+              hourlyRate: dirWorker.hourly_rate || 0,
+              verified: canonical.verified || dirWorker.verification_status === 'verified',
+            };
+            setWorker(mappedWorker);
+            setLoading(false);
+            return;
+          }
+
+          // 2. Fallback: Query worker_profiles directly (by id or user_id)
+          const { data: wpData, error: wpError } = await supabase
+            .from('worker_profiles')
+            .select('*')
+            .or(`id.eq.${workerId},user_id.eq.${workerId}`)
+            .maybeSingle();
+
+          console.log('[WorkerDetail Trace] worker_profiles query result:', { wpData, wpError });
+
+          if (!wpError && wpData) {
+            const targetProfileId = wpData.id || wpData.user_id || workerId;
+            const canonical = await getPublicProfileById(targetProfileId);
+            const mappedWorker: Worker = {
+              id: targetProfileId,
+              name: canonical.name || 'Worker',
+              photo: canonical.avatarUrl || '',
+              title: wpData.professional_title || wpData.profession || 'Professional',
+              experience: wpData.experience_years || wpData.years_experience || 0,
+              rating: 0,
+              availability: wpData.availability_status || wpData.availability || 'Available Now',
+              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || 'Not provided',
+              bio: canonical.bio || wpData.bio_summary || 'No biography provided.',
+              skills: wpData.skills || [],
+              completedWorks: 0,
+              hourlyRate: wpData.hourly_rate || 0,
               verified: canonical.verified,
             };
             setWorker(mappedWorker);
             setLoading(false);
             return;
           }
+
+          // 3. Fallback: Check canonical profile in profiles table directly
+          const canonical = await getPublicProfileById(workerId);
+          console.log('[WorkerDetail Trace] canonical profile fallback:', canonical);
+
+          if (canonical && canonical.id && canonical.name !== 'OpenComm User') {
+            const mappedWorker: Worker = {
+              id: canonical.id,
+              name: canonical.name,
+              photo: canonical.avatarUrl || '',
+              title: canonical.profileType === 'worker' ? 'Professional' : 'Service Provider',
+              experience: 0,
+              rating: 0,
+              availability: 'Available Now',
+              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || 'Not provided',
+              bio: canonical.bio || 'No biography provided.',
+              skills: [],
+              completedWorks: 0,
+              hourlyRate: 0,
+              verified: canonical.verified,
+            };
+            setWorker(mappedWorker);
+            setLoading(false);
+            return;
+          }
+
         } catch (err) {
-          console.error('Supabase fetch exception:', err);
+          console.error('[WorkerDetail Trace] Supabase fetch exception:', err);
         }
       }
 
-      // 2. Fallback: Not found
+      // Fallback to passed prop workers array if any match
+      if (workers && workers.length > 0) {
+        const propWorker = workers.find(w => w.id === workerId);
+        if (propWorker) {
+          console.log('[WorkerDetail Trace] Found worker in props:', propWorker);
+          setWorker(propWorker);
+          setLoading(false);
+          return;
+        }
+      }
+
       setError('Worker profile could not be found or is not public.');
       setLoading(false);
     }
