@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile, formatWorkerRate } from '../../lib/supabase';
-import { getPublicProfileById } from '../../lib/profileService';
+import { getPublicProfileById, clearProfileCache } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
