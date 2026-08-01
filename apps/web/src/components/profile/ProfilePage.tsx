@@ -706,9 +706,26 @@ export default function ProfilePage({
     }
   };
 
-  const showLocation = isOwner || profile?.location_visibility !== false;
-  const locationParts = showLocation ? [profile?.city, profile?.state, profile?.country].filter(Boolean) : [];
-  const formattedLocation = locationParts.join(', ');
+  const isLocPublic = profile?.show_location_publicly !== false && (profile as any)?.location_visibility !== false;
+  const showLocation = isOwner || isLocPublic;
+
+  const rawParts = showLocation
+    ? [profile?.city, profile?.state, profile?.country]
+        .map(p => (typeof p === 'string' ? p.trim() : ''))
+        .filter(p => p.length > 0 && p !== 'null' && p !== 'undefined')
+    : [];
+
+  const uniqueLocationParts: string[] = [];
+  rawParts.forEach(part => {
+    if (!uniqueLocationParts.some(p => p.toLowerCase() === part.toLowerCase())) {
+      uniqueLocationParts.push(part);
+    }
+  });
+
+  const formattedLocation = uniqueLocationParts.length > 0
+    ? uniqueLocationParts.join(', ')
+    : (showLocation && (profile as any)?.work_location ? (profile as any).work_location : '');
+
   const joinedYear = profile?.created_at ? new Date(profile.created_at).getFullYear() : null;
 
   const totalApplicationsReceived = employerJobStats.reduce((acc, curr) => acc + (curr.total || 0), 0);
@@ -884,7 +901,10 @@ export default function ProfilePage({
           profile={profile}
           formattedLocation={formattedLocation}
           joinedYear={joinedYear}
-          publicJobs={jobs.filter(j => (j as any).authorId === profile.id || (j as any).user_id === profile.id)}
+          publicJobs={jobs.filter(j => (j as any).authorId === profile.id || (j as any).user_id === profile.id || (j as any).posted_by === profile.id)}
+          myJobPostsCount={myJobPostsCount}
+          isOwner={isOwner}
+          onEditProfile={handleOpenEdit}
           triggerToast={triggerToast}
         />
       );

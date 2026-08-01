@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { 
-  MapPin, Calendar, Camera, Edit2,
+  MapPin, Calendar, Globe, Camera, Edit2,
   Briefcase, Bookmark, Users, Wrench,
   ChevronRight, Share2, LogOut, MoreHorizontal, Settings,
   CheckCircle2, ShieldCheck, Clock
@@ -130,12 +130,20 @@ export default function BasicProfileDashboard({
                 </span>
               </div>
 
-              {/* Micro Meta: Real Saved Location & Member Since */}
+              {/* Micro Meta: Real Saved Location -> Preferred Language -> Member Since */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 pt-0.5">
                 <span className="flex items-center">
                   <MapPin className="w-3.5 h-3.5 mr-1 text-purple-600 dark:text-purple-400 shrink-0" />
                   {displayLocation}
                 </span>
+
+                <span className="flex items-center">
+                  <Globe className="w-3.5 h-3.5 mr-1 text-purple-600 dark:text-purple-400 shrink-0" />
+                  {profile?.preferred_language && profile.preferred_language.trim().length > 0
+                    ? profile.preferred_language.trim()
+                    : 'Language not provided'}
+                </span>
+
                 {joinedYear && (
                   <span className="flex items-center">
                     <Calendar className="w-3.5 h-3.5 mr-1 text-slate-400 shrink-0" />
