@@ -5,7 +5,7 @@ import {
   ArrowLeft, MapPin, Star, Bookmark, Share2, Sparkles, Send, 
   MessageSquare, CheckCircle2, ShieldCheck, Briefcase, Award, Clock,
   Calendar, Globe, ExternalLink, UserCheck, Check, Layers, ChevronRight,
-  FileText, Folder, Download
+  FileText, Folder, Download, Edit2
 } from 'lucide-react';
 import { Worker } from '../../types';
 import { supabase, dbService, formatWorkerRate } from '../../lib/supabase';
@@ -64,26 +64,38 @@ export default function WorkerDetailPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMessaging, setIsMessaging] = useState(false);
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     async function checkAuth() {
-      if (isLoggedIn && supabase) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          setLoggedInId(user.id);
+      setAuthLoading(true);
+      if (supabase) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            setLoggedInId(user.id);
+          } else {
+            setLoggedInId(null);
+          }
+        } catch {
+          setLoggedInId(null);
         }
       } else {
         setLoggedInId(null);
       }
+      setAuthLoading(false);
     }
     checkAuth();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, location.key]);
 
   useEffect(() => {
     async function fetchWorker() {
       if (!workerId) return;
       setLoading(true);
       setError(null);
+
+      // Invalidate cache to ensure fresh details on every visit
+      clearProfileCache(workerId);
 
       if (supabase) {
         try {
@@ -274,7 +286,7 @@ export default function WorkerDetailPage({
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="w-full max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-6 animate-pulse text-left">
         <div className="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl" />
@@ -311,6 +323,9 @@ export default function WorkerDetailPage({
   const reviewsCount = reviews.length;
   const isAvailableNow = worker.availability === 'Available Now';
   const availColor = isAvailableNow ? 'bg-emerald-500' : 'bg-amber-500';
+
+  // Ownership Check: Authenticated User ID === Canonical Worker Profile UUID
+  const isOwnProfile = Boolean(loggedInId && worker?.id && loggedInId === worker.id);
 
   return (
     <div className="w-full max-w-4xl mx-auto py-4 sm:py-6 px-4 sm:px-6 space-y-6 text-left pb-24 sm:pb-12" id="public-worker-profile-page">
@@ -455,23 +470,35 @@ export default function WorkerDetailPage({
           </div>
 
           <div className="flex items-center space-x-3 w-full sm:w-auto">
-            {loggedInId !== worker.id && (
+            {isOwnProfile ? (
               <button
-                onClick={handleMessageClick}
-                disabled={isMessaging}
-                className="h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs disabled:opacity-70"
+                onClick={() => navigate(`/profile?edit=true&returnTo=/workers/${worker.id}`, { state: { openEdit: true, returnTo: `/workers/${worker.id}` } })}
+                className="h-10 px-5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs transition-all hover:scale-102"
               >
-                <MessageSquare className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                <span>{isMessaging ? 'Starting...' : 'Message'}</span>
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>Edit Profile</span>
               </button>
+            ) : (
+              <>
+                {loggedInId && (
+                  <button
+                    onClick={handleMessageClick}
+                    disabled={isMessaging}
+                    className="h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs disabled:opacity-70"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                    <span>{isMessaging ? 'Starting...' : 'Message'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowHireForm(!showHireForm)}
+                  className="h-10 px-5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs transition-all hover:scale-102"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Hire / Send Enquiry</span>
+                </button>
+              </>
             )}
-            <button
-              onClick={() => setShowHireForm(!showHireForm)}
-              className="h-10 px-5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs transition-all hover:scale-102"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Hire / Send Enquiry</span>
-            </button>
           </div>
         </div>
 

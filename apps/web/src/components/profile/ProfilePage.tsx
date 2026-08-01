@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
@@ -94,6 +94,7 @@ export default function ProfilePage({
   const [errorState, setErrorState] = useState<string | null>(null);
 
   const { usernameParam } = useParams<{ usernameParam: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
   const jobsAppliedRequestRef = useRef(0);
@@ -401,6 +402,24 @@ export default function ProfilePage({
     analytics.trackProfileViewed(usernameParam ? 'public' : 'own', loggedInId, usernameParam || username || 'User');
   }, [isLoggedIn, loggedInId, usernameParam, userType]);
 
+  useEffect(() => {
+    if (profile && (searchParams.get('edit') === 'true' || location.state?.openEdit)) {
+      handleOpenEdit();
+    }
+  }, [profile, searchParams, location.state]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowMenuPopover(false);
+      }
+    };
+    if (showMenuPopover) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [showMenuPopover]);
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log('[Edit Profile Debug] handleSaveProfile form submit event fired', {
@@ -500,6 +519,11 @@ export default function ProfilePage({
       
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('opencomm:profile-updated'));
+      }
+
+      const returnTo = location.state?.returnTo || searchParams.get('returnTo');
+      if (returnTo) {
+        navigate(returnTo, { replace: true });
       }
     } catch (err: any) {
       console.error('[Edit Profile Debug] ERROR during profile save:', err);
@@ -621,6 +645,10 @@ export default function ProfilePage({
 
   const handleCloseEdit = () => {
     setIsEditing(false);
+    const returnTo = location.state?.returnTo || searchParams.get('returnTo');
+    if (returnTo) {
+      navigate(returnTo, { replace: true });
+    }
   };
 
   const handleAddPortfolioSubmit = async (e: React.FormEvent) => {
@@ -865,22 +893,6 @@ export default function ProfilePage({
                   <span>Edit Profile</span>
                 </button>
 
-                <button
-                  onClick={() => navigate(`/profile/${profile?.id || loggedInId}`)}
-                  className="h-9 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Preview Profile</span>
-                </button>
-
-                <button
-                  onClick={handleOpenEdit}
-                  className="h-9 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>Settings</span>
-                </button>
-
                 {/* Three Dot Popover */}
                 <div className="relative">
                   <button
@@ -892,46 +904,42 @@ export default function ProfilePage({
 
                   <AnimatePresence>
                     {showMenuPopover && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                        className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl py-2 z-30 text-left"
-                      >
-                        <button
-                          onClick={() => {
-                            setShowMenuPopover(false);
-                            handleOpenEdit();
-                          }}
-                          className="w-full px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2"
+                      <>
+                        {/* Backdrop overlay for closing on outside tap */}
+                        <div 
+                          className="fixed inset-0 z-40 bg-transparent" 
+                          onClick={() => setShowMenuPopover(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: 5 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: 5 }}
+                          className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl py-2 z-50 text-left"
                         >
-                          <Settings className="w-3.5 h-3.5" />
-                          <span>Account Settings</span>
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setShowMenuPopover(false);
-                            await navigator.clipboard.writeText(window.location.href);
-                            triggerToast("Profile link copied!");
-                          }}
-                          className="w-full px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2"
-                        >
-                          <Share2 className="w-3.5 h-3.5" />
-                          <span>Share Profile</span>
-                        </button>
-                        {onLogout && (
                           <button
                             onClick={() => {
                               setShowMenuPopover(false);
-                              onLogout();
+                              handleOpenEdit();
                             }}
-                            className="w-full px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center space-x-2"
+                            className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2 transition-colors cursor-pointer"
                           >
-                            <LogOut className="w-3.5 h-3.5" />
-                            <span>Logout</span>
+                            <Settings className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Settings</span>
                           </button>
-                        )}
-                      </motion.div>
+                          {onLogout && (
+                            <button
+                              onClick={() => {
+                                setShowMenuPopover(false);
+                                onLogout();
+                              }}
+                              className="w-full px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center space-x-2 transition-colors cursor-pointer"
+                            >
+                              <LogOut className="w-3.5 h-3.5" />
+                              <span>Logout</span>
+                            </button>
+                          )}
+                        </motion.div>
+                      </>
                     )}
                   </AnimatePresence>
                 </div>
