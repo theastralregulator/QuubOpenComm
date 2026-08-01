@@ -277,7 +277,7 @@ export default function MyJobCard({
           className="h-10 rounded-xl bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/40 hover:bg-purple-100 transition-all cursor-pointer flex items-center justify-center space-x-1"
         >
           <Briefcase className="w-3.5 h-3.5 shrink-0" />
-          <span>Manage Job</span>
+          <span>Manage Applications</span>
         </button>
       </div>
 

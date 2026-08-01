@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, MessageSquare, ExternalLink, ShieldCheck, RefreshCw, AlertCircle, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Check, X, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getPublicProfilesByIds } from '../../lib/profileService';
 
@@ -29,7 +29,7 @@ interface ManageApplicationsPageProps {
 export default function ManageApplicationsPage({ handleStartConversation }: ManageApplicationsPageProps) {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
-  const [jobTitle, setJobTitle] = useState('Job Applications');
+  const [jobTitle, setJobTitle] = useState<string | null>(null);
   const [applications, setApplications] = useState<ApplicantData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,16 +46,14 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
 
     if (!jobId) return;
 
-    // Realtime subscription
+    // Realtime subscription for application updates
     const channel = supabase.channel(`public:job_applications:job_id=${jobId}`)
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
         table: 'job_applications',
         filter: `job_id=eq.${jobId}`
-      }, (payload) => {
-        // Trigger a full refetch on any change to ensure consistency 
-        // with joined profile data, or manually merge it.
+      }, () => {
         fetchApplications();
       })
       .subscribe();
@@ -66,26 +64,36 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   }, [jobId]);
 
   const fetchApplications = async () => {
-    if (!jobId) return;
+    if (!jobId) {
+      setError('No job specified.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('Not authenticated');
+      if (!userData.user) throw new Error('Not authenticated.');
 
-      // Verify ownership & get job title
+      // Verify job ownership & fetch title
       const { data: jobData, error: jobError } = await supabase
         .from('jobs')
         .select('title, posted_by')
         .eq('id', jobId)
         .single();
         
-      if (jobError || !jobData) throw new Error('This job is unavailable.');
-      if (jobData.posted_by !== userData.user.id) throw new Error('You are not authorized to manage applications for this job.');
+      if (jobError || !jobData) {
+        throw new Error('This job listing could not be found.');
+      }
+
+      if (jobData.posted_by !== userData.user.id) {
+        throw new Error('You do not have permission to manage applications for this job.');
+      }
 
       setJobTitle(jobData.title);
 
-      // Fetch applications joined with profile_directory
+      // Fetch applications
       const { data: appsData, error: appsError } = await supabase
         .from('job_applications')
         .select(`
@@ -129,7 +137,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
 
       setApplications(mergedApps);
     } catch (err: any) {
-      setError(err.message || "Failed to load applications");
+      setError(err.message || "Failed to load applications for this job.");
     } finally {
       setLoading(false);
     }
@@ -145,13 +153,8 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
       if (error) throw error;
       
       setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a));
-      
-      // If shortlisted, show toast directly instead of modal since there is no confirm modal for shortlist
-      if (newStatus === 'shortlisted' || newStatus === 'pending') {
-        // success toast could go here if we had triggerToast in props, we'll just silently update
-      }
     } catch (err: any) {
-      alert("Failed to update status: " + err.message);
+      alert("Failed to update application status: " + err.message);
     } finally {
       setActionLoading(false);
       setConfirmAction(null);
@@ -161,17 +164,17 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   const renderStatusBadge = (status: string) => {
     switch (status) {
       case 'accepted':
-        return <span className="px-3 py-1 text-[11px] uppercase tracking-wider font-extrabold rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Accepted</span>;
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">Accepted</span>;
       case 'rejected':
-        return <span className="px-3 py-1 text-[11px] uppercase tracking-wider font-extrabold rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">Rejected</span>;
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40">Rejected</span>;
       case 'shortlisted':
-        return <span className="px-3 py-1 text-[11px] uppercase tracking-wider font-extrabold rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">Shortlisted</span>;
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">Shortlisted</span>;
       case 'withdrawn':
-        return <span className="px-3 py-1 text-[11px] uppercase tracking-wider font-extrabold rounded-lg bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400">Withdrawn</span>;
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-700">Withdrawn</span>;
       case 'pending':
       case 'under_review':
       default:
-        return <span className="px-3 py-1 text-[11px] uppercase tracking-wider font-extrabold rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Pending</span>;
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">Pending</span>;
     }
   };
 
@@ -180,8 +183,8 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   };
 
   const getInitials = (name: string) => {
-    if (!name || name === 'Unknown Applicant') return 'UA';
-    const parts = name.trim().split(' ');
+    if (!name || name === 'Unknown Applicant' || name === 'OpenComm User') return 'OU';
+    const parts = name.trim().split(/\s+/);
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.substring(0, 2).toUpperCase();
   };
@@ -209,268 +212,280 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#050810] text-slate-900 dark:text-slate-100 py-6 px-4 sm:px-6 lg:px-8 pt-24 pb-[calc(100px+env(safe-area-inset-bottom))]">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="w-full bg-[linear-gradient(180deg,#FAFBFF_0%,#F7F5FF_55%,#FAFCFF_100%)] dark:bg-[#080C14] min-h-screen text-left">
+      <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 pt-3 sm:pt-4 pb-[calc(110px+env(safe-area-inset-bottom))] space-y-4">
         
-        {/* Sticky Header */}
-        <div className="sticky top-[72px] z-20 bg-slate-50/90 dark:bg-[#050810]/90 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-800/50 pb-4 pt-2 -mx-4 px-4 sm:mx-0 sm:px-0">
-          <div className="flex flex-col space-y-5">
-            <div className="flex items-center space-x-4">
-              <button 
-                onClick={() => jobId ? navigate(`/jobs/${jobId}`) : navigate('/jobs')}
-                className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors bg-white dark:bg-[#0B0F19] shadow-sm border border-slate-200 dark:border-slate-800"
-                title="Back to Job Details"
-              >
-                <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-              </button>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-                  Manage Applications
-                </h1>
-                <div className="flex items-center space-x-2 mt-0.5">
-                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{jobTitle}</span>
-                  <span className="text-slate-300 dark:text-slate-600">•</span>
-                  <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{counts.all} total</span>
-                </div>
-              </div>
-            </div>
+        {/* Header Section */}
+        <div className="space-y-3 pt-1">
+          {/* Row 1: Circular Back Button, Page Title & Compact Count Badge */}
+          <div className="flex items-center space-x-3">
+            <button 
+              type="button"
+              onClick={() => navigate('/profile/my-job-posts')}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer border border-slate-200/60 dark:border-slate-800 shrink-0"
+              aria-label="Back to My Job Posts"
+            >
+              <ArrowLeft className="w-4 h-4 text-slate-700 dark:text-slate-300" />
+            </button>
 
-            {/* Filter Tabs */}
-            <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+              <h1 className="text-xl sm:text-2xl font-black text-[#111827] dark:text-white tracking-tight shrink-0">
+                Manage Applications
+              </h1>
+              {!loading && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-[#6C4DFF]/10 text-[#6C4DFF] dark:text-purple-300 border border-[#6C4DFF]/20 shrink-0">
+                  {counts.all} {counts.all === 1 ? 'Applicant' : 'Applicants'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Row 2: Full Job Title (2-3 lines natural wrapping) */}
+          {jobTitle && (
+            <div className="bg-white dark:bg-[#111827] border border-slate-200/60 dark:border-slate-800/80 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-0.5">
+                Job Posting
+              </span>
+              <h2 className="text-sm sm:text-base font-extrabold text-[#0F172A] dark:text-white tracking-tight leading-snug whitespace-normal break-words">
+                {jobTitle}
+              </h2>
+            </div>
+          )}
+
+          {/* Row 3: Horizontal Scrolling Filter Tabs */}
+          {!loading && !error && (
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0 pt-1">
               {tabs.map(tab => (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setFilterStatus(tab.id as any)}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+                  className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer border ${
                     filterStatus === tab.id 
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md' 
-                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 dark:bg-[#0B0F19] dark:text-slate-400 dark:border-slate-800 dark:hover:bg-slate-800'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xs' 
+                      : 'bg-white dark:bg-[#111827] text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   <span>{tab.label}</span>
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] ${
+                  <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-extrabold ${
                     filterStatus === tab.id
                       ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900'
-                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
                   }`}>
                     {tab.count}
                   </span>
                 </button>
               ))}
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Content */}
+        {/* Content Section */}
         {loading ? (
-          <div className="space-y-4">
+          <div className="space-y-3.5">
             {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] p-6 h-48 animate-pulse flex flex-col justify-between shadow-sm" />
+              <div key={i} className="bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 h-44 animate-pulse flex flex-col justify-between" />
             ))}
           </div>
         ) : error ? (
-          <div className="bg-rose-50 dark:bg-rose-900/10 border border-rose-200 dark:border-rose-800 rounded-[24px] p-8 text-center space-y-4 shadow-sm">
+          <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/40 rounded-[22px] p-6 text-center space-y-3">
             <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
-            <h3 className="text-lg font-bold text-rose-600 dark:text-rose-400">Error loading applications</h3>
-            <p className="text-slate-600 dark:text-slate-400">{error}</p>
+            <h3 className="text-base font-bold text-rose-700 dark:text-rose-300">Unable to load applications</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto">{error}</p>
+            <button 
+              type="button"
+              onClick={() => navigate('/profile/my-job-posts')}
+              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 font-bold text-xs transition-all cursor-pointer shadow-2xs"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to My Job Posts</span>
+            </button>
           </div>
         ) : filteredApps.length === 0 ? (
-          <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] p-12 text-center space-y-6 shadow-sm">
-            <div className="w-16 h-16 bg-slate-50 dark:bg-[#111827] text-slate-400 dark:text-slate-600 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100 dark:border-slate-800">
-              <Check className="w-8 h-8" />
+          <div className="bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-8 sm:p-12 text-center space-y-4 shadow-xs">
+            <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mx-auto">
+              <Check className="w-7 h-7" />
             </div>
-            <div className="space-y-2">
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">No applications found.</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm max-w-md mx-auto">
+            <div className="space-y-1">
+              <h3 className="text-base sm:text-lg font-bold text-[#0F172A] dark:text-white">No applications found.</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
                 {filterStatus === 'all' 
-                  ? "When talented workers apply to your posting, they will appear here."
+                  ? "When job seekers apply to this posting, their applications will appear here."
                   : `There are currently no applications matching the '${tabs.find(t => t.id === filterStatus)?.label}' filter.`}
               </p>
             </div>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-3.5">
             {filteredApps.map(app => {
               const isExpanded = expandedCovers[app.id];
               return (
-                <div key={app.id} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] p-5 sm:p-7 shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition-shadow">
-                  {/* Header Row */}
-                  <div className="flex flex-col sm:flex-row gap-5 items-start">
-                    <div className="flex items-start gap-4 flex-1 w-full">
-                      <button 
-                        onClick={() => navigate(`/profile/${app.applicant_id}`)}
-                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-full shrink-0 overflow-hidden border-2 border-white dark:border-slate-800 shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 font-bold text-lg cursor-pointer"
-                      >
+                <div 
+                  key={app.id}
+                  className="bg-[linear-gradient(180deg,#FFFFFF_0%,#FBF9FF_60%,#FAFBFF_100%)] dark:bg-[#111827] border border-[#ECEEF5] dark:border-[#273449]/40 rounded-[22px] p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xs hover:shadow-md text-left"
+                >
+                  <div className="space-y-3">
+                    {/* Top Row: Applicant Profile Info & Status Badge */}
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex items-center space-x-3 min-w-0 cursor-pointer group" onClick={() => navigate(`/profile/${app.applicant_id}`)}>
                         {app.profile.avatar_url ? (
                           <img 
                             src={app.profile.avatar_url} 
-                            alt="Avatar" 
-                            className="w-full h-full object-cover"
+                            alt={app.profile.full_name} 
+                            referrerPolicy="no-referrer"
+                            className="w-10 h-10 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0 group-hover:brightness-95 transition-all" 
                           />
                         ) : (
-                          getInitials(app.profile.full_name)
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#6C4DFF] to-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                            {getInitials(app.profile.full_name)}
+                          </div>
                         )}
-                      </button>
-                      
-                      <div className="flex-1 min-w-0 pt-0.5">
-                        <div className="flex justify-between items-start gap-2">
-                          <div className="space-y-1 w-full pr-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <button 
-                                onClick={() => navigate(`/profile/${app.applicant_id}`)}
-                                className="font-extrabold text-slate-900 dark:text-white text-lg leading-tight hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
-                              >
-                                {app.profile.full_name}
-                              </button>
-                              
-                              {app.profile.profile_type === 'worker' ? (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">
-                                  WORKER
-                                </span>
-                              ) : app.profile.profile_type === 'company' ? (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
-                                  COMPANY
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                  BASIC
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{app.profile.location}</p>
-                            <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                              Applied {new Date(app.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </p>
-                          </div>
-                          <div className="shrink-0 mt-1 sm:mt-0">
-                            {renderStatusBadge(app.status)}
-                          </div>
+                        <div className="min-w-0 text-left">
+                          <h3 className="text-sm font-extrabold text-[#0F172A] dark:text-white truncate group-hover:text-[#2563EB] transition-colors">
+                            {app.profile.full_name}
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 truncate font-medium">
+                            {app.profile.location}
+                          </p>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                            Applied on {new Date(app.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </p>
                         </div>
+                      </div>
+
+                      <div className="shrink-0">
+                        {renderStatusBadge(app.status)}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="mt-5 space-y-4">
-                    {/* Rate & Cover Letter */}
+                    {/* Proposed Rate */}
                     {app.proposed_rate && (
-                      <div className="inline-flex items-center space-x-2 px-4 py-2 bg-slate-50 dark:bg-[#111827] border border-slate-100 dark:border-slate-800 rounded-xl">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Proposed Rate:</span>
-                        <span className="text-sm font-black text-slate-900 dark:text-white">{app.proposed_rate}</span>
+                      <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 rounded-xl text-xs">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">Proposed Rate:</span>
+                        <span className="font-extrabold text-slate-900 dark:text-white">{app.proposed_rate}</span>
                       </div>
                     )}
-                    
+
+                    {/* Cover Letter */}
                     {app.cover_letter && (
-                      <div className="p-4 sm:p-5 bg-slate-50 dark:bg-[#111827] rounded-[20px] border border-slate-100 dark:border-slate-800 relative">
-                        <div className={`text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-pre-wrap ${!isExpanded ? 'line-clamp-4' : ''}`}>
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 text-xs">
+                        <p className={`font-medium text-slate-700 dark:text-slate-300 whitespace-pre-wrap ${!isExpanded ? 'line-clamp-3' : ''}`}>
                           {app.cover_letter}
-                        </div>
-                        {app.cover_letter.length > 200 && (
+                        </p>
+                        {app.cover_letter.length > 160 && (
                           <button
+                            type="button"
                             onClick={() => toggleCover(app.id)}
-                            className="mt-3 text-xs font-extrabold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 transition-colors"
+                            className="mt-1.5 text-[11px] font-bold text-[#2563EB] dark:text-blue-400 hover:underline flex items-center space-x-0.5 cursor-pointer"
                           >
                             {isExpanded ? (
-                              <><ChevronUp className="w-4 h-4" /> Show Less</>
+                              <><ChevronUp className="w-3 h-3" /><span>Show Less</span></>
                             ) : (
-                              <><ChevronDown className="w-4 h-4" /> Read More</>
+                              <><ChevronDown className="w-3 h-3" /><span>Read More</span></>
                             )}
                           </button>
                         )}
                       </div>
                     )}
+                  </div>
 
-                    {/* Actions */}
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60">
-                      <div className="flex flex-col gap-3">
-                        {/* Primary Nav Row */}
-                        <div className="flex gap-3 w-full">
+                  {/* Actions Section */}
+                  <div className="mt-3.5 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/profile/${app.applicant_id}`)}
+                        className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-bold text-slate-700 dark:text-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>View Profile</span>
+                      </button>
+
+                      {app.status === 'accepted' && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartConversation(app.id)}
+                          className="h-9 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Message</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Decision Action Buttons */}
+                    <div className="flex items-center space-x-1.5">
+                      {app.status === 'pending' || app.status === 'under_review' ? (
+                        <>
                           <button
-                            onClick={() => navigate(`/profile/${app.applicant_id}`)}
-                            className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-sm font-bold rounded-xl transition-all cursor-pointer"
+                            type="button"
+                            onClick={() => updateStatus(app.id, 'shortlisted')}
+                            disabled={actionLoading}
+                            className="h-9 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-800/40 hover:bg-purple-100 transition-all cursor-pointer flex items-center space-x-1 disabled:opacity-50"
                           >
-                            <ExternalLink className="w-4 h-4" />
-                            <span>View Profile</span>
+                            <Bookmark className="w-3.5 h-3.5" />
+                            <span>Shortlist</span>
                           </button>
-                          
-                          {app.status === 'accepted' && (
-                            <button
-                              onClick={() => handleStartConversation(app.id)}
-                              className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                            >
-                              <MessageSquare className="w-4 h-4" />
-                              <span>Message Applicant</span>
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Decision Row */}
-                        <div className="flex flex-col sm:flex-row gap-3 w-full">
-                          {app.status === 'pending' || app.status === 'under_review' ? (
-                            <>
-                              <button
-                                onClick={() => updateStatus(app.id, 'shortlisted')}
-                                disabled={actionLoading}
-                                className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <Bookmark className="w-4 h-4" />
-                                <span>Shortlist</span>
-                              </button>
-                              <button
-                                onClick={() => setConfirmAction({ type: 'accept', appId: app.id })}
-                                disabled={actionLoading}
-                                className="flex-[2] flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <Check className="w-4 h-4" />
-                                <span>Accept</span>
-                              </button>
-                              <button
-                                onClick={() => setConfirmAction({ type: 'reject', appId: app.id })}
-                                disabled={actionLoading}
-                                className="flex-[2] flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <X className="w-4 h-4" />
-                                <span>Reject</span>
-                              </button>
-                            </>
-                          ) : app.status === 'shortlisted' ? (
-                            <>
-                              <button
-                                onClick={() => updateStatus(app.id, 'pending')}
-                                disabled={actionLoading}
-                                className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <RefreshCw className="w-4 h-4" />
-                                <span>To Pending</span>
-                              </button>
-                              <button
-                                onClick={() => setConfirmAction({ type: 'accept', appId: app.id })}
-                                disabled={actionLoading}
-                                className="flex-[2] flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <Check className="w-4 h-4" />
-                                <span>Accept</span>
-                              </button>
-                              <button
-                                onClick={() => setConfirmAction({ type: 'reject', appId: app.id })}
-                                disabled={actionLoading}
-                                className="flex-[2] flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <X className="w-4 h-4" />
-                                <span>Reject</span>
-                              </button>
-                            </>
-                          ) : app.status === 'rejected' ? (
-                            <button
-                                onClick={() => updateStatus(app.id, 'pending')}
-                                disabled={actionLoading}
-                                className="flex-1 flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-bold rounded-xl transition-all cursor-pointer"
-                              >
-                                <RefreshCw className="w-4 h-4" />
-                                <span>Restore to Pending</span>
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmAction({ type: 'accept', appId: app.id })}
+                            disabled={actionLoading}
+                            className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs disabled:opacity-50"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Accept</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmAction({ type: 'reject', appId: app.id })}
+                            disabled={actionLoading}
+                            className="h-9 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 font-bold text-xs border border-rose-200 dark:border-rose-800/40 hover:bg-rose-100 transition-all cursor-pointer flex items-center space-x-1 disabled:opacity-50"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        </>
+                      ) : app.status === 'shortlisted' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(app.id, 'pending')}
+                            disabled={actionLoading}
+                            className="h-9 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-all cursor-pointer flex items-center space-x-1 disabled:opacity-50"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>To Pending</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmAction({ type: 'accept', appId: app.id })}
+                            disabled={actionLoading}
+                            className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs disabled:opacity-50"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Accept</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmAction({ type: 'reject', appId: app.id })}
+                            disabled={actionLoading}
+                            className="h-9 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 font-bold text-xs border border-rose-200 dark:border-rose-800/40 hover:bg-rose-100 transition-all cursor-pointer flex items-center space-x-1 disabled:opacity-50"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        </>
+                      ) : app.status === 'rejected' ? (
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(app.id, 'pending')}
+                          disabled={actionLoading}
+                          className="h-9 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-all cursor-pointer flex items-center space-x-1 disabled:opacity-50"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Restore</span>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -480,40 +495,42 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
         )}
       </div>
 
-      {/* Confirmation Dialogs */}
+      {/* Confirmation Dialog */}
       {confirmAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-[#111827] rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-6 text-center animate-fade-in-up">
-            <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center shadow-inner ${confirmAction.type === 'accept' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400'}`}>
-              {confirmAction.type === 'accept' ? <Check className="w-8 h-8" /> : <X className="w-8 h-8" />}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#111827] rounded-2xl p-5 sm:p-6 max-w-xs w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-center animate-fade-in-up">
+            <div className={`w-12 h-12 mx-auto rounded-full flex items-center justify-center shadow-xs ${confirmAction.type === 'accept' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'}`}>
+              {confirmAction.type === 'accept' ? <Check className="w-6 h-6" /> : <X className="w-6 h-6" />}
             </div>
             
-            <div className="space-y-2">
-              <h3 className="text-xl font-black text-slate-900 dark:text-white">
+            <div className="space-y-1">
+              <h3 className="text-base font-extrabold text-[#0F172A] dark:text-white">
                 {confirmAction.type === 'accept' ? 'Accept Application?' : 'Reject Application?'}
               </h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 {confirmAction.type === 'accept' 
-                  ? 'They will be notified that their application was accepted and you can begin messaging.' 
+                  ? 'The applicant will be notified and messaging will be enabled.' 
                   : 'This application will be marked as rejected.'}
               </p>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center space-x-2 pt-1">
               <button
+                type="button"
                 onClick={() => setConfirmAction(null)}
                 disabled={actionLoading}
-                className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                className="flex-1 py-2 px-3 rounded-xl font-bold text-xs text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-all cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => updateStatus(confirmAction.appId, confirmAction.type === 'accept' ? 'accepted' : 'rejected')}
                 disabled={actionLoading}
-                className={`flex-1 py-3 px-4 rounded-xl font-bold text-white transition-all shadow-md cursor-pointer ${
+                className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs text-white transition-all shadow-xs cursor-pointer ${
                   confirmAction.type === 'accept' 
-                    ? 'bg-emerald-600 hover:bg-emerald-500 hover:shadow-emerald-500/20' 
-                    : 'bg-rose-600 hover:bg-rose-500 hover:shadow-rose-500/20'
+                    ? 'bg-emerald-600 hover:bg-emerald-700' 
+                    : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
                 {actionLoading ? 'Saving...' : (confirmAction.type === 'accept' ? 'Accept' : 'Reject')}
