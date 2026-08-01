@@ -139,17 +139,17 @@ export default function WorkerDetailPage({
           const canonical = await getPublicProfileById(workerId);
           console.log('[WorkerDetail Trace] canonical profile fallback:', canonical);
 
-          if (canonical && canonical.id && canonical.name !== 'OpenComm User') {
+          if (canonical && canonical.id) {
             const mappedWorker: Worker = {
               id: canonical.id,
-              name: canonical.name,
+              name: canonical.name || '',
               photo: canonical.avatarUrl || '',
-              title: canonical.profileType === 'worker' ? 'Professional' : 'Service Provider',
+              title: canonical.profileType === 'worker' ? 'Service Provider' : '',
               experience: 0,
               rating: 0,
               availability: 'Available Now',
-              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || 'Not provided',
-              bio: canonical.bio || 'No biography provided.',
+              location: [canonical.city, canonical.state, canonical.country].filter(Boolean).join(', ') || '',
+              bio: canonical.bio || '',
               skills: [],
               completedWorks: 0,
               hourlyRate: 0,
@@ -165,23 +165,12 @@ export default function WorkerDetailPage({
         }
       }
 
-      // Fallback to passed prop workers array if any match
-      if (workers && workers.length > 0) {
-        const propWorker = workers.find(w => w.id === workerId);
-        if (propWorker) {
-          console.log('[WorkerDetail Trace] Found worker in props:', propWorker);
-          setWorker(propWorker);
-          setLoading(false);
-          return;
-        }
-      }
-
       setError('Worker profile could not be found or is not public.');
       setLoading(false);
     }
 
     fetchWorker();
-  }, [workerId, workers]);
+  }, [workerId]);
 
   useEffect(() => {
     if (worker) {

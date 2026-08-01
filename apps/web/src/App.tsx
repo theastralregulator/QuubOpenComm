@@ -94,7 +94,7 @@ export default function App() {
       });
     }
   }, [isJobsLoaded]);
-  const [workers, setWorkers] = useState<Worker[]>(INITIAL_WORKERS);
+  const [workers, setWorkers] = useState<Worker[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
@@ -2706,6 +2706,7 @@ export default function App() {
                   if (tab === 'signin') navigate('/login');
                   else if (tab === 'signup') navigate('/signup');
                 }}
+                onCreateProfile={() => requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true))}
               />
             </motion.div>
           } />

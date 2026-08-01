@@ -160,33 +160,43 @@ export default function WorkerCard({
             <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono leading-none">RATING</span>
             <div className="flex items-center justify-center mt-1 text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC] space-x-0.5 leading-none">
               <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
-              <span>{rating.toFixed(1)}</span>
+              <span>{rating > 0 ? rating.toFixed(1) : 'New'}</span>
             </div>
           </div>
           <div className="border-x border-slate-200/60 dark:border-slate-800/80">
             <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono leading-none">EXP</span>
             <span className="block text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] mt-1 leading-none">
-              {experienceYears} yrs
+              {experienceYears > 0 ? `${experienceYears} yrs` : 'New'}
             </span>
           </div>
           <div>
             <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono leading-none">HOURLY</span>
             <span className="block text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] mt-1 leading-none">
-              {formatINR(hourlyRate)}/hr
+              {hourlyRate > 0 ? `${formatINR(hourlyRate)}/hr` : 'Contact'}
             </span>
           </div>
         </div>
 
         {/* Bio Snippet */}
-        <p className="text-xs text-[#475569] dark:text-slate-300 line-clamp-3 leading-relaxed text-left min-h-[3.25rem]">
-          {shortBio}
-        </p>
+        {shortBio ? (
+          <p className="text-xs text-[#475569] dark:text-slate-300 line-clamp-3 leading-relaxed text-left min-h-[3.25rem]">
+            {shortBio}
+          </p>
+        ) : (
+          <div className="min-h-[3.25rem]" />
+        )}
 
         {/* Location & Availability Status */}
         <div className="mt-3 flex items-center justify-between text-[11px] text-[#475569] dark:text-slate-400 text-left">
           <div className="flex items-center space-x-1 text-xs">
-            <MapPin className="w-3.5 h-3.5 text-[#7C3AED] shrink-0" />
-            <span className="truncate max-w-[130px]">{location}</span>
+            {location ? (
+              <>
+                <MapPin className="w-3.5 h-3.5 text-[#7C3AED] shrink-0" />
+                <span className="truncate max-w-[130px]">{location}</span>
+              </>
+            ) : (
+              <span className="text-slate-400 text-[10px]">Location not specified</span>
+            )}
           </div>
           <span className={`font-bold uppercase tracking-wider text-[9px] ${
             isAvailableNow ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600'

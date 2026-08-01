@@ -25,6 +25,7 @@ interface WorkersPageProps {
   triggerToast: (msg: string) => void;
   isLoggedIn?: boolean;
   onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
+  onCreateProfile?: () => void;
 }
 
 export default function WorkersPage({
@@ -39,6 +40,7 @@ export default function WorkersPage({
   triggerToast,
   isLoggedIn = false,
   onOpenAuth,
+  onCreateProfile,
 }: WorkersPageProps) {
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
@@ -98,41 +100,68 @@ export default function WorkersPage({
   
   const [liveWorkers, setLiveWorkers] = useState<Worker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorState, setErrorState] = useState<string | null>(null);
 
   // Fetch Live Workers
   useEffect(() => {
     async function fetchLiveWorkers() {
+      setIsLoading(true);
+      setErrorState(null);
+
       if (!supabase) {
         setIsLoading(false);
         return;
       }
+
       try {
         const { data, error } = await supabase
           .from('worker_directory')
-          .select('*')
-          .eq('listing_enabled', true);
+          .select('*');
 
-        if (!error && data) {
-          const mapped = data.map((d: any) => ({
+        if (error) {
+          console.error("Supabase worker_directory query error:", error);
+          setErrorState(error.message || "Failed to load live workers.");
+          setLiveWorkers([]);
+        } else if (data) {
+          // Strict real worker eligibility filter:
+          // profile_type = 'worker', listing_enabled !== false, account_status !== 'inactive'
+          const eligible = data.filter((d: any) => 
+            (d.profile_type === 'worker' || !d.profile_type) &&
+            d.listing_enabled !== false &&
+            d.account_status !== 'inactive'
+          );
+
+          // Deduplicate by canonical profile ID
+          const seenIds = new Set<string>();
+          const deduplicated = eligible.filter((d: any) => {
+            if (!d.id || seenIds.has(d.id)) return false;
+            seenIds.add(d.id);
+            return true;
+          });
+
+          const mapped: Worker[] = deduplicated.map((d: any) => ({
             id: d.id,
-            name: d.full_name || 'Worker',
+            name: d.full_name || '',
             photo: d.avatar_url || '',
-            title: d.professional_title || d.profession || 'Professional',
-            experience: d.experience_years || d.years_experience || 0,
+            title: d.profession || d.professional_title || '',
+            experience: d.experience_years || 0,
             rating: 0,
-            availability: d.availability_status || d.availability || 'Available Now',
-            location: [d.city, d.district, d.state].filter(Boolean).join(', ') || 'Not provided',
-            bio: d.bio_summary || 'No biography provided.',
-            skills: d.skills || [],
+            availability: d.availability || 'Available Now',
+            location: [d.city, d.state, d.country].filter(Boolean).join(', ') || '',
+            bio: d.bio_summary || '',
+            skills: Array.isArray(d.skills) ? d.skills : [],
             completedWorks: 0,
             hourlyRate: d.hourly_rate || 0,
             verified: d.verification_status === 'verified',
-            bookmarked: d.bookmarked || false
+            bookmarked: false
           }));
+
           setLiveWorkers(mapped);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to load live workers:', err);
+        setErrorState(err.message || 'Failed to load live workers.');
+        setLiveWorkers([]);
       } finally {
         setIsLoading(false);
       }
@@ -140,8 +169,8 @@ export default function WorkersPage({
     fetchLiveWorkers();
   }, []);
 
-  // Use live workers if available, fallback to props (which might be empty or demo)
-  const displayWorkers = liveWorkers.length > 0 ? liveWorkers : (isLoading ? [] : workers);
+  // Display only real live workers from database query (no demo/fallback workers)
+  const displayWorkers = liveWorkers;
 
   // Sync worker profile state with URL route parameter
   useEffect(() => {
@@ -501,20 +530,37 @@ export default function WorkersPage({
       {/* 4. WORKERS VERTICAL GRID (2 cols Desktop, 1 Mobile) */}
       <div className="mt-4">
         {sortedWorkers.length === 0 ? (
-          <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-10 text-center text-slate-500 dark:text-slate-400 max-w-lg mx-auto shadow-sm mt-6">
-            <div className="bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
-              <UserCheck className="w-6 h-6" />
+          <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-10 text-center text-slate-500 dark:text-slate-400 max-w-md mx-auto shadow-xs mt-6 space-y-4">
+            <div className="bg-purple-500/10 text-purple-600 dark:text-purple-400 w-14 h-14 rounded-full flex items-center justify-center mx-auto">
+              <UserCheck className="w-7 h-7" />
             </div>
-            <h3 className="font-bold text-base text-slate-800 dark:text-slate-100">No professionals found</h3>
-            <p className="text-xs mt-2 text-slate-500 dark:text-slate-400 max-w-xs mx-auto leading-relaxed">
-              We couldn't find any professionals matching your exact criteria. Try removing some filters or resetting.
-            </p>
-            <button 
-              onClick={handleResetFilters}
-              className="mt-5 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold text-xs hover:opacity-95 transition-all cursor-pointer shadow-md"
-            >
-              Reset All Filters
-            </button>
+            <div>
+              <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white">
+                {searchQuery || selectedCategory !== 'All' ? 'No matching professionals found' : 'No professionals available yet'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-xs mx-auto mt-1">
+                {searchQuery || selectedCategory !== 'All' 
+                  ? "We couldn't find any professionals matching your filter criteria. Try adjusting your search."
+                  : "Worker profiles will appear here after users complete worker onboarding and enable public listing."}
+              </p>
+            </div>
+            {searchQuery || selectedCategory !== 'All' ? (
+              <button 
+                onClick={handleResetFilters}
+                className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-all cursor-pointer"
+              >
+                Reset All Filters
+              </button>
+            ) : (
+              onCreateProfile && (
+                <button 
+                  onClick={onCreateProfile}
+                  className="px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl font-bold text-xs shadow-xs cursor-pointer transition-all hover:scale-102"
+                >
+                  Create Worker Profile
+                </button>
+              )
+            )}
           </div>
         ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
