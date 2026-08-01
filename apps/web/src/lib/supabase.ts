@@ -105,7 +105,7 @@ export interface LocalProfile {
   email_verified_for_actions?: boolean;
   onboarding_completed?: boolean;
   banner_id?: string;
-  banner_url?: string;
+  show_location_publicly?: boolean;
   location_visibility?: boolean;
 }
 
