@@ -1478,7 +1478,11 @@ export const dbService = {
   async getReviewsFromDb(userId: string): Promise<any[]> {
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('reviews').select('*').eq('reviewee_id', userId);
+        const { data, error } = await supabase
+          .from('reviews')
+          .select('*, reviewer:profiles!reviewer_id(full_name, avatar_url)')
+          .eq('reviewee_id', userId)
+          .order('created_at', { ascending: false });
         if (!error && data) return data;
       } catch (err) {
         console.error('getReviewsFromDb Supabase error:', err);
@@ -1503,6 +1507,88 @@ export const dbService = {
       }
     }
     return null;
+  },
+
+  // Saved Items Counts
+  async getSavedJobsCount(userId: string): Promise<number> {
+    if (!supabase || !userId) return 0;
+    try {
+      const { count, error } = await supabase
+        .from('saved_jobs')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (!error && count !== null) return count;
+    } catch (err) {
+      console.error('Error fetching saved jobs count:', err);
+    }
+    return 0;
+  },
+
+  async getSavedWorkersCount(userId: string): Promise<number> {
+    if (!supabase || !userId) return 0;
+    try {
+      const { count, error } = await supabase
+        .from('saved_workers')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (!error && count !== null) return count;
+    } catch (err) {
+      console.error('Error fetching saved workers count:', err);
+    }
+    return 0;
+  },
+
+  // Portfolio Items
+  async getPortfolioItemsFromDb(userId: string): Promise<any[]> {
+    if (!supabase || !userId) return [];
+    try {
+      const { data, error } = await supabase
+        .from('worker_portfolio_items')
+        .select('*')
+        .eq('worker_id', userId)
+        .order('created_at', { ascending: false });
+      if (!error && data) return data;
+    } catch (err) {
+      console.error('Error fetching portfolio items:', err);
+    }
+    return [];
+  },
+
+  async addPortfolioItemInDb(userId: string, title: string, filePath?: string, linkUrl?: string): Promise<any> {
+    await assertUserEmailConfirmed();
+    if (!supabase || !userId) return null;
+    try {
+      const { data, error } = await supabase
+        .from('worker_portfolio_items')
+        .insert({
+          worker_id: userId,
+          title,
+          file_path: filePath || null,
+          link_url: linkUrl || null,
+        })
+        .select()
+        .single();
+      if (!error && data) return data;
+    } catch (err) {
+      console.error('Error adding portfolio item:', err);
+    }
+    return null;
+  },
+
+  async deletePortfolioItemInDb(itemId: string, userId: string): Promise<boolean> {
+    await assertUserEmailConfirmed();
+    if (!supabase || !itemId) return false;
+    try {
+      const { error } = await supabase
+        .from('worker_portfolio_items')
+        .delete()
+        .eq('id', itemId)
+        .eq('worker_id', userId);
+      return !error;
+    } catch (err) {
+      console.error('Error deleting portfolio item:', err);
+    }
+    return false;
   },
 
   // My Job Posts

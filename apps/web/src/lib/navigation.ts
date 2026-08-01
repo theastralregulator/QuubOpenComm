@@ -8,6 +8,10 @@ export interface RouteLocationLike {
 
 export const SESSION_STORAGE_KEYS = {
   MY_JOB_POSTS: 'opencomm:my-job-posts:return-to',
+  JOBS_APPLIED: 'opencomm:jobs-applied:return-to',
+  SAVED_JOBS: 'opencomm:saved-jobs:return-to',
+  SAVED_WORKERS: 'opencomm:saved-workers:return-to',
+  MANAGE_APPLICATIONS: 'opencomm:manage-applications:return-to',
   manageApplications: (jobId: string) => `opencomm:manage-applications:${jobId}:return-to`,
 } as const;
 
