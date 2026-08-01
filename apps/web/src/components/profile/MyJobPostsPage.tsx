@@ -1,17 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Briefcase, Plus, AlertCircle } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { getPublicProfileById } from '../../lib/profileService';
+import { smartBack, FALLBACK_ROUTES, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import MyJobCard, { MyJobItem, OwnerProfile } from './MyJobCard';
 
 export default function MyJobPostsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [jobs, setJobs] = useState<MyJobItem[]>([]);
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile>({});
   const [appCountsMap, setAppCountsMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const handleBack = () => {
+    smartBack(navigate, location, FALLBACK_ROUTES.MY_JOB_POSTS, SESSION_STORAGE_KEYS.MY_JOB_POSTS);
+  };
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -123,7 +129,7 @@ export default function MyJobPostsPage() {
           <div className="flex items-center space-x-3">
             <button 
               type="button"
-              onClick={() => navigate(-1)}
+              onClick={handleBack}
               className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer border border-slate-200/60 dark:border-slate-800"
               aria-label="Back"
             >

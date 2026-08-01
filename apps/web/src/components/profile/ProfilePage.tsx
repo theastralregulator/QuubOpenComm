@@ -9,6 +9,7 @@ import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Con
 import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
 import { getPublicProfileById } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
+import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
 import AvatarUploadMenu from './AvatarUploadMenu';
@@ -877,7 +878,7 @@ export default function ProfilePage({
                 </div>
                 
                 <button
-                  onClick={() => navigate(`/jobs/${stat.id}/applications`)}
+                  onClick={() => navigateWithOrigin(navigate, `/jobs/${stat.id}/applications`, location, SESSION_STORAGE_KEYS.manageApplications(stat.id))}
                   className="w-full sm:w-auto shrink-0 flex items-center justify-center space-x-2 px-5 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 text-slate-700 dark:text-white font-bold rounded-xl transition-all shadow-sm text-sm"
                 >
                   <span>Manage Applications</span>
@@ -1124,7 +1125,7 @@ export default function ProfilePage({
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div 
-                  onClick={() => navigate('/profile/my-job-posts')}
+                  onClick={() => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
                   className="flex flex-col items-center justify-center p-3 bg-indigo-50/50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-2xl cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
                 >
                   <Briefcase className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mb-2" />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, IndianRupee, Calendar, Briefcase, 
@@ -13,6 +13,7 @@ import { analytics } from '../../lib/analytics';
 import { getDeadlineInfo } from '../../lib/deadline';
 import { formatJobType } from '../../lib/jobType';
 import { getPublicProfileById } from '../../lib/profileService';
+import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
 interface JobDetailPageProps {
   jobs: Job[];
@@ -37,6 +38,7 @@ export default function JobDetailPage({
 }: JobDetailPageProps) {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1037,7 +1039,12 @@ export default function JobDetailPage({
               <button
                 onClick={() => {
                   setShowOwnerMenu(false);
-                  navigate(`/jobs/${job.id}/applications`);
+                  navigateWithOrigin(
+                    navigate,
+                    `/jobs/${job.id}/applications`,
+                    location,
+                    SESSION_STORAGE_KEYS.manageApplications(job.id)
+                  );
                 }}
                 className="w-full px-4 py-3 min-h-[52px] flex items-center space-x-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Check, X, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getPublicProfilesByIds } from '../../lib/profileService';
+import { smartBack, FALLBACK_ROUTES, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
 interface ApplicantData {
   id: string; // application id
@@ -29,6 +30,7 @@ interface ManageApplicationsPageProps {
 export default function ManageApplicationsPage({ handleStartConversation }: ManageApplicationsPageProps) {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [jobTitle, setJobTitle] = useState<string | null>(null);
   const [applications, setApplications] = useState<ApplicantData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,11 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   // Modal / Confirm state
   const [confirmAction, setConfirmAction] = useState<{ type: 'accept' | 'reject'; appId: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+
+  const handleBack = () => {
+    const storageKey = jobId ? SESSION_STORAGE_KEYS.manageApplications(jobId) : undefined;
+    smartBack(navigate, location, FALLBACK_ROUTES.MANAGE_APPLICATIONS, storageKey);
+  };
 
   useEffect(() => {
     fetchApplications();
@@ -221,9 +228,9 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
           <div className="flex items-center space-x-3">
             <button 
               type="button"
-              onClick={() => navigate('/profile/my-job-posts')}
+              onClick={handleBack}
               className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer border border-slate-200/60 dark:border-slate-800 shrink-0"
-              aria-label="Back to My Job Posts"
+              aria-label="Back"
             >
               <ArrowLeft className="w-4 h-4 text-slate-700 dark:text-slate-300" />
             </button>
@@ -294,7 +301,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto">{error}</p>
             <button 
               type="button"
-              onClick={() => navigate('/profile/my-job-posts')}
+              onClick={handleBack}
               className="inline-flex items-center space-x-1.5 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 font-bold text-xs transition-all cursor-pointer shadow-2xs"
             >
               <ArrowLeft className="w-3.5 h-3.5" />

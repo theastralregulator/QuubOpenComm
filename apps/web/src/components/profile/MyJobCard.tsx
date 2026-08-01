@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { MapPin, IndianRupee, Calendar, Users, CheckCircle2, MoreVertical, Briefcase, Edit2, Trash2, Eye, Clock } from 'lucide-react';
 import { formatSalaryRange } from '../../lib/currency';
 import { getJobDateRangeInfo } from '../../lib/deadline';
 import { formatJobType } from '../../lib/jobType';
+import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
 export interface MyJobItem {
   id: string;
@@ -111,6 +112,7 @@ export default function MyJobCard({
   onDelete,
 }: MyJobCardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [showMenu, setShowMenu] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -146,7 +148,12 @@ export default function MyJobCard({
 
   const handleManageApplicationsClick = () => {
     setShowMenu(false);
-    navigate(`/jobs/${job.id}/applications`);
+    navigateWithOrigin(
+      navigate,
+      `/jobs/${job.id}/applications`,
+      location,
+      SESSION_STORAGE_KEYS.manageApplications(job.id)
+    );
   };
 
   return (
