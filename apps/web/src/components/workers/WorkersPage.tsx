@@ -109,7 +109,8 @@ export default function WorkersPage({
       try {
         const { data, error } = await supabase
           .from('worker_directory')
-          .select('*');
+          .select('*')
+          .eq('listing_enabled', true);
 
         if (!error && data) {
           const mapped = data.map((d: any) => ({

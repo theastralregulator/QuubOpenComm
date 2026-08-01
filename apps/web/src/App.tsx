@@ -608,6 +608,8 @@ export default function App() {
   const [newWorkerLocationData, setNewWorkerLocationData] = useState<any>({});
   const [newWorkerBio, setNewWorkerBio] = useState('');
   const [newWorkerSkills, setNewWorkerSkills] = useState('');
+  const [newWorkerListingEnabled, setNewWorkerListingEnabled] = useState(true);
+  const [newWorkerTermsAccepted, setNewWorkerTermsAccepted] = useState(false);
 
   // Form states for Hiring a Worker
   const [hireProjectTitle, setHireProjectTitle] = useState('');
@@ -2242,6 +2244,11 @@ export default function App() {
       return;
     }
 
+    if (!newWorkerTermsAccepted) {
+      triggerToast("Please accept the Worker Terms and Conditions before proceeding.");
+      return;
+    }
+
     try {
       const skillsArray = newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()).filter(Boolean) : ['Professional'];
       
@@ -2273,6 +2280,8 @@ export default function App() {
       setNewWorkerLocation('');
       setNewWorkerSkills('');
       setNewWorkerBio('');
+      setNewWorkerTermsAccepted(false);
+      setNewWorkerListingEnabled(true);
     } catch (err: any) {
       console.error("Worker creation failed:", err);
       triggerToast(err.message || "Failed to create worker profile. Please try again.");
@@ -3500,6 +3509,29 @@ export default function App() {
                     onChange={(e) => setNewWorkerBio(e.target.value)}
                     className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 leading-relaxed"
                   />
+                </div>
+
+                <div className="pt-2 space-y-3 border-t border-slate-100 dark:border-slate-800">
+                  <label className="flex items-center space-x-2.5 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={newWorkerListingEnabled}
+                      onChange={(e) => setNewWorkerListingEnabled(e.target.checked)}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 border-slate-300 dark:border-slate-700"
+                    />
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Show my profile in the Workers Directory</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      required
+                      checked={newWorkerTermsAccepted}
+                      onChange={(e) => setNewWorkerTermsAccepted(e.target.checked)}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 border-slate-300 dark:border-slate-700"
+                    />
+                    <span className="text-xs text-slate-600 dark:text-slate-300">I accept the OpenComm Worker Marketplace Terms and Code of Conduct.</span>
+                  </label>
                 </div>
 
                 </div>

@@ -13,6 +13,7 @@ import { analytics } from '../../lib/analytics';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
+import PublicBasicProfile from './PublicBasicProfile';
 import AvatarUploadMenu from './AvatarUploadMenu';
 
 interface ProfilePageProps {
@@ -468,6 +469,43 @@ export default function ProfilePage({
   const skillsList = workerProfile?.skills || [];
   const displayedSkills = showSkillsExpanded ? skillsList : skillsList.slice(0, 6);
   const remainingSkillsCount = Math.max(0, skillsList.length - 6);
+  const isBasicAccount = profile && (!profile.profile_type || profile.profile_type === 'basic' || profile.profile_type === 'normal');
+
+  if (profile && isBasicAccount) {
+    if (isOwner) {
+      return (
+        <BasicProfileDashboard
+          profile={profile}
+          username={username}
+          userPhoto={userPhoto}
+          joinedYear={joinedYear}
+          formattedLocation={formattedLocation}
+          jobs={jobs}
+          workers={workers}
+          myJobPostsCount={myJobPostsCount}
+          jobsAppliedCount={jobsAppliedCount}
+          isOwner={true}
+          onEditProfile={handleOpenEdit}
+          onCreateWorker={() => setShowCreateProfile(true)}
+          onCreateCompany={() => triggerToast("Company profile creation coming soon.")}
+          onUpdatePhoto={() => setShowAvatarMenu(true)}
+          onUpdateBanner={() => setShowAvatarMenu(true)}
+          onLogout={onLogout || (() => {})}
+          triggerToast={triggerToast}
+        />
+      );
+    } else {
+      return (
+        <PublicBasicProfile
+          profile={profile}
+          formattedLocation={formattedLocation}
+          joinedYear={joinedYear}
+          publicJobs={jobs.filter(j => (j as any).authorId === profile.id || (j as any).user_id === profile.id)}
+          triggerToast={triggerToast}
+        />
+      );
+    }
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-4 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">

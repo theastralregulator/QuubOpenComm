@@ -302,26 +302,28 @@ export default function BasicProfileDashboard({
             </motion.div>
           )}
 
-          {/* Professional Details (Empty State for Basic Account) */}
+          {/* Become a Worker CTA Card (Only for Basic Account Owner) */}
           {isOwner && (
-            <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] p-4 sm:p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
-              <div className="flex items-center justify-between mb-3 md:mb-4">
-                <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">Professional Profile</h3>
-                <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold rounded-full uppercase">Basic</span>
-              </div>
-              <div className="text-center p-6 border border-dashed border-slate-200 dark:border-slate-800 rounded-[16px] bg-slate-50/50 dark:bg-slate-900/20">
-                <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Wrench className="w-6 h-6" />
+            <motion.div variants={itemVariants} className="bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 dark:from-purple-950/30 dark:via-indigo-950/30 dark:to-blue-950/30 border border-purple-500/20 dark:border-purple-800/40 rounded-[24px] p-6 shadow-xs text-left space-y-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                  <Wrench className="w-5 h-5" />
                 </div>
-                <p className="text-[14px] font-bold text-slate-800 dark:text-slate-200 mb-1">No skills added yet</p>
-                <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-4 font-medium">Create a worker profile to start offering services and receive reviews.</p>
-                <button 
-                  onClick={onCreateWorker}
-                  className="px-4 py-2 min-h-[44px] bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[13px] font-bold rounded-full transition-colors"
-                >
-                  Create Worker Profile
-                </button>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Become a Worker on OpenComm</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Offer skilled services, get listed in the Worker Directory, and receive reviews.</p>
+                </div>
               </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Converting to a Worker Account lets you showcase your skills, set your hourly rate, upload portfolio projects, manage availability, and accept direct hiring requests from employers.
+              </p>
+              <button 
+                onClick={onCreateWorker}
+                className="px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5"
+              >
+                <Wrench className="w-4 h-4" />
+                <span>Create Worker Profile</span>
+              </button>
             </motion.div>
           )}
         </div>
