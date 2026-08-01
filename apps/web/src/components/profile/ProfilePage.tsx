@@ -6,7 +6,7 @@ import {
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
   BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users, AlertCircle,
   MoreHorizontal, Share2, LogOut, Settings, Eye, ExternalLink, Plus, Trash2, Building2, Wrench, ChevronRight, Award, Clock, CheckCircle, MessageSquare,
-  FileText, Folder, Download, DollarSign
+  FileText, Folder, Download, DollarSign, Navigation
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile, formatWorkerRate } from '../../lib/supabase';
@@ -179,6 +179,130 @@ export default function ProfilePage({
   const [editBannerId, setEditBannerId] = useState('banner_01');
   const [editLocationVisibility, setEditLocationVisibility] = useState(true);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+
+  // Profile Navbar Reset Listener
+  useEffect(() => {
+    const handleProfileReset = () => {
+      setIsEditing(false);
+      setShowAvatarMenu(false);
+      setShowMenuPopover(false);
+      setShowAddPortfolioModal(false);
+      setShowAddDocModal(false);
+      setDocToDelete(null);
+    };
+
+    window.addEventListener('opencomm:navigate-profile', handleProfileReset);
+    return () => {
+      window.removeEventListener('opencomm:navigate-profile', handleProfileReset);
+    };
+  }, []);
+
+  const handleDetectLocation = async () => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      triggerToast('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setIsDetectingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          // Primary reverse geocode via OpenStreetMap Nominatim API
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+          let res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`,
+            {
+              headers: {
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
+              signal: controller.signal,
+            }
+          ).catch(() => null);
+
+          clearTimeout(timeoutId);
+
+          let city = '';
+          let state = '';
+          let country = '';
+
+          if (res && res.ok) {
+            const data = await res.json().catch(() => null);
+            if (data && data.address) {
+              const addr = data.address;
+              city = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || addr.county || addr.district || '';
+              state = addr.state || addr.state_district || addr.region || '';
+              country = addr.country || '';
+            }
+          }
+
+          // Fallback to BigDataCloud API if Nominatim didn't return city/state/country
+          if (!city && !state && !country) {
+            const fallbackController = new AbortController();
+            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 5000);
+
+            const fallbackRes = await fetch(
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
+              { signal: fallbackController.signal }
+            ).catch(() => null);
+
+            clearTimeout(fallbackTimeout);
+
+            if (fallbackRes && fallbackRes.ok) {
+              const fbData = await fallbackRes.json().catch(() => null);
+              if (fbData) {
+                city = fbData.city || fbData.locality || fbData.localityInfo?.administrative?.[2]?.name || '';
+                state = fbData.principalSubdivision || fbData.localityInfo?.administrative?.[1]?.name || '';
+                country = fbData.countryName || '';
+              }
+            }
+          }
+
+          if (!city && !state && !country) {
+            triggerToast('Could not determine locality details from your location coordinates.');
+            return;
+          }
+
+          if (city) setEditCity(city.trim());
+          if (state) setEditState(state.trim());
+          if (country) setEditCountry(country.trim());
+
+          const detectedStr = [city, state, country].filter(Boolean).join(', ');
+          triggerToast(`Detected location: ${detectedStr}`);
+        } catch (err: any) {
+          triggerToast('Failed to reverse geocode location. Please enter manually.');
+        } finally {
+          setIsDetectingLocation(false);
+        }
+      },
+      (error) => {
+        setIsDetectingLocation(false);
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            triggerToast('Location permission denied. Please allow location access in your browser settings.');
+            break;
+          case error.POSITION_UNAVAILABLE:
+            triggerToast('Location information is unavailable. Please check system location settings.');
+            break;
+          case error.TIMEOUT:
+            triggerToast('Location detection timed out. Please try again.');
+            break;
+          default:
+            triggerToast('Failed to detect location. Please enter manually.');
+            break;
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }
+    );
+  };
 
   // Worker profile edit buffers
   const [editTitle, setEditTitle] = useState('');
@@ -752,6 +876,7 @@ export default function ProfilePage({
             workers={workers}
             myJobPostsCount={myJobPostsCount}
             jobsAppliedCount={jobsAppliedCount}
+            employerJobStats={employerJobStats}
             isOwner={true}
             onEditProfile={handleOpenEdit}
             onCreateWorker={() => setShowCreateProfile(true)}
@@ -812,7 +937,19 @@ export default function ProfilePage({
                     </div>
 
                     <div className="space-y-3">
-                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Location</label>
+                      <div className="flex items-center justify-between">
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Location</label>
+                        <button
+                          type="button"
+                          onClick={handleDetectLocation}
+                          disabled={isDetectingLocation}
+                          className="px-3 py-1 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 active:scale-95 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+                          title="Detect location automatically via browser Geolocation"
+                        >
+                          <Navigation className={`w-3.5 h-3.5 ${isDetectingLocation ? 'animate-spin' : ''}`} />
+                          <span>{isDetectingLocation ? 'Detecting location...' : 'Detect My Location'}</span>
+                        </button>
+                      </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         <input 
                           type="text" 

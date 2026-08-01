@@ -130,7 +130,13 @@ export default function Navbar({
                   to={item.to}
                   aria-current={isActive ? 'page' : undefined}
                   onClick={(e) => {
-                    if (isActive) {
+                    if (item.id === 'profile') {
+                      window.dispatchEvent(new Event('opencomm:navigate-profile'));
+                      if (pathname === '/profile') {
+                        e.preventDefault();
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    } else if (isActive) {
                       e.preventDefault();
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }
@@ -499,7 +505,13 @@ export default function Navbar({
                 to={item.to}
                 aria-current={isActive ? 'page' : undefined}
                 onClick={(e) => {
-                  if (isActive) {
+                  if (item.id === 'profile') {
+                    window.dispatchEvent(new Event('opencomm:navigate-profile'));
+                    if (pathname === '/profile') {
+                      e.preventDefault();
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                  } else if (isActive) {
                     // Already on this route — scroll to top instead of navigating
                     e.preventDefault();
                     window.scrollTo({ top: 0, behavior: 'smooth' });

@@ -23,6 +23,7 @@ interface BasicProfileDashboardProps {
   workers?: Worker[];
   myJobPostsCount?: number;
   jobsAppliedCount?: number | null;
+  employerJobStats?: any[];
   isOwner?: boolean;
   onEditProfile: () => void;
   onCreateWorker: () => void;
@@ -43,6 +44,7 @@ export default function BasicProfileDashboard({
   workers = [],
   myJobPostsCount = 0,
   jobsAppliedCount = null,
+  employerJobStats = [],
   isOwner = true,
   onEditProfile,
   onCreateWorker,
@@ -82,6 +84,11 @@ export default function BasicProfileDashboard({
 
   const savedJobsCount = jobs.filter(j => j.bookmarked).length;
   const savedWorkersCount = workers.filter(w => w.bookmarked).length;
+
+  const totalApplicationsReceived = (employerJobStats || []).reduce((acc, curr) => acc + (curr.total || 0), 0);
+  const pendingApplicationsReceived = (employerJobStats || []).reduce((acc, curr) => acc + (curr.pending || 0), 0);
+  const acceptedApplicationsReceived = (employerJobStats || []).reduce((acc, curr) => acc + (curr.accepted || 0), 0);
+  const rejectedApplicationsReceived = (employerJobStats || []).reduce((acc, curr) => acc + (curr.rejected || 0), 0);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
@@ -256,7 +263,55 @@ export default function BasicProfileDashboard({
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. PROFILE STATISTICS CARDS */}
+      {/* 2. APPLICATIONS RECEIVED SECTION */}
+      {/* ========================================================================= */}
+      {isOwner && (
+        <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs relative overflow-hidden text-left">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span>Applications Received</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Overview of applicant responses across your active job postings.
+              </p>
+            </div>
+            
+            <button
+              type="button"
+              onClick={() => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
+              className="h-9 px-4 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 active:scale-95 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500/50 self-start sm:self-auto shrink-0 select-none"
+              aria-label="Manage Applications across your job posts"
+            >
+              <span>Manage Applications</span>
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-slate-100 dark:border-slate-800 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono truncate">Total</span>
+              <span className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">{totalApplicationsReceived}</span>
+            </div>
+            <div className="bg-amber-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider font-mono truncate">Pending</span>
+              <span className="text-base sm:text-lg font-extrabold text-amber-700 dark:text-amber-300 truncate">{pendingApplicationsReceived}</span>
+            </div>
+            <div className="bg-emerald-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-emerald-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono truncate">Accepted</span>
+              <span className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-300 truncate">{acceptedApplicationsReceived}</span>
+            </div>
+            <div className="bg-rose-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-rose-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider font-mono truncate">Rejected</span>
+              <span className="text-base sm:text-lg font-extrabold text-rose-700 dark:text-rose-300 truncate">{rejectedApplicationsReceived}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. PROFILE STATISTICS CARDS */}
       {/* ========================================================================= */}
       {isOwner && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-left">
