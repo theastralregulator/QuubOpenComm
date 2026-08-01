@@ -724,25 +724,163 @@ export default function ProfilePage({
   if (profile && isBasicAccount) {
     if (isOwner) {
       return (
-        <BasicProfileDashboard
-          profile={profile}
-          username={username}
-          userPhoto={userPhoto}
-          joinedYear={joinedYear}
-          formattedLocation={formattedLocation}
-          jobs={jobs}
-          workers={workers}
-          myJobPostsCount={myJobPostsCount}
-          jobsAppliedCount={jobsAppliedCount}
-          isOwner={true}
-          onEditProfile={handleOpenEdit}
-          onCreateWorker={() => setShowCreateProfile(true)}
-          onCreateCompany={() => triggerToast("Company profile creation coming soon.")}
-          onUpdatePhoto={() => setShowAvatarMenu(true)}
-          onUpdateBanner={() => setShowAvatarMenu(true)}
-          onLogout={onLogout || (() => {})}
-          triggerToast={triggerToast}
-        />
+        <>
+          <BasicProfileDashboard
+            profile={profile}
+            username={username}
+            userPhoto={userPhoto}
+            joinedYear={joinedYear}
+            formattedLocation={formattedLocation}
+            jobs={jobs}
+            workers={workers}
+            myJobPostsCount={myJobPostsCount}
+            jobsAppliedCount={jobsAppliedCount}
+            isOwner={true}
+            onEditProfile={handleOpenEdit}
+            onCreateWorker={() => setShowCreateProfile(true)}
+            onCreateCompany={() => triggerToast("Company profile creation coming soon.")}
+            onUpdatePhoto={() => setShowAvatarMenu(true)}
+            onUpdateBanner={() => setShowAvatarMenu(true)}
+            onLogout={onLogout || (() => {})}
+            triggerToast={triggerToast}
+          />
+
+          {/* AVATAR UPLOAD MENU */}
+          <AvatarUploadMenu
+            isOpen={showAvatarMenu}
+            onClose={() => setShowAvatarMenu(false)}
+            currentAvatarUrl={profile?.avatar_url || userPhoto}
+            fullName={profile?.full_name || username}
+            onAvatarSelect={async (newAvatarUrl) => {
+              if (loggedInId) {
+                const updated = await dbService.updateProfile(loggedInId, { avatar_url: newAvatarUrl });
+                if (updated) {
+                  setProfile(updated);
+                  setUserPhoto(newAvatarUrl);
+                }
+                triggerToast("Profile picture updated successfully.");
+                await loadProfileData();
+              }
+            }}
+            onError={(msg) => triggerToast(msg)}
+          />
+
+          {/* BASIC ACCOUNT EDIT PROFILE MODAL */}
+          <AnimatePresence>
+            {isEditing && (
+              <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-sm">
+                <motion.div 
+                  initial={{ y: "100%", opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: "100%", opacity: 0 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                  className="bg-white dark:bg-[#111827] rounded-t-[32px] sm:rounded-[32px] border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] sm:max-h-[85vh] flex flex-col shadow-2xl text-left overflow-hidden"
+                >
+                  <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-[#111827] shrink-0 z-10">
+                    <span className="font-bold text-lg text-slate-900 dark:text-white">Edit Profile</span>
+                    <button 
+                      onClick={handleCloseEdit}
+                      className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form id="basic-edit-profile-form" onSubmit={handleSaveProfile} className="p-6 space-y-6 overflow-y-auto flex-1">
+                    <div className="space-y-1.5">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Full Name</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium transition-all"
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Location</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <input 
+                          type="text" 
+                          value={editCity}
+                          onChange={(e) => setEditCity(e.target.value)}
+                          placeholder="City"
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
+                        />
+                        <input 
+                          type="text" 
+                          value={editState}
+                          onChange={(e) => setEditState(e.target.value)}
+                          placeholder="State"
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
+                        />
+                        <input 
+                          type="text" 
+                          value={editCountry}
+                          onChange={(e) => setEditCountry(e.target.value)}
+                          placeholder="Country"
+                          className="col-span-2 sm:col-span-1 w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer mt-3">
+                        <input 
+                          type="checkbox" 
+                          checked={editLocationVisibility}
+                          onChange={(e) => setEditLocationVisibility(e.target.checked)}
+                          className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 dark:border-slate-700 dark:bg-slate-900"
+                        />
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Show general location on profile</span>
+                      </label>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Preferred Language</label>
+                      <input 
+                        type="text" 
+                        value={editLang}
+                        onChange={(e) => setEditLang(e.target.value)}
+                        placeholder="e.g. English, Hindi"
+                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Bio / Summary</label>
+                      <textarea 
+                        rows={4}
+                        value={editBio}
+                        onChange={(e) => setEditBio(e.target.value.substring(0, 500))}
+                        placeholder="Write a short summary about yourself..."
+                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 resize-y min-h-[100px]"
+                      />
+                    </div>
+                  </form>
+
+                  <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex gap-3 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                    <button 
+                      type="button"
+                      onClick={handleCloseEdit}
+                      className="flex-1 sm:flex-none px-6 py-3 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 font-bold transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      form="basic-edit-profile-form"
+                      disabled={loading}
+                      className="flex-[2] sm:flex-none sm:ml-auto px-8 py-3 bg-[#7C3AED] hover:bg-purple-700 text-white rounded-xl font-bold transition-all shadow-md shadow-purple-500/20 flex items-center justify-center gap-2"
+                    >
+                      {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                      {loading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+        </>
       );
     } else {
       return (
