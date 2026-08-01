@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { Worker } from '../../types';
 import { supabase, dbService, formatWorkerRate } from '../../lib/supabase';
-import { getPublicProfileById } from '../../lib/profileService';
+import { getPublicProfileById, clearProfileCache } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
 import { resolveReturnRoute, SESSION_STORAGE_KEYS } from '../../lib/navigation';
