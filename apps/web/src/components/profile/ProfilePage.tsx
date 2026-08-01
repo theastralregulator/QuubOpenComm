@@ -749,18 +749,14 @@ export default function ProfilePage({
           <AvatarUploadMenu
             isOpen={showAvatarMenu}
             onClose={() => setShowAvatarMenu(false)}
+            userId={loggedInId || profile?.id || ''}
             currentAvatarUrl={profile?.avatar_url || userPhoto}
-            fullName={profile?.full_name || username}
-            onAvatarSelect={async (newAvatarUrl) => {
-              if (loggedInId) {
-                const updated = await dbService.updateProfile(loggedInId, { avatar_url: newAvatarUrl });
-                if (updated) {
-                  setProfile(updated);
-                  setUserPhoto(newAvatarUrl);
-                }
-                triggerToast("Profile picture updated successfully.");
-                await loadProfileData();
+            onSuccess={async (newAvatarUrl) => {
+              if (newAvatarUrl) {
+                setUserPhoto(newAvatarUrl);
               }
+              triggerToast("Profile picture updated successfully.");
+              await loadProfileData();
             }}
             onError={(msg) => triggerToast(msg)}
           />
