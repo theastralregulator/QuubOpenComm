@@ -1155,15 +1155,26 @@ export const dbService = {
     if (!user) throw new Error("You must be logged in to delete a job post.");
 
     // Soft-delete to preserve applications, conversations, messages, and audit history
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('jobs')
       .update({ is_active: false })
       .eq('id', jobId)
-      .eq('posted_by', user.id);
+      .eq('posted_by', user.id)
+      .select('id, is_active, posted_by');
 
     if (error) {
       console.error('[Audit] deleteJobInDb error:', error);
-      throw error;
+      throw new Error(error.message || "Database error occurred while deleting job.");
+    }
+
+    if (!data || data.length === 0) {
+      console.warn('[Audit] deleteJobInDb 0 rows updated for jobId:', jobId, 'user:', user.id);
+      throw new Error("Unable to delete this post. You may not have permission.");
+    }
+
+    const updatedJob = data[0];
+    if (updatedJob.id !== jobId || updatedJob.is_active !== false) {
+      throw new Error("Job deletion state could not be verified.");
     }
 
     return true;

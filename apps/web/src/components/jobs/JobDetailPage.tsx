@@ -66,6 +66,18 @@ export default function JobDetailPage({
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showDeleteConfirm && !isDeleting) {
+        setShowDeleteConfirm(false);
+        setDeleteError(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showDeleteConfirm, isDeleting]);
 
   const [dbApplied, setDbApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
@@ -432,6 +444,34 @@ export default function JobDetailPage({
     } catch (err: any) {
       console.error('Error starting conversation:', err);
       triggerToast(err.message || 'Messaging is only available after application acceptance.');
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!job) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || user.id !== job.posted_by) {
+        throw new Error("Unable to delete this post. You may not have permission.");
+      }
+
+      if (onDeleteJob) {
+        await onDeleteJob(job);
+      } else {
+        await dbService.deleteJobInDb(job.id);
+      }
+
+      triggerToast("Job post deleted successfully");
+      setShowDeleteConfirm(false);
+      navigate('/profile/my-job-posts', { replace: true });
+    } catch (err: any) {
+      console.error('[Job Delete Error]', err);
+      setDeleteError(err.message || "Failed to delete job post.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -951,69 +991,6 @@ export default function JobDetailPage({
         )}
       </AnimatePresence>
 
-      {/* DELETE CONFIRMATION MODAL */}
-      <AnimatePresence>
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl text-left space-y-4"
-            >
-              <div className="flex items-center space-x-3 text-rose-600 dark:text-rose-400">
-                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 rounded-2xl border border-rose-200 dark:border-rose-900">
-                  <Trash2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-[#111827] dark:text-white">Delete Job Post</h3>
-                  <p className="text-xs text-slate-500 font-medium">Confirm post deletion</p>
-                </div>
-              </div>
-
-              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                Are you sure you want to delete <strong className="text-slate-900 dark:text-white">"{job.title}"</strong>? This will remove the job post from the public marketplace. Existing applications and messages will remain safely preserved in your history.
-              </p>
-
-              <div className="flex gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 h-11 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsDeleting(true);
-                    try {
-                      if (onDeleteJob) {
-                        await onDeleteJob(job);
-                      } else {
-                        await dbService.deleteJobInDb(job.id);
-                        triggerToast(`Job "${job.title}" deleted successfully.`);
-                        navigate('/jobs');
-                      }
-                    } catch (err: any) {
-                      console.error('Delete error:', err);
-                      triggerToast(err.message || "Failed to delete job.");
-                    } finally {
-                      setIsDeleting(false);
-                      setShowDeleteConfirm(false);
-                    }
-                  }}
-                  disabled={isDeleting}
-                  className="flex-1 h-11 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 shadow-md cursor-pointer"
-                >
-                  {isDeleting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Confirm Delete</span>}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* THREE-DOT OWNER MENU (PORTAL MOUNTED TO DOCUMENT.BODY TO PREVENT CLIPPING) */}
       {isOwner && showOwnerMenu && createPortal(
         <AnimatePresence>
@@ -1037,6 +1014,7 @@ export default function JobDetailPage({
             >
               {/* Manage Applications */}
               <button
+                type="button"
                 onClick={() => {
                   setShowOwnerMenu(false);
                   navigateWithOrigin(
@@ -1057,6 +1035,7 @@ export default function JobDetailPage({
               {/* Edit Post / Edit period expired */}
               {canEdit ? (
                 <button
+                  type="button"
                   onClick={() => {
                     setShowOwnerMenu(false);
                     if (onEditJob) onEditJob(job);
@@ -1085,8 +1064,10 @@ export default function JobDetailPage({
 
               {/* Delete Post */}
               <button
+                type="button"
                 onClick={() => {
                   setShowOwnerMenu(false);
+                  setDeleteError(null);
                   setShowDeleteConfirm(true);
                 }}
                 className="w-full px-4 py-3 min-h-[52px] flex items-center space-x-3 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
@@ -1097,6 +1078,76 @@ export default function JobDetailPage({
             </motion.div>
           </div>
         </AnimatePresence>,
+        document.body
+      )}
+
+      {/* DELETE CONFIRMATION MODAL (PORTAL Z-[10000]) */}
+      {showDeleteConfirm && job && createPortal(
+        <div 
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs"
+          onClick={() => {
+            if (!isDeleting) {
+              setShowDeleteConfirm(false);
+              setDeleteError(null);
+            }
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl text-left space-y-4 animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center space-x-3 text-rose-600 dark:text-rose-400">
+              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 rounded-2xl border border-rose-200 dark:border-rose-900 shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-[#111827] dark:text-white">Delete this job post?</h3>
+                <p className="text-xs text-slate-500 font-medium">Confirm post deletion</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                <strong className="text-slate-900 dark:text-white font-bold">"{job.title}"</strong> will be removed from the public marketplace. Existing applications and messages will remain available.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 rounded-xl text-xs text-rose-700 dark:text-rose-300 font-medium">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteError(null);
+                }}
+                className="flex-1 h-11 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="flex-1 h-11 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Delete Post</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
 
