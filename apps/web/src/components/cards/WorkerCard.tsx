@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Bookmark, Star, MapPin, MessageSquare, CheckCircle2, Share2 } from 'lucide-react';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
+import { formatWorkerRate } from '../../lib/supabase';
 import UserAvatar from '../common/UserAvatar';
 
 export interface WorkerCardProps {
@@ -15,6 +16,10 @@ export interface WorkerCardProps {
   rating: number;
   experienceYears: number;
   hourlyRate: number;
+  salaryPeriod?: string;
+  expectedSalaryMin?: number;
+  expectedSalaryMax?: number;
+  expectedSalary?: string;
   shortBio: string;
   location: string;
   availableNow?: boolean;
@@ -39,6 +44,10 @@ export default function WorkerCard({
   rating,
   experienceYears,
   hourlyRate,
+  salaryPeriod,
+  expectedSalaryMin,
+  expectedSalaryMax,
+  expectedSalary,
   shortBio,
   location,
   availableNow,
@@ -58,6 +67,14 @@ export default function WorkerCard({
   const availColor = isAvailableNow ? 'bg-emerald-500' : 'bg-amber-500';
 
   const [copied, setCopied] = useState(false);
+
+  const displayRate = formatWorkerRate({
+    hourly_rate: hourlyRate,
+    salary_period: salaryPeriod,
+    expected_salary_min: expectedSalaryMin,
+    expected_salary_max: expectedSalaryMax,
+    expected_salary: expectedSalary
+  });
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -170,9 +187,9 @@ export default function WorkerCard({
             </span>
           </div>
           <div>
-            <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono leading-none">HOURLY</span>
-            <span className="block text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] mt-1 leading-none">
-              {hourlyRate > 0 ? `${formatINR(hourlyRate)}/hr` : 'Contact'}
+            <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono leading-none">RATE / SALARY</span>
+            <span className="block text-xs font-extrabold text-[#0F172A] dark:text-[#F8FAFC] mt-1 leading-none truncate px-0.5" title={displayRate}>
+              {displayRate}
             </span>
           </div>
         </div>

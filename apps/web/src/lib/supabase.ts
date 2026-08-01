@@ -537,6 +537,12 @@ export const dbService = {
     professional_title?: string;
     experience_years?: number;
     hourly_rate?: number;
+    expected_salary?: string;
+    expected_salary_min?: number;
+    expected_salary_max?: number;
+    salary_period?: string;
+    work_preference?: string;
+    primary_category?: string;
     availability?: string;
     skills?: string[];
     bio_summary?: string;
@@ -555,6 +561,12 @@ export const dbService = {
           payload.years_experience = updates.experience_years;
         }
         if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate;
+        if (updates.expected_salary !== undefined) payload.expected_salary = updates.expected_salary;
+        if (updates.expected_salary_min !== undefined) payload.expected_salary_min = updates.expected_salary_min;
+        if (updates.expected_salary_max !== undefined) payload.expected_salary_max = updates.expected_salary_max;
+        if (updates.salary_period !== undefined) payload.salary_period = updates.salary_period;
+        if (updates.work_preference !== undefined) payload.work_preference = updates.work_preference;
+        if (updates.primary_category !== undefined) payload.primary_category = updates.primary_category;
         if (updates.availability !== undefined) {
           payload.availability = updates.availability;
           payload.availability_status = updates.availability;
@@ -1649,6 +1661,126 @@ export const dbService = {
     return false;
   },
 
+  // Job Application Documents
+  async getWorkerDocumentsFromDb(userId: string, isOwner: boolean = false): Promise<any[]> {
+    if (!supabase || !userId) return [];
+    try {
+      let query = supabase
+        .from('worker_documents')
+        .select('*')
+        .eq('user_id', userId);
+      
+      if (!isOwner) {
+        query = query.eq('is_public', true);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (!error && data) return data;
+    } catch (err) {
+      console.error('Error fetching worker documents:', err);
+    }
+    return [];
+  },
+
+  async uploadWorkerDocumentFile(userId: string, file: File): Promise<{ publicUrl: string; storagePath: string }> {
+    await assertUserEmailConfirmed();
+    if (!supabase || !userId || !file) {
+      throw new Error("Missing parameters for document upload.");
+    }
+    const fileExt = file.name.split('.').pop();
+    const cleanFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+    const storagePath = `${userId}/${cleanFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('worker-documents')
+      .upload(storagePath, file, {
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('Worker document upload error:', uploadError);
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from('worker-documents')
+      .getPublicUrl(storagePath);
+
+    return {
+      publicUrl: data?.publicUrl || '',
+      storagePath
+    };
+  },
+
+  async addWorkerDocumentInDb(userId: string, doc: {
+    document_type: 'Portfolio' | 'CV' | 'Resume' | string;
+    title: string;
+    description?: string;
+    file_url?: string;
+    storage_path?: string;
+    external_url?: string;
+    file_name?: string;
+    file_size?: number;
+    mime_type?: string;
+    is_public?: boolean;
+  }): Promise<any> {
+    await assertUserEmailConfirmed();
+    if (!supabase || !userId) return null;
+    try {
+      const { data, error } = await supabase
+        .from('worker_documents')
+        .insert({
+          user_id: userId,
+          document_type: doc.document_type,
+          title: doc.title,
+          description: doc.description || null,
+          file_url: doc.file_url || null,
+          storage_path: doc.storage_path || null,
+          external_url: doc.external_url || null,
+          file_name: doc.file_name || null,
+          file_size: doc.file_size || null,
+          mime_type: doc.mime_type || null,
+          is_public: doc.is_public !== undefined ? doc.is_public : false
+        })
+        .select()
+        .single();
+
+      if (!error && data) return data;
+      if (error) console.error('Error inserting worker document:', error);
+    } catch (err) {
+      console.error('Error adding worker document:', err);
+    }
+    return null;
+  },
+
+  async deleteWorkerDocumentInDb(documentId: string, userId: string, storagePath?: string): Promise<boolean> {
+    await assertUserEmailConfirmed();
+    if (!supabase || !documentId) return false;
+    try {
+      // 1. Delete file from storage if present
+      if (storagePath) {
+        try {
+          await supabase.storage.from('worker-documents').remove([storagePath]);
+        } catch (sErr) {
+          console.warn('Storage delete warning:', sErr);
+        }
+      }
+
+      // 2. Delete database record
+      const { error } = await supabase
+        .from('worker_documents')
+        .delete()
+        .eq('id', documentId)
+        .eq('user_id', userId);
+
+      return !error;
+    } catch (err) {
+      console.error('Error deleting worker document:', err);
+    }
+    return false;
+  },
+
   // My Job Posts
   async getMyJobPostsCount(userId: string): Promise<number> {
     const { count, error } = await supabase
@@ -1977,4 +2109,40 @@ export const dbService = {
     return true;
   }
 };
+
+export function formatWorkerRate(worker: any): string {
+  if (!worker) return 'Not added';
+
+  const period = worker.salary_period || worker.salaryPeriod || 'hourly';
+  const hourly = Number(worker.hourly_rate || worker.hourlyRate) || 0;
+  const minSal = Number(worker.expected_salary_min || worker.expectedSalaryMin) || 0;
+  const maxSal = Number(worker.expected_salary_max || worker.expectedSalaryMax) || 0;
+  const expSal = worker.expected_salary || worker.expectedSalary;
+
+  if (period === 'monthly') {
+    if (minSal > 0 && maxSal > 0) {
+      return `₹${minSal.toLocaleString('en-IN')}–₹${maxSal.toLocaleString('en-IN')}/mo`;
+    } else if (minSal > 0 || maxSal > 0) {
+      return `₹${(minSal || maxSal).toLocaleString('en-IN')}/mo`;
+    } else if (expSal) {
+      return expSal.includes('/mo') ? expSal : `${expSal}/mo`;
+    }
+  } else if (period === 'daily') {
+    if (hourly > 0) return `₹${hourly.toLocaleString('en-IN')}/day`;
+    if (expSal) return expSal.includes('/day') ? expSal : `${expSal}/day`;
+  } else if (period === 'project') {
+    if (hourly > 0) return `₹${hourly.toLocaleString('en-IN')}/project`;
+    if (expSal) return expSal.includes('/project') ? expSal : `${expSal}/project`;
+  }
+
+  if (hourly > 0) {
+    return `₹${hourly.toLocaleString('en-IN')}/hr`;
+  }
+
+  if (expSal) {
+    return expSal;
+  }
+
+  return 'Not added';
+}
 

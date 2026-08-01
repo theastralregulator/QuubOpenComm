@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
   BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users, AlertCircle,
-  MoreHorizontal, Share2, LogOut, Settings, Eye, ExternalLink, Plus, Trash2, Building2, Wrench, ChevronRight, Award, Clock, CheckCircle, MessageSquare
+  MoreHorizontal, Share2, LogOut, Settings, Eye, ExternalLink, Plus, Trash2, Building2, Wrench, ChevronRight, Award, Clock, CheckCircle, MessageSquare,
+  FileText, Folder, Download, DollarSign
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
-import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile } from '../../lib/supabase';
+import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile, formatWorkerRate } from '../../lib/supabase';
 import { getPublicProfileById } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
@@ -114,8 +115,22 @@ export default function ProfilePage({
   const [newPortfolioTitle, setNewPortfolioTitle] = useState('');
   const [newPortfolioLink, setNewPortfolioLink] = useState('');
 
+  // Job Application Docs State
+  const [workerDocs, setWorkerDocs] = useState<any[]>([]);
+  const [showAddDocModal, setShowAddDocModal] = useState(false);
+  const [docType, setDocType] = useState<'Portfolio' | 'CV' | 'Resume'>('Portfolio');
+  const [docTitle, setDocTitle] = useState('');
+  const [docDescription, setDocDescription] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docExternalUrl, setDocExternalUrl] = useState('');
+  const [docIsPublic, setDocIsPublic] = useState(true);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+  const [docToDelete, setDocToDelete] = useState<any | null>(null);
+  const [isDeletingDoc, setIsDeletingDoc] = useState(false);
+
   // UI Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'overview' | 'portfolio' | 'reviews' | 'about'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'docs' | 'reviews' | 'about'>('overview');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [showMenuPopover, setShowMenuPopover] = useState(false);
   const [showSkillsExpanded, setShowSkillsExpanded] = useState(false);
@@ -143,6 +158,12 @@ export default function ProfilePage({
   const [editTitle, setEditTitle] = useState('');
   const [editExperience, setEditExperience] = useState<number | ''>('');
   const [editHourlyRate, setEditHourlyRate] = useState<number | ''>('');
+  const [editSalaryPeriod, setEditSalaryPeriod] = useState('hourly');
+  const [editSalaryMin, setEditSalaryMin] = useState<number | ''>('');
+  const [editSalaryMax, setEditSalaryMax] = useState<number | ''>('');
+  const [editExpectedSalary, setEditExpectedSalary] = useState('');
+  const [editWorkPreference, setEditWorkPreference] = useState('Onsite');
+  const [editCategory, setEditCategory] = useState('');
   const [editAvailability, setEditAvailability] = useState('Available Now');
   const [editSkills, setEditSkills] = useState('');
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
@@ -332,6 +353,10 @@ export default function ProfilePage({
         if (p.profile_type === 'worker') {
           const w = await dbService.getWorkerProfile(p.id);
           setWorkerProfile(w);
+
+          // Fetch Job Application Documents
+          const docs = await dbService.getWorkerDocumentsFromDb(p.id, isOwnerCheck);
+          setWorkerDocs(docs || []);
         } else if (p.profile_type === 'company') {
           const c = await dbService.getCompanyProfile(p.id);
           setCompanyProfile(c);
@@ -403,6 +428,12 @@ export default function ProfilePage({
           professional_title: editTitle,
           experience_years: Number(editExperience) || 0,
           hourly_rate: Number(editHourlyRate) || 0,
+          expected_salary: editExpectedSalary,
+          expected_salary_min: Number(editSalaryMin) || 0,
+          expected_salary_max: Number(editSalaryMax) || 0,
+          salary_period: editSalaryPeriod,
+          work_preference: editWorkPreference,
+          primary_category: editCategory,
           availability: editAvailability,
           skills: editSkills.split(',').map(s => s.trim()).filter(Boolean),
           bio_summary: editBio,
@@ -442,12 +473,96 @@ export default function ProfilePage({
         setEditTitle(workerProfile.profession || workerProfile.professional_title || '');
         setEditExperience(workerProfile.experience_years ?? workerProfile.years_experience ?? 0);
         setEditHourlyRate(workerProfile.hourly_rate ?? 0);
+        setEditSalaryPeriod(workerProfile.salary_period || 'hourly');
+        setEditSalaryMin(workerProfile.expected_salary_min ?? '');
+        setEditSalaryMax(workerProfile.expected_salary_max ?? '');
+        setEditExpectedSalary(workerProfile.expected_salary || '');
+        setEditWorkPreference(workerProfile.work_preference || 'Onsite');
+        setEditCategory(workerProfile.primary_category || '');
         setEditAvailability(workerProfile.availability_status || workerProfile.availability || 'Available Now');
         setEditSkills(Array.isArray(workerProfile.skills) ? workerProfile.skills.join(', ') : '');
       }
     }
     setBannerFile(null);
     setIsEditing(true);
+  };
+
+  const handleAddDocSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loggedInId || !docTitle.trim()) return;
+    setIsUploadingDoc(true);
+    try {
+      let fileUrl = '';
+      let storagePath = '';
+      let fileName = '';
+      let fileSize = 0;
+      let mimeType = '';
+
+      if (docFile) {
+        if (docFile.size > 10 * 1024 * 1024) {
+          triggerToast("File size exceeds 10 MB limit.");
+          setIsUploadingDoc(false);
+          return;
+        }
+        const uploaded = await dbService.uploadWorkerDocumentFile(loggedInId, docFile);
+        fileUrl = uploaded.publicUrl;
+        storagePath = uploaded.storagePath;
+        fileName = docFile.name;
+        fileSize = docFile.size;
+        mimeType = docFile.type;
+      }
+
+      const created = await dbService.addWorkerDocumentInDb(loggedInId, {
+        document_type: docType,
+        title: docTitle.trim(),
+        description: docDescription.trim(),
+        file_url: fileUrl || undefined,
+        storage_path: storagePath || undefined,
+        external_url: docExternalUrl.trim() || undefined,
+        file_name: fileName || undefined,
+        file_size: fileSize || undefined,
+        mime_type: mimeType || undefined,
+        is_public: docIsPublic
+      });
+
+      if (created) {
+        triggerToast("Document added successfully!");
+        setShowAddDocModal(false);
+        setDocTitle('');
+        setDocDescription('');
+        setDocFile(null);
+        setDocExternalUrl('');
+        setDocIsPublic(true);
+        await loadProfileData();
+      } else {
+        triggerToast("Failed to save document record.");
+      }
+    } catch (err: any) {
+      console.error("Add document error:", err);
+      triggerToast(err.message || "Failed to upload document.");
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
+  const handleDeleteDocSubmit = async () => {
+    if (!docToDelete || !loggedInId) return;
+    setIsDeletingDoc(true);
+    try {
+      const success = await dbService.deleteWorkerDocumentInDb(docToDelete.id, loggedInId, docToDelete.storage_path);
+      if (success) {
+        triggerToast("Document deleted successfully!");
+        setDocToDelete(null);
+        await loadProfileData();
+      } else {
+        triggerToast("Failed to delete document.");
+      }
+    } catch (err: any) {
+      console.error("Delete doc error:", err);
+      triggerToast(err.message || "Error deleting document.");
+    } finally {
+      setIsDeletingDoc(false);
+    }
   };
 
   const handleCloseEdit = () => {
@@ -904,7 +1019,7 @@ export default function ProfilePage({
       <div className="border-b border-slate-200 dark:border-slate-800 flex items-center space-x-2 overflow-x-auto scrollbar-none pb-1">
         {[
           { id: 'overview', label: 'Overview', icon: User },
-          { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
+          { id: 'docs', label: 'Job Application Docs', icon: FileText },
           { id: 'reviews', label: 'Reviews', icon: Star },
           { id: 'about', label: 'About', icon: Globe }
         ].map((tab) => {
@@ -966,7 +1081,7 @@ export default function ProfilePage({
                 )
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800 font-mono text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800 font-mono text-xs">
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Language</span>
                   <span className="text-slate-800 dark:text-slate-200 font-bold">{profile?.preferred_language || 'English'}</span>
@@ -978,6 +1093,10 @@ export default function ProfilePage({
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Location</span>
                   <span className="text-slate-800 dark:text-slate-200 font-bold">{formattedLocation || 'Not specified'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Rate / Salary</span>
+                  <span className="text-purple-600 dark:text-purple-400 font-extrabold">{formatWorkerRate(workerProfile)}</span>
                 </div>
               </div>
             </div>
@@ -1041,70 +1160,126 @@ export default function ProfilePage({
           </motion.div>
         )}
 
-        {/* PORTFOLIO TAB */}
-        {activeTab === 'portfolio' && (
+        {/* JOB APPLICATION DOCS TAB */}
+        {activeTab === 'docs' && (
           <motion.div
-            key="tab-portfolio"
+            key="tab-docs"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             className="space-y-4"
           >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Portfolio Projects</h3>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Job Application Docs</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Manage your Portfolio, CV, and Resume files</p>
+              </div>
               {isOwner && (
                 <button
-                  onClick={() => setShowAddPortfolioModal(true)}
-                  className="px-3.5 py-2 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-xs cursor-pointer"
+                  onClick={() => setShowAddDocModal(true)}
+                  className="px-3.5 py-2 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-xs cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Project</span>
+                  <Plus className="w-4 h-4" />
+                  <span>Add Document</span>
                 </button>
               )}
             </div>
 
-            {portfolioItems.length > 0 ? (
+            {workerDocs.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {portfolioItems.map((item) => (
-                  <div key={item.id} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs flex flex-col justify-between">
+                {workerDocs.map((doc) => (
+                  <div key={doc.id} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                     <div>
                       <div className="flex items-start justify-between">
-                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">{item.title}</h4>
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <div className="p-2.5 bg-purple-50 dark:bg-purple-950/40 rounded-xl text-purple-600 dark:text-purple-400 shrink-0">
+                            {doc.document_type === 'CV' || doc.document_type === 'Resume' ? (
+                              <FileText className="w-5 h-5" />
+                            ) : (
+                              <Folder className="w-5 h-5" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm truncate">{doc.title}</h4>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                doc.document_type === 'Resume' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300' :
+                                doc.document_type === 'CV' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300' :
+                                'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                              }`}>
+                                {doc.document_type}
+                              </span>
+                            </div>
+                            {doc.file_name && (
+                              <p className="text-[11px] text-slate-400 truncate mt-0.5">{doc.file_name} {doc.file_size ? `• ${(doc.file_size / (1024 * 1024)).toFixed(2)} MB` : ''}</p>
+                            )}
+                          </div>
+                        </div>
+
                         {isOwner && (
                           <button
-                            onClick={() => handleDeletePortfolioItem(item.id)}
-                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                            title="Delete Project"
+                            onClick={() => setDocToDelete(doc)}
+                            className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-600 transition-colors"
+                            title="Delete Document"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
-                      {item.link_url && (
-                        <a
-                          href={item.link_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center space-x-1 mt-2"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>View Project Link</span>
-                        </a>
+
+                      {doc.description && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-3 leading-relaxed line-clamp-2">{doc.description}</p>
                       )}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                      <div className="flex items-center space-x-1.5">
+                        <span className={`w-2 h-2 rounded-full ${doc.is_public ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                          {doc.is_public ? 'Public' : 'Private'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        {doc.external_url && (
+                          <a
+                            href={doc.external_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-lg text-xs flex items-center space-x-1"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Link</span>
+                          </a>
+                        )}
+                        {doc.file_url && (
+                          <a
+                            href={doc.file_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            download={doc.file_name || true}
+                            className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs flex items-center space-x-1 shadow-xs"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download</span>
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center text-xs text-slate-500">
-                <Briefcase className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-                <p className="font-bold text-slate-700 dark:text-slate-300">No portfolio projects uploaded yet.</p>
+              <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center text-xs text-slate-500 space-y-3">
+                <FileText className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
+                <p className="font-extrabold text-sm text-slate-800 dark:text-slate-200">No job application documents uploaded yet.</p>
+                <p className="text-slate-500 max-w-sm mx-auto">Upload your Portfolio, CV, or Resume to stand out to employers and get hired faster.</p>
                 {isOwner && (
                   <button
-                    onClick={() => setShowAddPortfolioModal(true)}
-                    className="mt-3 px-4 py-2 bg-[#7C3AED] text-white font-bold rounded-xl text-xs"
+                    onClick={() => setShowAddDocModal(true)}
+                    className="mt-2 px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 text-white font-bold rounded-xl text-xs shadow-sm hover:opacity-95"
                   >
-                    Add Your First Project
+                    Add Your First Document
                   </button>
                 )}
               </div>
@@ -1345,12 +1520,23 @@ export default function ProfilePage({
                         type="text" 
                         value={editTitle}
                         onChange={(e) => setEditTitle(e.target.value)}
-                        placeholder="e.g. Lead Product Designer, Electrician"
+                        placeholder="e.g. Lead Product Designer, Senior Electrician"
                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
                       />
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Worker Category</label>
+                        <input 
+                          type="text" 
+                          value={editCategory}
+                          onChange={(e) => setEditCategory(e.target.value)}
+                          placeholder="e.g. Design, IT, Skilled Trades"
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                        />
+                      </div>
+
                       <div className="space-y-1.5">
                         <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Experience (Years)</label>
                         <input 
@@ -1362,19 +1548,75 @@ export default function ProfilePage({
                           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
                         />
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Work Preference</label>
+                        <select 
+                          value={editWorkPreference}
+                          onChange={(e) => setEditWorkPreference(e.target.value)}
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                        >
+                          <option value="Onsite">Onsite</option>
+                          <option value="Remote">Remote</option>
+                          <option value="Hybrid">Hybrid</option>
+                        </select>
+                      </div>
 
                       <div className="space-y-1.5">
-                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Hourly Rate (INR ₹)</label>
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Salary / Rate Period</label>
+                        <select 
+                          value={editSalaryPeriod}
+                          onChange={(e) => setEditSalaryPeriod(e.target.value)}
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                        >
+                          <option value="hourly">Hourly Rate (/hr)</option>
+                          <option value="daily">Daily Rate (/day)</option>
+                          <option value="monthly">Monthly Salary (/mo)</option>
+                          <option value="project">Project Fixed Rate (/project)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {editSalaryPeriod === 'monthly' ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Expected Min Salary (₹/mo)</label>
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={editSalaryMin}
+                            onChange={(e) => setEditSalaryMin(e.target.value === '' ? '' : Number(e.target.value))}
+                            placeholder="e.g. 20000"
+                            className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Expected Max Salary (₹/mo)</label>
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={editSalaryMax}
+                            onChange={(e) => setEditSalaryMax(e.target.value === '' ? '' : Number(e.target.value))}
+                            placeholder="e.g. 40000"
+                            className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Rate / Amount (INR ₹)</label>
                         <input 
                           type="number" 
                           min="0"
                           value={editHourlyRate}
                           onChange={(e) => setEditHourlyRate(e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder="e.g. 850"
+                          placeholder="e.g. 650"
                           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
                         />
                       </div>
-                    </div>
+                    )}
 
                     <div className="space-y-1.5">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Availability Status</label>
@@ -1396,7 +1638,7 @@ export default function ProfilePage({
                         type="text" 
                         value={editSkills}
                         onChange={(e) => setEditSkills(e.target.value)}
-                        placeholder="e.g. React, TypeScript, Figma, UI/UX"
+                        placeholder="e.g. React, TypeScript, Figma, Wiring, Safety"
                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
                       />
                     </div>
@@ -1445,6 +1687,151 @@ export default function ProfilePage({
                 </button>
               </div>
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ADD JOB APPLICATION DOCUMENT MODAL */}
+      <AnimatePresence>
+        {showAddDocModal && (
+          <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-5 text-left max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Add Job Application Document</h3>
+                <button onClick={() => setShowAddDocModal(false)} className="p-1 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddDocSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Document Type *</label>
+                  <select
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value as any)}
+                    className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold"
+                  >
+                    <option value="Portfolio">Portfolio</option>
+                    <option value="CV">CV (Curriculum Vitae)</option>
+                    <option value="Resume">Resume</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Document Title *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Senior Frontend Resume 2026"
+                    value={docTitle}
+                    onChange={(e) => setDocTitle(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Description (Optional)</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Brief description of this document..."
+                    value={docDescription}
+                    onChange={(e) => setDocDescription(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-medium resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Upload File (PDF, DOC, DOCX, PNG, JPG - Max 10MB)</label>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                    onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900 text-xs text-slate-600 dark:text-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">External Link (Optional)</label>
+                  <input
+                    type="url"
+                    placeholder="https://myportfolio.com or Google Drive link"
+                    value={docExternalUrl}
+                    onChange={(e) => setDocExternalUrl(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-medium"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2 pt-2">
+                  <input
+                    type="checkbox"
+                    id="doc-is-public"
+                    checked={docIsPublic}
+                    onChange={(e) => setDocIsPublic(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <label htmlFor="doc-is-public" className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    Make publicly visible to employers on my profile
+                  </label>
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddDocModal(false)}
+                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs hover:bg-slate-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUploadingDoc}
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs flex items-center space-x-2 disabled:opacity-50"
+                  >
+                    {isUploadingDoc ? 'Uploading...' : 'Save Document'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE DOCUMENT CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {docToDelete && (
+          <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 text-left"
+            >
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Delete Document</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Are you sure you want to delete <strong className="text-slate-900 dark:text-white">"{docToDelete.title}"</strong>? This action cannot be undone and will remove the file permanently.
+              </p>
+
+              <div className="flex justify-end space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setDocToDelete(null)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteDocSubmit}
+                  disabled={isDeletingDoc}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs disabled:opacity-50"
+                >
+                  {isDeletingDoc ? 'Deleting...' : 'Delete Document'}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

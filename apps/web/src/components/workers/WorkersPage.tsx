@@ -139,7 +139,7 @@ export default function WorkersPage({
             return true;
           });
 
-          const mapped: Worker[] = deduplicated.map((d: any) => ({
+          const mapped: any[] = deduplicated.map((d: any) => ({
             id: d.id,
             name: d.full_name || '',
             photo: d.avatar_url || '',
@@ -152,6 +152,10 @@ export default function WorkersPage({
             skills: Array.isArray(d.skills) ? d.skills : [],
             completedWorks: 0,
             hourlyRate: d.hourly_rate || 0,
+            salaryPeriod: d.salary_period || 'hourly',
+            expectedSalaryMin: d.expected_salary_min || 0,
+            expectedSalaryMax: d.expected_salary_max || 0,
+            expectedSalary: d.expected_salary || '',
             verified: d.verification_status === 'verified',
             bookmarked: false
           }));
@@ -591,6 +595,10 @@ export default function WorkersPage({
                     rating={worker.rating}
                     experienceYears={worker.experience}
                     hourlyRate={worker.hourlyRate}
+                    salaryPeriod={(worker as any).salaryPeriod}
+                    expectedSalaryMin={(worker as any).expectedSalaryMin}
+                    expectedSalaryMax={(worker as any).expectedSalaryMax}
+                    expectedSalary={(worker as any).expectedSalary}
                     shortBio={worker.bio}
                     location={worker.location}
                     availability={worker.availability}

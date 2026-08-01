@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, MapPin, Star, Bookmark, Share2, Sparkles, Send, 
   MessageSquare, CheckCircle2, ShieldCheck, Briefcase, Award, Clock,
-  Calendar, Globe, ExternalLink, UserCheck, Check, Layers, ChevronRight
+  Calendar, Globe, ExternalLink, UserCheck, Check, Layers, ChevronRight,
+  FileText, Folder, Download
 } from 'lucide-react';
 import { Worker } from '../../types';
-import { supabase, dbService } from '../../lib/supabase';
+import { supabase, dbService, formatWorkerRate } from '../../lib/supabase';
 import { getPublicProfileById } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
@@ -24,7 +25,7 @@ interface WorkerDetailPageProps {
   onOpenAuth: (tab: 'signin' | 'signup' | 'locked') => void;
 }
 
-type PublicTabType = 'overview' | 'portfolio' | 'reviews' | 'about';
+type PublicTabType = 'overview' | 'docs' | 'reviews' | 'about';
 
 export default function WorkerDetailPage({
   workers,
@@ -48,6 +49,7 @@ export default function WorkerDetailPage({
 
   // Real Database Records State
   const [portfolioItems, setPortfolioItems] = useState<any[]>([]);
+  const [workerDocs, setWorkerDocs] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [joinedYear, setJoinedYear] = useState<string | null>(null);
   const [preferredLanguage, setPreferredLanguage] = useState<string>('English');
@@ -146,6 +148,10 @@ export default function WorkerDetailPage({
             // Fetch Real Portfolio Items from Database
             const fetchedPortfolio = await dbService.getPortfolioItemsFromDb(canonical.id);
             setPortfolioItems(fetchedPortfolio || []);
+
+            // Fetch Real Public Worker Documents
+            const fetchedDocs = await dbService.getWorkerDocumentsFromDb(canonical.id, false);
+            setWorkerDocs(fetchedDocs || []);
 
             // Fetch Real Reviews from Database
             const fetchedReviews = await dbService.getReviewsFromDb(canonical.id);
@@ -445,11 +451,7 @@ export default function WorkerDetailPage({
         {/* Public Hero Action Buttons */}
         <div className="pt-3 border-t border-purple-500/10 flex flex-wrap items-center justify-between gap-3 relative z-10">
           <div className="text-left text-xs font-bold text-slate-700 dark:text-slate-300 hidden sm:block">
-            {worker.hourlyRate > 0 ? (
-              <span>Starting at <strong className="text-purple-600 dark:text-purple-400">{formatINR(worker.hourlyRate)}/hr</strong></span>
-            ) : (
-              <span>Contract & Fixed Rate</span>
-            )}
+            <span>Rate / Salary: <strong className="text-purple-600 dark:text-purple-400">{formatWorkerRate(worker)}</strong></span>
           </div>
 
           <div className="flex items-center space-x-3 w-full sm:w-auto">
@@ -518,42 +520,42 @@ export default function WorkerDetailPage({
                       value={budget}
                       onChange={(e) => setBudget(e.target.value)}
                       className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
-                      placeholder="e.g. 15000"
                     />
                   </div>
                 </div>
 
-                <div className="md:col-span-2 space-y-1">
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Requirements & Deliverables
-                  </label>
-                  <textarea 
-                    rows={4}
-                    required
-                    value={projectDesc}
-                    onChange={(e) => setProjectDesc(e.target.value)}
-                    className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
-                    placeholder="Describe your project scope, timeline, and deliverables..."
-                  />
-                </div>
-              </div>
+                <div className="md:col-span-2 flex flex-col justify-between space-y-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Message & Requirements
+                    </label>
+                    <textarea 
+                      rows={4}
+                      required
+                      value={projectDesc}
+                      onChange={(e) => setProjectDesc(e.target.value)}
+                      className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500 resize-none"
+                      placeholder="Describe the job deliverables, deadlines, and expected timeline..."
+                    />
+                  </div>
 
-              <div className="flex justify-end space-x-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowHireForm(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{isSubmitting ? 'Submitting...' : 'Send Hire Request'}</span>
-                </button>
+                  <div className="flex justify-end space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowHireForm(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold flex items-center space-x-1.5 disabled:opacity-50"
+                    >
+                      <span>{isSubmitting ? 'Sending Proposal...' : 'Send Escrow Hire Offer'}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </motion.form>
           )}
@@ -597,11 +599,11 @@ export default function WorkerDetailPage({
 
       {/* 3. PROFILE NAVIGATION TABS */}
       <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449]/40 rounded-2xl p-1.5 flex items-center justify-around shadow-xs overflow-x-auto">
-        {(['overview', 'portfolio', 'reviews', 'about'] as PublicTabType[]).map((tab) => {
+        {(['overview', 'docs', 'reviews', 'about'] as PublicTabType[]).map((tab) => {
           const isActive = activeTab === tab;
           const labels: Record<PublicTabType, string> = {
             overview: 'Overview',
-            portfolio: `Portfolio (${portfolioItems.length})`,
+            docs: `Job Application Docs (${workerDocs.length})`,
             reviews: `Reviews (${reviewsCount})`,
             about: 'About'
           };
@@ -668,9 +670,9 @@ export default function WorkerDetailPage({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl flex items-center justify-between">
-                  <span className="text-slate-500 dark:text-slate-400 font-medium">Hourly Rate</span>
-                  <span className="font-extrabold text-slate-900 dark:text-white">
-                    {worker.hourlyRate > 0 ? `${formatINR(worker.hourlyRate)}/hr` : 'Contact for Quote'}
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Rate / Salary</span>
+                  <span className="font-extrabold text-purple-600 dark:text-purple-400">
+                    {formatWorkerRate(worker)}
                   </span>
                 </div>
 
@@ -702,62 +704,79 @@ export default function WorkerDetailPage({
           </div>
         )}
 
-        {/* PORTFOLIO TAB */}
-        {activeTab === 'portfolio' && (
+        {/* JOB APPLICATION DOCS TAB */}
+        {activeTab === 'docs' && (
           <div className="space-y-4 text-left">
-            {portfolioItems.length === 0 ? (
+            {workerDocs.length === 0 ? (
               <div className="bg-slate-50/60 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-8 text-center space-y-3">
                 <div className="w-12 h-12 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center mx-auto">
-                  <Briefcase className="w-6 h-6" />
+                  <FileText className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">No portfolio projects added yet</h4>
+                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">No job application documents shared</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
-                    This professional has not showcased any portfolio projects yet.
+                    This professional has not added any public portfolio, CV, or resume documents yet.
                   </p>
                 </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {portfolioItems.map((item: any, idx: number) => (
+                {workerDocs.map((doc) => (
                   <div 
-                    key={item.id || idx}
+                    key={doc.id}
                     className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-xs"
                   >
-                    {item.file_url ? (
-                      <div className="w-full h-36 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800">
-                        <img 
-                          src={item.file_url} 
-                          alt={item.title} 
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-full h-24 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
-                        <Briefcase className="w-8 h-8 opacity-60" />
-                      </div>
-                    )}
-
                     <div>
-                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">{item.title}</h4>
-                      {item.description && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 line-clamp-2 leading-relaxed">
-                          {item.description}
-                        </p>
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <div className="p-2.5 bg-purple-50 dark:bg-purple-950/40 rounded-xl text-purple-600 dark:text-purple-400 shrink-0">
+                          {doc.document_type === 'CV' || doc.document_type === 'Resume' ? (
+                            <FileText className="w-5 h-5" />
+                          ) : (
+                            <Folder className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <h4 className="font-extrabold text-slate-900 dark:text-white text-sm truncate">{doc.title}</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300">
+                              {doc.document_type}
+                            </span>
+                          </div>
+                          {doc.file_name && (
+                            <p className="text-[11px] text-slate-400 truncate mt-0.5">{doc.file_name} {doc.file_size ? `• ${(doc.file_size / (1024 * 1024)).toFixed(2)} MB` : ''}</p>
+                          )}
+                        </div>
+                      </div>
+                      {doc.description && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-2.5 leading-relaxed line-clamp-2">{doc.description}</p>
                       )}
                     </div>
 
-                    {item.link_url && (
-                      <a 
-                        href={item.link_url} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="inline-flex items-center space-x-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline pt-1"
-                      >
-                        <span>View Project</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    )}
+                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      {doc.external_url && (
+                        <a
+                          href={doc.external_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-lg text-xs flex items-center space-x-1"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Link</span>
+                        </a>
+                      )}
+                      {doc.file_url && (
+                        <a
+                          href={doc.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          download={doc.file_name || true}
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs flex items-center space-x-1 shadow-xs"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download</span>
+                        </a>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
