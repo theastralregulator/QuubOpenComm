@@ -484,7 +484,7 @@ export default function ProfilePage({
         preferred_language: editLang,
         phone: editPhone,
         banner_id: finalBannerId,
-        location_visibility: editLocationVisibility,
+        show_location_publicly: editLocationVisibility,
       });
 
       console.log('[Edit Profile Debug] dbService.updateProfile completed:', updated);
@@ -570,7 +570,7 @@ export default function ProfilePage({
       setEditPhone(profile.phone || '');
       setEditBannerId(profile.banner_id || 'banner_01');
       setBannerPreview(null);
-      setEditLocationVisibility(profile.location_visibility ?? true);
+      setEditLocationVisibility(profile.show_location_publicly ?? (profile as any).location_visibility ?? true);
 
       if (workerProfile) {
         setEditTitle(workerProfile.profession || '');

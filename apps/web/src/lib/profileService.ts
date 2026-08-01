@@ -79,7 +79,7 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
     // 1. Query profile_directory with ONLY existing valid schema columns
     const { data: pdData, error: pdError } = await supabase
       .from('profile_directory')
-      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
       .eq('id', userId)
       .maybeSingle();
 
@@ -89,6 +89,7 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
 
     if (pdData) {
       const name = resolveDisplayName(pdData);
+      const isLocPublic = pdData.show_location_publicly !== false;
       const profile: CanonicalPublicProfile = {
         id: pdData.id,
         name,
@@ -96,9 +97,9 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
         avatarUrl: pdData.avatar_url || null,
         bannerUrl: pdData.banner_url || null,
         bio: pdData.bio || null,
-        city: pdData.city || null,
-        state: pdData.state || null,
-        country: pdData.country || null,
+        city: isLocPublic ? (pdData.city || null) : null,
+        state: isLocPublic ? (pdData.state || null) : null,
+        country: isLocPublic ? (pdData.country || null) : null,
         verified: false,
         profileType: pdData.profile_type || null,
       };
@@ -109,16 +110,13 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
     // 2. Query profiles as fallback with ONLY existing valid schema columns
     const { data: profData, error: profError } = await supabase
       .from('profiles')
-      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, email_verified_for_actions')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
       .eq('id', userId)
       .maybeSingle();
 
-    if (profError) {
-      console.error(`[Employer Identity Debug] profiles query error for ${userId}:`, profError);
-    }
-
     if (profData) {
       const name = resolveDisplayName(profData);
+      const isLocPublic = profData.show_location_publicly !== false;
       const profile: CanonicalPublicProfile = {
         id: profData.id,
         name,
@@ -126,35 +124,28 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
         avatarUrl: profData.avatar_url || null,
         bannerUrl: profData.banner_url || null,
         bio: profData.bio || null,
-        city: profData.city || null,
-        state: profData.state || null,
-        country: profData.country || null,
-        verified: Boolean(profData.email_verified_for_actions),
+        city: isLocPublic ? (profData.city || null) : null,
+        state: isLocPublic ? (profData.state || null) : null,
+        country: isLocPublic ? (profData.country || null) : null,
+        verified: false,
         profileType: profData.profile_type || null,
       };
       profileCache.set(userId, profile);
       return profile;
     }
-
-    console.warn(`[Employer Identity Debug]
-job.posted_by: ${userId}
-canonical table: profile_directory & profiles
-canonical key column: id
-rows returned: 0
-error: Profile row genuinely does not exist in DB for user ID ${userId}`);
   } catch (err) {
-    console.error(`[profileService] Error fetching profile for ${userId}:`, err);
+    console.error(`[Employer Identity Debug] Unexpected error fetching public profile for ${userId}:`, err);
   }
 
-  const fallbackProfile: CanonicalPublicProfile = {
+  // 3. Robust fallback profile
+  const fallback: CanonicalPublicProfile = {
     id: userId,
     name: 'OpenComm User',
     fullName: 'OpenComm User',
     avatarUrl: null,
     verified: false,
   };
-  profileCache.set(userId, fallbackProfile);
-  return fallbackProfile;
+  return fallback;
 }
 
 export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<string, CanonicalPublicProfile>> {
@@ -187,7 +178,7 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
     // 1. Batched lookup from profile_directory (using only valid columns!)
     const { data: pdRows, error: pdError } = await supabase
       .from('profile_directory')
-      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
       .in('id', missingFromCache);
 
     if (pdError) {
@@ -197,6 +188,7 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
     if (pdRows) {
       pdRows.forEach((pd: any) => {
         const name = resolveDisplayName(pd);
+        const isLocPublic = pd.show_location_publicly !== false;
         const profile: CanonicalPublicProfile = {
           id: pd.id,
           name,
@@ -204,9 +196,9 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
           avatarUrl: pd.avatar_url || null,
           bannerUrl: pd.banner_url || null,
           bio: pd.bio || null,
-          city: pd.city || null,
-          state: pd.state || null,
-          country: pd.country || null,
+          city: isLocPublic ? (pd.city || null) : null,
+          state: isLocPublic ? (pd.state || null) : null,
+          country: isLocPublic ? (pd.country || null) : null,
           verified: false,
           profileType: pd.profile_type || null,
         };

@@ -75,7 +75,7 @@ export default function BasicProfileDashboard({
   };
 
   // Location resolution
-  const isLocationHidden = !isOwner && profile?.location_visibility === false;
+  const isLocationHidden = !isOwner && (profile?.show_location_publicly === false || (profile as any)?.location_visibility === false);
   const displayLocation = isLocationHidden
     ? 'Location hidden'
     : (formattedLocation && formattedLocation.trim().length > 0 ? formattedLocation : 'Location not provided');

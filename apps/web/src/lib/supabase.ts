@@ -482,7 +482,7 @@ export const dbService = {
     throw new Error("Failed to get public URL for uploaded banner.");
   },
 
-  async updateProfile(userId: string, updates: Partial<LocalProfile>): Promise<LocalProfile> {
+  async updateProfile(userId: string, updates: Partial<LocalProfile> & { show_location_publicly?: boolean; location_visibility?: boolean }): Promise<LocalProfile> {
     console.log('[Supabase Debug] updateProfile initiating for userId:', userId, 'updates:', updates);
     if (supabase) {
       // 1. First sync email verification if logged in user is confirmed in Auth
@@ -495,7 +495,11 @@ export const dbService = {
         console.warn('[Supabase Debug] sync_email_verification pre-check warning:', e);
       }
 
-      // 2. Execute update_my_basic_profile RPC
+      const showLocationVal = updates.show_location_publicly !== undefined 
+        ? updates.show_location_publicly 
+        : (updates.location_visibility !== undefined ? updates.location_visibility : true);
+
+      // 2. Execute update_my_basic_profile RPC with exact parameter p_show_location_publicly
       const { data, error } = await supabase.rpc('update_my_basic_profile', {
         p_username: updates.username,
         p_full_name: updates.full_name,
@@ -507,7 +511,7 @@ export const dbService = {
         p_country: updates.country,
         p_preferred_language: updates.preferred_language,
         p_bio: updates.bio,
-        p_show_location_publicly: updates.location_visibility,
+        p_show_location_publicly: showLocationVal,
         p_onboarding_completed: updates.onboarding_completed
       });
 
@@ -519,10 +523,10 @@ export const dbService = {
       }
       
       // Also update show_location_publicly directly on profiles table if needed
-      if (updates.location_visibility !== undefined && userId) {
+      if (showLocationVal !== undefined && userId) {
         const { error: directErr } = await supabase
           .from('profiles')
-          .update({ show_location_publicly: updates.location_visibility })
+          .update({ show_location_publicly: showLocationVal })
           .eq('id', userId);
         if (directErr) {
           console.warn('[Supabase Debug] Direct show_location_publicly update warning:', directErr);
@@ -531,7 +535,8 @@ export const dbService = {
 
       const resObj = {
         ...(data as any),
-        location_visibility: updates.location_visibility ?? (data as any)?.show_location_publicly ?? true
+        show_location_publicly: showLocationVal,
+        location_visibility: showLocationVal
       };
 
       clearProfileCache(userId);
@@ -626,11 +631,11 @@ export const dbService = {
       try {
         const payload: any = {
           id: worker.id,
-          profession: worker.profession || worker.professional_title || '',
+          profession: worker.profession || '',
           skills: worker.skills || [],
           experience_years: worker.experience_years ?? worker.years_experience ?? 0,
           work_location: worker.work_location || '',
-          availability: worker.availability || worker.availability_status || 'Available Now',
+          availability: worker.availability || 'Available Now',
           bio_summary: worker.bio_summary || '',
           hourly_rate: worker.hourly_rate || 0,
           expected_salary: worker.expected_salary || '',
@@ -818,35 +823,15 @@ export const dbService = {
 
           return {
             id: data.id,
-            profession: data.professional_title || data.profession,
-            professional_title: data.professional_title || data.profession,
-            primary_category: data.primary_category || '',
+            profession: data.profession || '',
             skills: skillsData && skillsData.length > 0 ? skillsData.map((s: any) => s.skill) : (data.skills || []),
-            experience_years: data.years_experience ?? data.experience_years ?? 0,
-            years_experience: data.years_experience ?? data.experience_years ?? 0,
-            experience_level: data.experience_level || 'Entry',
+            experience_years: data.experience_years ?? data.years_experience ?? 0,
             work_location: data.work_location || '',
-            availability: (data.availability_status || data.availability) as any || 'Available Now',
-            availability_status: (data.availability_status || data.availability) as any || 'Available Now',
+            availability: data.availability || 'Available Now',
             bio_summary: data.bio_summary || '',
             hourly_rate: Number(data.hourly_rate) || 0,
             expected_salary: data.expected_salary || '',
-            expected_salary_min: data.expected_salary_min ? Number(data.expected_salary_min) : undefined,
-            expected_salary_max: data.expected_salary_max ? Number(data.expected_salary_max) : undefined,
-            currency: data.currency || 'USD',
-            work_preference: data.work_preference || 'Remote',
-            willing_to_relocate: data.willing_to_relocate || false,
-            service_radius: data.service_radius ? Number(data.service_radius) : undefined,
-            current_employer: data.current_employer || '',
-            linkedin_url: data.linkedin_url || '',
-            github_url: data.github_url || '',
             portfolio_url: data.portfolio_url || '',
-            highest_qualification: data.highest_qualification || '',
-            course_specialization: data.course_specialization || '',
-            institution: data.institution || '',
-            graduation_year: data.graduation_year || undefined,
-            resume_path: data.resume_path || '',
-            worker_profile_completed: data.worker_profile_completed || false,
             certificates: data.certificates || [],
             languages: langData && langData.length > 0 ? langData.map((l: any) => l.language) : (data.languages || []),
             experience: expData || [],
@@ -1670,23 +1655,30 @@ export const dbService = {
     return false;
   },
 
-  // Job Application Documents
+  // Job Application Documents / Worker Portfolio Items
   async getWorkerDocumentsFromDb(userId: string, isOwner: boolean = false): Promise<any[]> {
     if (!supabase || !userId) return [];
     try {
       let query = supabase
-        .from('worker_documents')
+        .from('worker_portfolio_items')
         .select('*')
-        .eq('user_id', userId);
+        .eq('worker_id', userId);
       
       if (!isOwner) {
         query = query.eq('is_public', true);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
-      if (!error && data) return data;
+      if (!error && data) {
+        return data.map(item => ({
+          ...item,
+          user_id: item.worker_id,
+          document_type: item.file_type ? (item.file_type.charAt(0).toUpperCase() + item.file_type.slice(1)) : 'Portfolio'
+        }));
+      }
+      if (error) console.error('Error fetching worker portfolio items:', error);
     } catch (err) {
-      console.error('Error fetching worker documents:', err);
+      console.error('Error fetching worker portfolio items:', err);
     }
     return [];
   },
@@ -1737,28 +1729,37 @@ export const dbService = {
     await assertUserEmailConfirmed();
     if (!supabase || !userId) return null;
     try {
+      const docTypeLower = (doc.document_type || 'portfolio').toLowerCase();
+      const validFileType = ['portfolio', 'cv', 'resume', 'certificate', 'other'].includes(docTypeLower) 
+        ? docTypeLower 
+        : 'other';
+
+      const payload = {
+        worker_id: userId,
+        title: doc.title,
+        description: doc.description || null,
+        file_url: doc.file_url || doc.external_url || '',
+        file_type: validFileType,
+        thumbnail_url: null,
+        is_public: doc.is_public !== undefined ? doc.is_public : true
+      };
+
       const { data, error } = await supabase
-        .from('worker_documents')
-        .insert({
-          user_id: userId,
-          document_type: doc.document_type,
-          title: doc.title,
-          description: doc.description || null,
-          file_url: doc.file_url || null,
-          storage_path: doc.storage_path || null,
-          external_url: doc.external_url || null,
-          file_name: doc.file_name || null,
-          file_size: doc.file_size || null,
-          mime_type: doc.mime_type || null,
-          is_public: doc.is_public !== undefined ? doc.is_public : false
-        })
+        .from('worker_portfolio_items')
+        .insert(payload)
         .select()
         .single();
 
-      if (!error && data) return data;
-      if (error) console.error('Error inserting worker document:', error);
+      if (!error && data) {
+        return {
+          ...data,
+          user_id: data.worker_id,
+          document_type: doc.document_type
+        };
+      }
+      if (error) console.error('Error inserting worker portfolio item:', error);
     } catch (err) {
-      console.error('Error adding worker document:', err);
+      console.error('Error adding worker portfolio item:', err);
     }
     return null;
   },
@@ -1767,7 +1768,6 @@ export const dbService = {
     await assertUserEmailConfirmed();
     if (!supabase || !documentId) return false;
     try {
-      // 1. Delete file from storage if present
       if (storagePath) {
         try {
           await supabase.storage.from('worker-documents').remove([storagePath]);
@@ -1776,16 +1776,15 @@ export const dbService = {
         }
       }
 
-      // 2. Delete database record
       const { error } = await supabase
-        .from('worker_documents')
+        .from('worker_portfolio_items')
         .delete()
         .eq('id', documentId)
-        .eq('user_id', userId);
+        .eq('worker_id', userId);
 
       return !error;
     } catch (err) {
-      console.error('Error deleting worker document:', err);
+      console.error('Error deleting worker portfolio item:', err);
     }
     return false;
   },

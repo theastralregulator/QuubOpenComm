@@ -143,7 +143,7 @@ export default function WorkersPage({
             id: d.id,
             name: d.full_name || '',
             photo: d.avatar_url || '',
-            title: d.profession || d.professional_title || '',
+            title: d.profession || '',
             experience: d.experience_years || 0,
             rating: 0,
             availability: d.availability || 'Available Now',
@@ -152,9 +152,6 @@ export default function WorkersPage({
             skills: Array.isArray(d.skills) ? d.skills : [],
             completedWorks: 0,
             hourlyRate: d.hourly_rate || 0,
-            salaryPeriod: d.salary_period || 'hourly',
-            expectedSalaryMin: d.expected_salary_min || 0,
-            expectedSalaryMax: d.expected_salary_max || 0,
             expectedSalary: d.expected_salary || '',
             verified: d.verification_status === 'verified',
             bookmarked: false
