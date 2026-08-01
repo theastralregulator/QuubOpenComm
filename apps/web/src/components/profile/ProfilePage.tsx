@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -134,6 +135,30 @@ export default function ProfilePage({
   const [activeTab, setActiveTab] = useState<'overview' | 'docs' | 'reviews' | 'about'>('overview');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [showMenuPopover, setShowMenuPopover] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
+
+  const updateMenuPosition = () => {
+    if (menuButtonRef.current) {
+      const rect = menuButtonRef.current.getBoundingClientRect();
+      const top = rect.bottom + window.scrollY + 6;
+      const right = window.innerWidth - rect.right;
+      setMenuPosition({ top, right: Math.max(12, right) });
+    }
+  };
+
+  useEffect(() => {
+    if (showMenuPopover) {
+      updateMenuPosition();
+      window.addEventListener('resize', updateMenuPosition);
+      window.addEventListener('scroll', updateMenuPosition, true);
+      return () => {
+        window.removeEventListener('resize', updateMenuPosition);
+        window.removeEventListener('scroll', updateMenuPosition, true);
+      };
+    }
+  }, [showMenuPopover]);
+
   const [showSkillsExpanded, setShowSkillsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   
@@ -733,7 +758,7 @@ export default function ProfilePage({
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-4 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
+    <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2.5 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
       
       {/* 1. GUEST GATEWAY BANNER (If not logged in) */}
       {!isLoggedIn && (
@@ -766,13 +791,20 @@ export default function ProfilePage({
         </div>
       )}
 
-      {errorState && (!isOwner || isPublic) && (
-        <div className="p-12 text-center bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg mx-auto mt-12 shadow-xs">
-          <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4 opacity-50" />
-          <h3 className="text-xl font-extrabold text-slate-900 dark:text-white mb-2">Profile Unavailable</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            This worker or user profile could not be found or is not public.
-          </p>
+      {/* ERROR STATE */}
+      {errorState && (
+        <div className="p-8 text-center bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-3xl space-y-3 text-left">
+          <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+          <h3 className="text-base font-bold text-rose-900 dark:text-rose-200 text-center">Unable to load profile</h3>
+          <p className="text-xs text-rose-700 dark:text-rose-300 text-center">{errorState}</p>
+          <div className="text-center pt-2">
+            <button
+              onClick={() => loadProfileData()}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer inline-flex items-center space-x-1.5"
+            >
+              <span>Try Again</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -893,56 +925,66 @@ export default function ProfilePage({
                   <span>Edit Profile</span>
                 </button>
 
-                {/* Three Dot Popover */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowMenuPopover(!showMenuPopover)}
-                    className="h-9 w-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-                  >
-                    <MoreHorizontal className="w-4 h-4" />
-                  </button>
+                {/* Three Dot Popover Trigger */}
+                <button
+                  ref={menuButtonRef}
+                  onClick={() => {
+                    if (!showMenuPopover) {
+                      updateMenuPosition();
+                    }
+                    setShowMenuPopover(!showMenuPopover);
+                  }}
+                  className="h-9 w-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center transition-all cursor-pointer"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
 
-                  <AnimatePresence>
-                    {showMenuPopover && (
-                      <>
-                        {/* Backdrop overlay for closing on outside tap */}
-                        <div 
-                          className="fixed inset-0 z-40 bg-transparent" 
-                          onClick={() => setShowMenuPopover(false)} 
-                        />
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                          className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl py-2 z-50 text-left"
+                {/* Portal menu outside the hero card overflow-hidden context */}
+                {showMenuPopover && menuPosition && createPortal(
+                  <>
+                    <div 
+                      className="fixed inset-0 z-[9998] bg-transparent" 
+                      onClick={() => setShowMenuPopover(false)} 
+                    />
+                    <AnimatePresence>
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                        style={{
+                          position: 'absolute',
+                          top: `${menuPosition.top}px`,
+                          right: `${menuPosition.right}px`,
+                        }}
+                        className="w-48 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl py-2 z-[9999] text-left"
+                      >
+                        <button
+                          onClick={() => {
+                            setShowMenuPopover(false);
+                            handleOpenEdit();
+                          }}
+                          className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2 transition-colors cursor-pointer"
                         >
+                          <Settings className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Settings</span>
+                        </button>
+                        {onLogout && (
                           <button
                             onClick={() => {
                               setShowMenuPopover(false);
-                              handleOpenEdit();
+                              onLogout();
                             }}
-                            className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2 transition-colors cursor-pointer"
+                            className="w-full px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center space-x-2 transition-colors cursor-pointer"
                           >
-                            <Settings className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Settings</span>
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Logout</span>
                           </button>
-                          {onLogout && (
-                            <button
-                              onClick={() => {
-                                setShowMenuPopover(false);
-                                onLogout();
-                              }}
-                              className="w-full px-4 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center space-x-2 transition-colors cursor-pointer"
-                            >
-                              <LogOut className="w-3.5 h-3.5" />
-                              <span>Logout</span>
-                            </button>
-                          )}
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
-                </div>
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </>,
+                  document.body
+                )}
               </div>
             ) : (
               <div className="flex items-center space-x-2">
@@ -962,10 +1004,10 @@ export default function ProfilePage({
                     await navigator.clipboard.writeText(window.location.href);
                     triggerToast("Profile link copied!");
                   }}
-                  className="h-9 px-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center space-x-1.5"
+                  className="h-9 w-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center transition-all cursor-pointer"
+                  title="Share Profile"
                 >
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>Share</span>
+                  <Share2 className="w-4 h-4" />
                 </button>
               </div>
             )}
@@ -999,22 +1041,22 @@ export default function ProfilePage({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
-              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Total</span>
-              <span className="text-lg font-extrabold text-slate-900 dark:text-white">{totalApplicationsReceived}</span>
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-slate-100 dark:border-slate-800 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono truncate">Total</span>
+              <span className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">{totalApplicationsReceived}</span>
             </div>
-            <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/15 text-center">
-              <span className="block text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider font-mono">Pending</span>
-              <span className="text-lg font-extrabold text-amber-700 dark:text-amber-300">{pendingApplicationsReceived}</span>
+            <div className="bg-amber-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider font-mono truncate">Pending</span>
+              <span className="text-base sm:text-lg font-extrabold text-amber-700 dark:text-amber-300 truncate">{pendingApplicationsReceived}</span>
             </div>
-            <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/15 text-center">
-              <span className="block text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono">Accepted</span>
-              <span className="text-lg font-extrabold text-emerald-700 dark:text-emerald-300">{acceptedApplicationsReceived}</span>
+            <div className="bg-emerald-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-emerald-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono truncate">Accepted</span>
+              <span className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-300 truncate">{acceptedApplicationsReceived}</span>
             </div>
-            <div className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/15 text-center">
-              <span className="block text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider font-mono">Rejected</span>
-              <span className="text-lg font-extrabold text-rose-700 dark:text-rose-300">{rejectedApplicationsReceived}</span>
+            <div className="bg-rose-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-rose-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider font-mono truncate">Rejected</span>
+              <span className="text-base sm:text-lg font-extrabold text-rose-700 dark:text-rose-300 truncate">{rejectedApplicationsReceived}</span>
             </div>
           </div>
         </div>
