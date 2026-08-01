@@ -167,6 +167,20 @@ export default function WorkersPage({
       }
     }
     fetchLiveWorkers();
+
+    const handleUpdate = () => {
+      fetchLiveWorkers();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('opencomm:profile-updated', handleUpdate);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('opencomm:profile-updated', handleUpdate);
+      }
+    };
   }, []);
 
   // Display only real live workers from database query (no demo/fallback workers)

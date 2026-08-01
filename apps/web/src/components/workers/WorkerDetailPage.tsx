@@ -165,6 +165,20 @@ export default function WorkerDetailPage({
     }
 
     fetchWorker();
+
+    const handleUpdate = () => {
+      fetchWorker();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('opencomm:profile-updated', handleUpdate);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('opencomm:profile-updated', handleUpdate);
+      }
+    };
   }, [workerId]);
 
   useEffect(() => {

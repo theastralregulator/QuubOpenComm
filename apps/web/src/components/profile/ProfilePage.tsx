@@ -138,6 +138,13 @@ export default function ProfilePage({
   const [editBannerId, setEditBannerId] = useState('banner_01');
   const [editLocationVisibility, setEditLocationVisibility] = useState(true);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
+
+  // Worker profile edit buffers
+  const [editTitle, setEditTitle] = useState('');
+  const [editExperience, setEditExperience] = useState<number | ''>('');
+  const [editHourlyRate, setEditHourlyRate] = useState<number | ''>('');
+  const [editAvailability, setEditAvailability] = useState('Available Now');
+  const [editSkills, setEditSkills] = useState('');
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
@@ -390,6 +397,19 @@ export default function ProfilePage({
         location_visibility: editLocationVisibility,
       });
 
+      if (userType === 'worker' || workerProfile) {
+        await dbService.updateWorkerProfileData(loggedInId, {
+          profession: editTitle,
+          professional_title: editTitle,
+          experience_years: Number(editExperience) || 0,
+          hourly_rate: Number(editHourlyRate) || 0,
+          availability: editAvailability,
+          skills: editSkills.split(',').map(s => s.trim()).filter(Boolean),
+          bio_summary: editBio,
+          work_location: [editCity, editState, editCountry].filter(Boolean).join(', ')
+        });
+      }
+
       if (updated) {
         setProfile(updated);
         setUsername(updated.full_name || editName);
@@ -417,6 +437,14 @@ export default function ProfilePage({
       setEditBannerId(profile.banner_id || 'banner_01');
       setBannerPreview(null);
       setEditLocationVisibility(profile.location_visibility ?? true);
+
+      if (workerProfile) {
+        setEditTitle(workerProfile.profession || workerProfile.professional_title || '');
+        setEditExperience(workerProfile.experience_years ?? workerProfile.years_experience ?? 0);
+        setEditHourlyRate(workerProfile.hourly_rate ?? 0);
+        setEditAvailability(workerProfile.availability_status || workerProfile.availability || 'Available Now');
+        setEditSkills(Array.isArray(workerProfile.skills) ? workerProfile.skills.join(', ') : '');
+      }
     }
     setBannerFile(null);
     setIsEditing(true);
@@ -1308,6 +1336,72 @@ export default function ProfilePage({
                     <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Show general location on profile</span>
                   </label>
                 </div>
+
+                {(userType === 'worker' || workerProfile) && (
+                  <>
+                    <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Professional Title / Role</label>
+                      <input 
+                        type="text" 
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        placeholder="e.g. Lead Product Designer, Electrician"
+                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Experience (Years)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          value={editExperience}
+                          onChange={(e) => setEditExperience(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="e.g. 5"
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Hourly Rate (INR ₹)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          value={editHourlyRate}
+                          onChange={(e) => setEditHourlyRate(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="e.g. 850"
+                          className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Availability Status</label>
+                      <select 
+                        value={editAvailability}
+                        onChange={(e) => setEditAvailability(e.target.value)}
+                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                      >
+                        <option value="Available Now">Available Now</option>
+                        <option value="Part-time">Part-time</option>
+                        <option value="Full-time">Full-time</option>
+                        <option value="Busy">Busy</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Core Skills (comma separated)</label>
+                      <input 
+                        type="text" 
+                        value={editSkills}
+                        onChange={(e) => setEditSkills(e.target.value)}
+                        placeholder="e.g. React, TypeScript, Figma, UI/UX"
+                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-1.5">
                   <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Preferred Language</label>

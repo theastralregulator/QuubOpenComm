@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
 import { ConversationViewModel, DbMessage } from '../types';
 import { normalizeJobType } from './jobType';
+import { clearProfileCache } from './profileService';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
@@ -502,8 +503,9 @@ export const dbService = {
         throw new Error(error.message);
       }
       
-      if (!data) {
-        throw new Error("Update returned no data.");
+      clearProfileCache(userId);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('opencomm:profile-updated'));
       }
 
       return data as LocalProfile;
@@ -522,7 +524,63 @@ export const dbService = {
     else profiles.push(updated);
     openCommDb.saveProfiles(profiles);
 
+    clearProfileCache(userId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('opencomm:profile-updated'));
+    }
+
     return updated;
+  },
+
+  async updateWorkerProfileData(userId: string, updates: {
+    profession?: string;
+    professional_title?: string;
+    experience_years?: number;
+    hourly_rate?: number;
+    availability?: string;
+    skills?: string[];
+    bio_summary?: string;
+    work_location?: string;
+  }): Promise<void> {
+    if (supabase && userId) {
+      try {
+        const payload: any = {};
+        if (updates.profession !== undefined || updates.professional_title !== undefined) {
+          const titleVal = updates.professional_title || updates.profession || '';
+          payload.profession = titleVal;
+          payload.professional_title = titleVal;
+        }
+        if (updates.experience_years !== undefined) {
+          payload.experience_years = updates.experience_years;
+          payload.years_experience = updates.experience_years;
+        }
+        if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate;
+        if (updates.availability !== undefined) {
+          payload.availability = updates.availability;
+          payload.availability_status = updates.availability;
+        }
+        if (updates.skills !== undefined) payload.skills = updates.skills;
+        if (updates.bio_summary !== undefined) payload.bio_summary = updates.bio_summary;
+        if (updates.work_location !== undefined) payload.work_location = updates.work_location;
+
+        if (Object.keys(payload).length > 0) {
+          payload.updated_at = new Date().toISOString();
+          await supabase
+            .from('worker_profiles')
+            .upsert({
+              id: userId,
+              user_id: userId,
+              ...payload
+            });
+        }
+      } catch (err) {
+        console.error('updateWorkerProfileData error:', err);
+      }
+    }
+    clearProfileCache(userId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('opencomm:profile-updated'));
+    }
   },
 
   async createWorkerProfile(worker: LocalWorkerProfile): Promise<LocalWorkerProfile> {

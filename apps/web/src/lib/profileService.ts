@@ -273,6 +273,10 @@ unmapped IDs: ${unmappedIds.join(', ')}`);
   return result;
 }
 
-export function clearProfileCache(): void {
-  profileCache.clear();
+export function clearProfileCache(userId?: string): void {
+  if (userId) {
+    profileCache.delete(userId);
+  } else {
+    profileCache.clear();
+  }
 }
