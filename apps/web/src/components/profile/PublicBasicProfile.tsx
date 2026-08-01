@@ -29,9 +29,9 @@ export default function PublicBasicProfile({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 py-4 px-4 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
+    <div className="max-w-4xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
       {/* Basic Public Hero Card */}
-      <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xs relative overflow-hidden text-left">
+      <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-7 shadow-xs relative overflow-hidden text-left">
         {/* Soft Background Accent */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
 
@@ -41,7 +41,7 @@ export default function PublicBasicProfile({
               avatarUrl={profile.avatar_url || ''}
               fullName={profile.full_name || 'OpenComm Member'}
               size="2xl"
-              className="w-20 h-20 sm:w-24 sm:h-24 text-2xl sm:text-3xl border-4 border-slate-100 dark:border-slate-800 bg-slate-100 shadow-sm shrink-0"
+              className="w-20 h-20 sm:w-24 sm:h-24 text-2xl sm:text-3xl border-4 border-white dark:border-[#111827] shadow-md bg-slate-100 shrink-0"
             />
             <div className="min-w-0 space-y-1">
               <div className="flex items-center space-x-2 flex-wrap">
@@ -51,8 +51,8 @@ export default function PublicBasicProfile({
                 {(profile as any).verified && (
                   <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" title="Verified Account" />
                 )}
-                <span className="px-2.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-full text-[10px] font-bold font-mono">
-                  Member Profile
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                  ● Member Profile
                 </span>
               </div>
 

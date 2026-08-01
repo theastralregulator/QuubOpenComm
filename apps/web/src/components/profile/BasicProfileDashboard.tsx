@@ -125,12 +125,12 @@ export default function BasicProfileDashboard({
       initial="hidden"
       animate="show"
       variants={containerVariants}
-      className="max-w-[1200px] w-full mx-auto space-y-3 sm:space-y-5 pt-0 pb-[calc(100px+env(safe-area-inset-bottom))] sm:pb-12 px-2 sm:px-6 lg:px-8"
+      className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left"
     >
       {/* 1 & 2. HERO SECTION */}
-      <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] overflow-hidden shadow-[0_2px_10px_rgba(0,0,0,0.02)] relative w-full">
+      <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl overflow-hidden shadow-xs relative w-full text-left">
         {/* Banner Area */}
-        <div className={`h-[130px] md:h-[200px] w-full relative transition-all ${!profile?.banner_id?.startsWith('http') ? getBannerClass(profile?.banner_id) : ''}`}>
+        <div className={`h-[130px] md:h-[180px] w-full relative transition-all ${!profile?.banner_id?.startsWith('http') ? getBannerClass(profile?.banner_id) : ''}`}>
           {profile?.banner_id?.startsWith('http') ? (
             <img src={profile.banner_id} alt="Profile Banner" className="w-full h-full object-cover" />
           ) : (
@@ -140,59 +140,59 @@ export default function BasicProfileDashboard({
           {isOwner && (
             <button
               onClick={onUpdateBanner}
-              className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors backdrop-blur-sm shadow-sm"
+              className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors backdrop-blur-sm shadow-sm cursor-pointer"
               title="Edit Banner"
             >
-              <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+              <ImageIcon className="w-4 h-4" />
             </button>
           )}
         </div>
 
         {/* Profile Details Area */}
-        <div className="px-3 md:px-8 pb-5 md:pb-8 relative">
-          <div className="flex flex-col md:flex-row md:items-end justify-between -mt-10 md:-mt-16 gap-3 md:gap-4">
+        <div className="p-5 sm:p-7 relative">
+          <div className="flex flex-col md:flex-row md:items-end justify-between -mt-12 md:-mt-16 gap-4">
             
             {/* Avatar & Info Group */}
-            <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-6 flex-1 min-w-0">
-              <div className="relative group shrink-0 self-start md:self-auto ml-1 md:ml-0">
+            <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-5 flex-1 min-w-0">
+              <div className="relative group shrink-0 self-start md:self-auto">
                 <UserAvatar
                   avatarUrl={profile?.avatar_url || userPhoto}
                   fullName={profile?.full_name || username}
-                  size="3xl"
-                  className="w-[110px] h-[110px] md:w-[140px] md:h-[140px] border-[4px] md:border-[6px] border-white dark:border-[#0B0F19] shadow-md bg-slate-100"
+                  size="2xl"
+                  className="w-20 h-20 sm:w-24 sm:h-24 text-2xl sm:text-3xl border-4 border-white dark:border-[#111827] shadow-md bg-slate-100"
                 />
                 {isOwner && (
                   <button 
                     onClick={onUpdatePhoto}
-                    className="absolute bottom-1 right-1 p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full transition-all cursor-pointer shadow-lg hover:scale-105 active:scale-95"
+                    className="absolute bottom-0 right-0 p-2 bg-[#7C3AED] hover:bg-purple-700 text-white rounded-full transition-all shadow-md cursor-pointer border-2 border-white dark:border-[#111827]"
                     title="Update photo"
                   >
-                    <Camera className="w-4 h-4" />
+                    <Camera className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
 
-              <div className="flex-1 min-w-0 pb-1 pt-2 md:pt-0 text-left flex flex-col items-start w-full">
-                <div className="flex flex-wrap items-center justify-start gap-2 mb-1.5 w-full">
-                  <h1 className="text-[26px] md:text-[32px] font-bold text-slate-900 dark:text-white tracking-tight truncate leading-tight">
+              <div className="flex-1 min-w-0 pt-1 text-left space-y-1">
+                <div className="flex flex-wrap items-center space-x-2 gap-y-1">
+                  <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white truncate">
                     {profile?.full_name || username}
                   </h1>
-                  <span className="inline-flex items-center justify-center px-2.5 py-0.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 rounded-full text-[11px] font-bold border border-purple-100 dark:border-purple-500/20">
-                    Basic Account
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                    ● Basic Account
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-start gap-3 text-sm text-slate-500 dark:text-slate-400 font-medium w-full mt-1">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 pt-0.5">
                   {actualLocation && (
                     <span className="flex items-center">
-                      <MapPin className="w-3.5 h-3.5 mr-1" />
+                      <MapPin className="w-3.5 h-3.5 mr-1 text-purple-600 dark:text-purple-400 shrink-0" />
                       {actualLocation}
                     </span>
                   )}
                   {joinedYear && (
                     <span className="flex items-center">
-                      <Calendar className="w-3.5 h-3.5 mr-1" />
-                      Joined {joinedYear}
+                      <Calendar className="w-3.5 h-3.5 mr-1 text-slate-400 shrink-0" />
+                      Member since {joinedYear}
                     </span>
                   )}
                 </div>
@@ -200,19 +200,19 @@ export default function BasicProfileDashboard({
             </div>
 
             {/* Actions Group */}
-            <div className="flex items-center gap-2 shrink-0 pt-3 md:pt-0 md:pb-2 w-full md:w-auto">
+            <div className="flex items-center space-x-2 shrink-0 pt-2 md:pt-0">
               {isOwner ? (
                 <>
                   <button
                     onClick={onEditProfile}
-                    className="flex-1 md:flex-none flex items-center justify-center space-x-2 px-5 py-2.5 min-h-[44px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-sm font-bold text-slate-700 dark:text-slate-200 transition-colors"
+                    className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer hover:scale-102"
                   >
-                    <Edit2 className="w-4 h-4" />
+                    <Edit2 className="w-3.5 h-3.5" />
                     <span>Edit Profile</span>
                   </button>
                   <button 
                     onClick={() => triggerToast("Profile link copied to clipboard!")}
-                    className="flex items-center justify-center p-2.5 min-h-[44px] min-w-[44px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-slate-600 dark:text-slate-300 transition-colors shrink-0"
+                    className="h-9 w-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center transition-all cursor-pointer"
                     title="Share Profile"
                   >
                     <Share2 className="w-4 h-4" />
@@ -222,14 +222,14 @@ export default function BasicProfileDashboard({
                 <>
                   <button
                     onClick={() => triggerToast("Messaging is not yet available.")}
-                    className="flex-1 md:flex-none flex items-center justify-center space-x-2 px-5 py-2.5 min-h-[44px] bg-indigo-600 hover:bg-indigo-700 rounded-full text-sm font-bold text-white transition-colors"
+                    className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer hover:scale-102"
                   >
-                    <MessageSquare className="w-4 h-4" />
+                    <MessageSquare className="w-3.5 h-3.5" />
                     <span>Message</span>
                   </button>
                   <button 
                     onClick={() => triggerToast("Profile link copied to clipboard!")}
-                    className="flex items-center justify-center p-2.5 min-h-[44px] min-w-[44px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-slate-600 dark:text-slate-300 transition-colors shrink-0"
+                    className="h-9 w-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center transition-all cursor-pointer"
                     title="Share Profile"
                   >
                     <Share2 className="w-4 h-4" />
@@ -240,10 +240,10 @@ export default function BasicProfileDashboard({
           </div>
           
           {/* Integrated Bio Section */}
-          <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="mt-4 pt-3 border-t border-purple-500/10 text-left">
             {profile?.bio ? (
               <div>
-                <p className="text-[14px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-line">
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
                   {isBioExpanded || profile.bio.length <= 150 
                     ? profile.bio 
                     : `${profile.bio.substring(0, 150).trim()}...`}
@@ -251,7 +251,7 @@ export default function BasicProfileDashboard({
                 {profile.bio.length > 150 && (
                   <button 
                     onClick={() => setIsBioExpanded(!isBioExpanded)}
-                    className="mt-2 text-[13px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                    className="mt-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
                   >
                     {isBioExpanded ? 'Show less' : 'Read more'}
                   </button>
@@ -259,9 +259,9 @@ export default function BasicProfileDashboard({
               </div>
             ) : (
               isOwner && (
-                <div className="bg-indigo-50/50 dark:bg-indigo-500/5 rounded-xl p-4 flex flex-col items-start border border-indigo-100 dark:border-indigo-500/10">
-                  <span className="text-sm text-slate-600 dark:text-slate-300 font-medium mb-1">Add a short bio to tell people about yourself.</span>
-                  <button onClick={onEditProfile} className="text-[13px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:underline">
+                <div className="bg-purple-50/50 dark:bg-purple-950/20 rounded-xl p-3.5 flex flex-col items-start border border-purple-200/50 dark:border-purple-800/40">
+                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium mb-1">Add a short bio to tell people about yourself.</span>
+                  <button onClick={onEditProfile} className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer">
                     Add bio
                   </button>
                 </div>
@@ -272,30 +272,27 @@ export default function BasicProfileDashboard({
       </motion.div>
 
       {/* COMPACT STATISTICS & MAIN CONTENT */}
-      <div className={`grid grid-cols-1 gap-3 sm:gap-6 ${isOwner ? 'lg:grid-cols-12' : 'lg:grid-cols-1'}`}>
+      <div className={`grid grid-cols-1 gap-4 sm:gap-6 ${isOwner ? 'lg:grid-cols-12' : 'lg:grid-cols-1'}`}>
         
         {/* LEFT COLUMN: Main Info ~65% */}
-        <div className={isOwner ? "lg:col-span-8 space-y-3 sm:space-y-6" : "space-y-3 sm:space-y-6 w-full max-w-4xl mx-auto"}>
+        <div className={isOwner ? "lg:col-span-8 space-y-4 sm:space-y-6" : "space-y-4 sm:space-y-6 w-full max-w-4xl mx-auto"}>
           
           {/* 3. COMPACT STATISTICS */}
           {stats.length > 0 && (
-            <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[20px] shadow-[0_2px_10px_rgba(0,0,0,0.02)] overflow-hidden w-full">
-              <div className={`grid grid-cols-2 ${stats.length >= 4 ? 'md:grid-cols-4' : 'md:grid-cols-2'} divide-x-0 md:divide-x divide-y md:divide-y-0 divide-slate-100 dark:divide-slate-800/80`}>
+            <motion.div variants={itemVariants} className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-left">
                 {stats.map((stat, i) => (
                   <div 
                     key={i}
                     onClick={stat.onClick}
-                    className={`flex items-center justify-center sm:justify-start gap-3 sm:gap-4 p-3 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors ${stat.onClick ? 'cursor-pointer' : ''} ${
-                      i % 2 === 0 ? 'border-r border-slate-100 dark:border-slate-800/80 md:border-r-0' : ''
-                    } ${i < 2 ? 'border-b md:border-b-0 border-slate-100 dark:border-slate-800/80' : ''}`}
+                    className={`bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-all text-left ${stat.onClick ? 'cursor-pointer hover:border-purple-500/30 hover:shadow-md group' : ''}`}
                   >
-                    <div className={`w-10 h-10 rounded-[12px] ${stat.bg} ${stat.color} flex items-center justify-center shrink-0`}>
-                      <stat.icon className="w-5 h-5" />
+                    <div className="flex items-center justify-between mb-2">
+                      <stat.icon className={`w-4 h-4 ${stat.color} ${stat.onClick ? 'group-hover:scale-110' : ''} transition-transform`} />
+                      {stat.onClick && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
                     </div>
-                    <div className="flex flex-col text-left">
-                      <span className="text-[20px] font-bold text-slate-900 dark:text-white leading-tight">{stat.value}</span>
-                      <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">{stat.label}</span>
-                    </div>
+                    <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{stat.value}</span>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">{stat.label}</span>
                   </div>
                 ))}
               </div>
@@ -304,7 +301,7 @@ export default function BasicProfileDashboard({
 
           {/* Become a Worker CTA Card (Only for Basic Account Owner) */}
           {isOwner && (
-            <motion.div variants={itemVariants} className="bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 dark:from-purple-950/30 dark:via-indigo-950/30 dark:to-blue-950/30 border border-purple-500/20 dark:border-purple-800/40 rounded-[24px] p-6 shadow-xs text-left space-y-4">
+            <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-6 shadow-xs text-left space-y-3.5">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-2xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
                   <Wrench className="w-5 h-5" />
@@ -319,9 +316,9 @@ export default function BasicProfileDashboard({
               </p>
               <button 
                 onClick={onCreateWorker}
-                className="px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5"
+                className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 hover:scale-102"
               >
-                <Wrench className="w-4 h-4" />
+                <Wrench className="w-3.5 h-3.5" />
                 <span>Create Worker Profile</span>
               </button>
             </motion.div>
@@ -330,11 +327,9 @@ export default function BasicProfileDashboard({
 
         {/* RIGHT COLUMN: Quick Actions (Account Options & Logout) ~35% */}
         {isOwner && (
-          <div className="lg:col-span-4 space-y-3 sm:space-y-6">
-            <motion.div variants={itemVariants} className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-[24px] shadow-[0_2px_10px_rgba(0,0,0,0.02)] p-2">
-              <div className="px-4 pt-3 pb-2">
-                <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Account Options</h3>
-              </div>
+          <div className="lg:col-span-4 space-y-4 sm:space-y-6">
+            <motion.div variants={itemVariants} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs text-left">
+              <h3 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider font-mono mb-3">Account Options</h3>
               
               <div className="flex flex-col space-y-1">
                 {[
@@ -383,21 +378,21 @@ export default function BasicProfileDashboard({
                   <div 
                     key={i}
                     onClick={row.onClick}
-                    className="group flex items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-[16px] cursor-pointer transition-colors"
+                    className="group flex items-center p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-2xl cursor-pointer transition-colors"
                   >
-                    <div className={`w-[44px] h-[44px] rounded-[14px] ${row.bg} ${row.color} flex items-center justify-center shrink-0 mr-3`}>
-                      <row.icon className="w-5 h-5" />
+                    <div className={`w-9 h-9 rounded-xl ${row.bg} ${row.color} flex items-center justify-center shrink-0 mr-3`}>
+                      <row.icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0 pr-2">
                       <div className="flex items-center gap-1.5">
-                        <h4 className="text-[14px] font-bold text-slate-900 dark:text-white truncate">{row.title}</h4>
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">{row.title}</h4>
                         {row.badge && (
-                          <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-bold rounded-md uppercase tracking-wider shrink-0">
+                          <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[9px] font-bold rounded-md uppercase tracking-wider shrink-0 font-mono">
                             {row.badge}
                           </span>
                         )}
                       </div>
-                      <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate sm:whitespace-normal sm:line-clamp-2 leading-tight">{row.subtitle}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate leading-tight">{row.subtitle}</p>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-transform group-hover:translate-x-1 shrink-0" />
                   </div>
@@ -405,12 +400,12 @@ export default function BasicProfileDashboard({
               </div>
               
               {/* Logout Button */}
-              <div className="p-2 border-t border-slate-100 dark:border-slate-800 mt-2">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 mt-3">
                 <button
-                  onClick={() => setShowLogoutConfirm(true)}
-                  className="w-full flex items-center justify-center space-x-2 py-3 min-h-[44px] bg-transparent border border-rose-200 dark:border-rose-500/20 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-[14px] text-[13px] font-bold text-rose-600 dark:text-rose-400 transition-colors"
+                  onClick={() => setShowLogoutConfirm(false) || setShowLogoutConfirm(true)}
+                  className="w-full h-10 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                   <span>Log Out</span>
                 </button>
               </div>
@@ -434,18 +429,18 @@ export default function BasicProfileDashboard({
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-sm bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-[24px] p-6 shadow-2xl text-center"
+              className="relative w-full max-w-sm bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl text-center"
             >
               <div className="w-12 h-12 bg-rose-50 dark:bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <LogOut className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Log out of OpenComm?</h3>
-              <p className="text-[14px] text-slate-500 dark:text-slate-400 mb-6 font-medium">You will need to sign in again to access your account.</p>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">Log out of OpenComm?</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 font-medium">You will need to sign in again to access your account.</p>
               
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowLogoutConfirm(false)}
-                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-[14px] text-sm font-bold transition-colors"
+                  className="flex-1 h-10 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -454,7 +449,7 @@ export default function BasicProfileDashboard({
                     setShowLogoutConfirm(false);
                     onLogout();
                   }}
-                  className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-[14px] text-sm font-bold shadow-md shadow-rose-500/20 transition-all"
+                  className="flex-1 h-10 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
                 >
                   Log Out
                 </button>
