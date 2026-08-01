@@ -5,7 +5,8 @@ import {
   MapPin, Calendar, Camera, Edit2,
   Briefcase, Bookmark, Users, Star,
   UserCircle, Wrench, Building2, ShieldAlert, LifeBuoy,
-  ChevronRight, Share2, LogOut, ImageIcon, MessageSquare
+  ChevronRight, Share2, LogOut, ImageIcon, MessageSquare,
+  CheckCircle2, ShieldCheck, UserCheck, Clock, User
 } from 'lucide-react';
 import UserAvatar from '../common/UserAvatar';
 import { LocalProfile } from '../../lib/supabase';
@@ -91,9 +92,15 @@ export default function BasicProfileDashboard({
   triggerToast
 }: BasicProfileDashboardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isBioExpanded, setIsBioExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'about'>('overview');
+
+  // Real database verification status check
+  const isVerified = Boolean((profile as any)?.verified || profile?.phone_verified || (profile as any)?.verification_status === 'verified');
+  const isPendingVerification = profile?.signup_status === 'pending_verification' || (profile as any)?.verification_status === 'pending';
 
   // Animation variants
   const containerVariants = {
@@ -111,13 +118,13 @@ export default function BasicProfileDashboard({
 
   const actualLocation = (!isOwner && profile?.location_visibility === false) ? 'Location hidden' : formattedLocation;
   
-  // Conditionally hide stats for public users
+  // Real database statistic cards
   const stats = [
-    { label: 'My Job Posts', value: myJobPostsCount.toString(), icon: Briefcase, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-500/10', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS) },
-    { label: 'Jobs Applied', value: jobsAppliedCount === null || jobsAppliedCount === undefined ? '0' : jobsAppliedCount.toString(), icon: Briefcase, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/jobs-applied', location, SESSION_STORAGE_KEYS.JOBS_APPLIED) },
-    { label: 'Saved Jobs', value: jobs.filter(j => j.bookmarked).length.toString(), icon: Bookmark, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-500/10', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/saved-jobs', location, SESSION_STORAGE_KEYS.SAVED_JOBS) },
-    { label: 'Saved Workers', value: workers.filter(w => w.bookmarked).length.toString(), icon: Users, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/saved-workers', location, SESSION_STORAGE_KEYS.SAVED_WORKERS) },
-    { label: 'Reviews', value: '0', icon: Star, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-500/10', private: false }
+    { label: 'My Job Posts', value: myJobPostsCount.toString(), icon: Briefcase, color: 'text-purple-600 dark:text-purple-400', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS) },
+    { label: 'Jobs Applied', value: jobsAppliedCount === null || jobsAppliedCount === undefined ? '0' : jobsAppliedCount.toString(), icon: Briefcase, color: 'text-blue-600 dark:text-blue-400', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/jobs-applied', location, SESSION_STORAGE_KEYS.JOBS_APPLIED) },
+    { label: 'Saved Jobs', value: jobs.filter(j => j.bookmarked).length.toString(), icon: Bookmark, color: 'text-indigo-600 dark:text-indigo-400', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/saved-jobs', location, SESSION_STORAGE_KEYS.SAVED_JOBS) },
+    { label: 'Saved Workers', value: workers.filter(w => w.bookmarked).length.toString(), icon: Users, color: 'text-emerald-600 dark:text-emerald-400', private: true, onClick: () => navigateWithOrigin(navigate, '/profile/saved-workers', location, SESSION_STORAGE_KEYS.SAVED_WORKERS) },
+    { label: 'Reviews', value: '0', icon: Star, color: 'text-amber-600 dark:text-amber-400', private: false }
   ].filter(s => isOwner ? true : !s.private);
 
   return (
@@ -127,7 +134,9 @@ export default function BasicProfileDashboard({
       variants={containerVariants}
       className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left"
     >
-      {/* 1 & 2. HERO SECTION */}
+      {/* ========================================================================= */}
+      {/* 1. PROFILE HERO SECTION (Matching Worker Profile Compact Card Layout) */}
+      {/* ========================================================================= */}
       <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl overflow-hidden shadow-xs relative w-full text-left">
         {/* Banner Area */}
         <div className={`h-[130px] md:h-[180px] w-full relative transition-all ${!profile?.banner_id?.startsWith('http') ? getBannerClass(profile?.banner_id) : ''}`}>
@@ -152,7 +161,7 @@ export default function BasicProfileDashboard({
         <div className="p-5 sm:p-7 relative">
           <div className="flex flex-col md:flex-row md:items-end justify-between -mt-12 md:-mt-16 gap-4">
             
-            {/* Avatar & Info Group */}
+            {/* Avatar & Main Identity */}
             <div className="flex flex-col md:flex-row md:items-end gap-4 md:gap-5 flex-1 min-w-0">
               <div className="relative group shrink-0 self-start md:self-auto">
                 <UserAvatar
@@ -177,6 +186,9 @@ export default function BasicProfileDashboard({
                   <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white truncate">
                     {profile?.full_name || username}
                   </h1>
+                  {isVerified && (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 fill-emerald-500/10" title="Verified Account" />
+                  )}
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                     ● Basic Account
                   </span>
@@ -271,61 +283,220 @@ export default function BasicProfileDashboard({
         </div>
       </motion.div>
 
-      {/* COMPACT STATISTICS & MAIN CONTENT */}
+      {/* ========================================================================= */}
+      {/* 2. STATISTICS SECTION (Matching Worker Profile Statistics Cards) */}
+      {/* ========================================================================= */}
+      {stats.length > 0 && (
+        <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-left">
+          {stats.map((stat, i) => (
+            <div 
+              key={i}
+              onClick={stat.onClick}
+              className={`bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-all text-left ${stat.onClick ? 'cursor-pointer hover:border-purple-500/30 hover:shadow-md group' : ''}`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <stat.icon className={`w-4 h-4 ${stat.color} ${stat.onClick ? 'group-hover:scale-110' : ''} transition-transform`} />
+                {stat.onClick && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+              </div>
+              <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{stat.value}</span>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">{stat.label}</span>
+            </div>
+          ))}
+        </motion.div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. PROFILE CONTENT AREA WITH WORKER-STYLE TAB NAVIGATION */}
+      {/* ========================================================================= */}
       <div className={`grid grid-cols-1 gap-4 sm:gap-6 ${isOwner ? 'lg:grid-cols-12' : 'lg:grid-cols-1'}`}>
         
-        {/* LEFT COLUMN: Main Info ~65% */}
+        {/* LEFT COLUMN: Tabs & Main Content */}
         <div className={isOwner ? "lg:col-span-8 space-y-4 sm:space-y-6" : "space-y-4 sm:space-y-6 w-full max-w-4xl mx-auto"}>
           
-          {/* 3. COMPACT STATISTICS */}
-          {stats.length > 0 && (
-            <motion.div variants={itemVariants} className="space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-left">
-                {stats.map((stat, i) => (
-                  <div 
-                    key={i}
-                    onClick={stat.onClick}
-                    className={`bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-all text-left ${stat.onClick ? 'cursor-pointer hover:border-purple-500/30 hover:shadow-md group' : ''}`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <stat.icon className={`w-4 h-4 ${stat.color} ${stat.onClick ? 'group-hover:scale-110' : ''} transition-transform`} />
-                      {stat.onClick && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-                    </div>
-                    <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{stat.value}</span>
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">{stat.label}</span>
+          {/* Tab Navigation Pill Bar */}
+          <div className="flex items-center space-x-1.5 p-1.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-x-auto text-left">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+                activeTab === 'overview'
+                  ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Overview</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('about')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+                activeTab === 'about'
+                  ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>About Me</span>
+            </button>
+          </div>
+
+          {/* TAB CONTENT: OVERVIEW */}
+          {activeTab === 'overview' && (
+            <motion.div
+              key="tab-overview"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="space-y-4 sm:space-y-6"
+            >
+              {/* Account Overview Card */}
+              <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4 text-left">
+                <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider font-mono">Account Summary</h3>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Account Type</span>
+                    <span className="font-extrabold text-purple-600 dark:text-purple-400 text-sm">Basic Member</span>
                   </div>
-                ))}
+
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Location</span>
+                    <span className="font-bold text-slate-900 dark:text-white text-sm">{actualLocation || 'Not specified'}</span>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Member Since</span>
+                    <span className="font-bold text-slate-900 dark:text-white text-sm">{joinedYear ? `Year ${joinedYear}` : 'Active'}</span>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Verification Status</span>
+                    <span className={`font-bold text-sm ${isVerified ? 'text-emerald-600 dark:text-emerald-400' : isPendingVerification ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500'}`}>
+                      {isVerified ? 'Verified' : isPendingVerification ? 'Pending' : 'Unverified'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. BECOME A WORKER SECTION (Moved below Basic Account profile info) */}
+              {isOwner && (
+                <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-6 shadow-xs text-left space-y-3.5">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-2xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                      <Wrench className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Become a Worker on OpenComm</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Offer skilled services, get listed in the Worker Directory, and receive reviews.</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Converting to a Worker Account lets you showcase your skills, set your hourly rate, upload portfolio projects, manage availability, and accept direct hiring requests from employers.
+                  </p>
+                  <button 
+                    onClick={onCreateWorker}
+                    className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 hover:scale-102"
+                  >
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span>Create Worker Profile</span>
+                  </button>
+                </div>
+              )}
+
+              {/* 5. ACCOUNT VERIFICATION CARD */}
+              <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs space-y-3 text-left">
+                <div className="pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider font-mono">Account Verification</h3>
+                </div>
+                
+                {isVerified ? (
+                  <div className="flex items-center space-x-3 p-3.5 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 text-xs">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                    <div>
+                      <strong className="text-slate-900 dark:text-white font-bold block">Verified Account</strong>
+                      <span className="text-slate-500 dark:text-slate-400">Account identity and security status verified for OpenComm marketplace transactions.</span>
+                    </div>
+                  </div>
+                ) : isPendingVerification ? (
+                  <div className="flex items-center space-x-3 p-3.5 bg-amber-500/10 rounded-2xl border border-amber-500/20 text-xs">
+                    <Clock className="w-5 h-5 text-amber-500 shrink-0" />
+                    <div>
+                      <strong className="text-amber-700 dark:text-amber-300 font-bold block">Verification Pending</strong>
+                      <span className="text-slate-500 dark:text-slate-400">Your account verification request is currently under review by moderation.</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
+                    <div className="flex items-center space-x-3">
+                      <ShieldCheck className="w-5 h-5 text-purple-600 dark:text-purple-400 shrink-0" />
+                      <div>
+                        <strong className="text-slate-900 dark:text-white font-bold block">Unverified Account</strong>
+                        <span className="text-slate-500 dark:text-slate-400">Apply for account verification to build trust across the network.</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => triggerToast("Verification request submitted for review!")}
+                      className="h-8 px-3.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 shadow-xs self-start sm:self-auto"
+                    >
+                      Apply for Verification
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
 
-          {/* Become a Worker CTA Card (Only for Basic Account Owner) */}
-          {isOwner && (
-            <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-6 shadow-xs text-left space-y-3.5">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                  <Wrench className="w-5 h-5" />
+          {/* TAB CONTENT: ABOUT ME */}
+          {activeTab === 'about' && (
+            <motion.div
+              key="tab-about"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="space-y-4 sm:space-y-6"
+            >
+              <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4 text-left">
+                <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider font-mono">Personal Details & Bio</h3>
                 </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Become a Worker on OpenComm</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Offer skilled services, get listed in the Worker Directory, and receive reviews.</p>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Full Name</span>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">{profile?.full_name || username}</p>
+                  </div>
+
+                  {profile?.username && (
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Username</span>
+                      <p className="text-xs font-mono text-purple-600 dark:text-purple-400">@{profile.username}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Bio</span>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                      {profile?.bio || 'No bio provided yet.'}
+                    </p>
+                  </div>
+
+                  {profile?.preferred_language && (
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Preferred Language</span>
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{profile.preferred_language}</p>
+                    </div>
+                  )}
                 </div>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                Converting to a Worker Account lets you showcase your skills, set your hourly rate, upload portfolio projects, manage availability, and accept direct hiring requests from employers.
-              </p>
-              <button 
-                onClick={onCreateWorker}
-                className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 hover:scale-102"
-              >
-                <Wrench className="w-3.5 h-3.5" />
-                <span>Create Worker Profile</span>
-              </button>
             </motion.div>
           )}
         </div>
 
-        {/* RIGHT COLUMN: Quick Actions (Account Options & Logout) ~35% */}
+        {/* ========================================================================= */}
+        {/* 6. ACCOUNT OPTIONS (Right Column for Owner) */}
+        {/* ========================================================================= */}
         {isOwner && (
           <div className="lg:col-span-4 space-y-4 sm:space-y-6">
             <motion.div variants={itemVariants} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs text-left">
@@ -402,7 +573,7 @@ export default function BasicProfileDashboard({
               {/* Logout Button */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 mt-3">
                 <button
-                  onClick={() => setShowLogoutConfirm(false) || setShowLogoutConfirm(true)}
+                  onClick={() => setShowLogoutConfirm(true)}
                   className="w-full h-10 border border-rose-200 dark:border-rose-900/40 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
