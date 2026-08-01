@@ -403,14 +403,35 @@ export default function ProfilePage({
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[Edit Profile Debug] handleSaveProfile form submit event fired', {
+      loggedInId,
+      editName,
+      editTitle,
+      editBio,
+      editCategory,
+      editHourlyRate,
+      editSalaryPeriod
+    });
     setLoading(true);
     try {
-      let finalBannerId = editBannerId === 'custom' ? undefined : editBannerId;
-      if (bannerFile) {
-        finalBannerId = await dbService.uploadBanner(loggedInId, bannerFile);
+      // 1. Resolve fresh user id directly from Supabase Auth to ensure auth.uid() match
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      const targetUserId = authData?.user?.id || loggedInId;
+
+      if (!targetUserId) {
+        throw new Error("Authentication required to update profile. Please sign in again.");
       }
 
-      const updated = await dbService.updateProfile(loggedInId, {
+      console.log('[Edit Profile Debug] Verified target user ID:', targetUserId, 'auth user ID:', authData?.user?.id);
+
+      let finalBannerId = editBannerId === 'custom' ? undefined : editBannerId;
+      if (bannerFile) {
+        finalBannerId = await dbService.uploadBanner(targetUserId, bannerFile);
+      }
+
+      console.log('[Edit Profile Debug] Calling dbService.updateProfile for targetUserId:', targetUserId);
+
+      const updated = await dbService.updateProfile(targetUserId, {
         full_name: editName,
         bio: editBio,
         city: editCity,
@@ -422,8 +443,11 @@ export default function ProfilePage({
         location_visibility: editLocationVisibility,
       });
 
+      console.log('[Edit Profile Debug] dbService.updateProfile completed:', updated);
+
       if (userType === 'worker' || workerProfile) {
-        await dbService.updateWorkerProfileData(loggedInId, {
+        console.log('[Edit Profile Debug] Calling dbService.updateWorkerProfileData for targetUserId:', targetUserId);
+        await dbService.updateWorkerProfileData(targetUserId, {
           profession: editTitle,
           professional_title: editTitle,
           experience_years: Number(editExperience) || 0,
@@ -439,6 +463,7 @@ export default function ProfilePage({
           bio_summary: editBio,
           work_location: [editCity, editState, editCountry].filter(Boolean).join(', ')
         });
+        console.log('[Edit Profile Debug] dbService.updateWorkerProfileData completed successfully.');
       }
 
       if (updated) {
@@ -447,8 +472,16 @@ export default function ProfilePage({
         triggerToast("Profile updated successfully!");
       }
       setIsEditing(false);
+      
+      // Force invalidate profile cache & reload profile data from DB
+      clearProfileCache(targetUserId);
       await loadProfileData();
+      
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('opencomm:profile-updated'));
+      }
     } catch (err: any) {
+      console.error('[Edit Profile Debug] ERROR during profile save:', err);
       triggerToast(err.message || "Failed to update profile.");
     } finally {
       setLoading(false);

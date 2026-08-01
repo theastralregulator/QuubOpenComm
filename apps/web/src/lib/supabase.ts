@@ -483,7 +483,19 @@ export const dbService = {
   },
 
   async updateProfile(userId: string, updates: Partial<LocalProfile>): Promise<LocalProfile> {
+    console.log('[Supabase Debug] updateProfile initiating for userId:', userId, 'updates:', updates);
     if (supabase) {
+      // 1. First sync email verification if logged in user is confirmed in Auth
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email_confirmed_at) {
+          await supabase.rpc('sync_email_verification');
+        }
+      } catch (e) {
+        console.warn('[Supabase Debug] sync_email_verification pre-check warning:', e);
+      }
+
+      // 2. Execute update_my_basic_profile RPC
       const { data, error } = await supabase.rpc('update_my_basic_profile', {
         p_username: updates.username,
         p_full_name: updates.full_name,
@@ -495,20 +507,39 @@ export const dbService = {
         p_country: updates.country,
         p_preferred_language: updates.preferred_language,
         p_bio: updates.bio,
+        p_show_location_publicly: updates.location_visibility,
         p_onboarding_completed: updates.onboarding_completed
       });
 
+      console.log('[Supabase Debug] update_my_basic_profile RPC response:', { data, error });
+
       if (error) {
-        console.error('updateProfile RPC error returned:', error.message);
+        console.error('[Supabase Debug] updateProfile RPC error returned:', error.message);
         throw new Error(error.message);
       }
       
+      // Also update location_visibility directly on profiles table if needed
+      if (updates.location_visibility !== undefined && userId) {
+        const { error: directErr } = await supabase
+          .from('profiles')
+          .update({ location_visibility: updates.location_visibility })
+          .eq('id', userId);
+        if (directErr) {
+          console.warn('[Supabase Debug] Direct location_visibility update warning:', directErr);
+        }
+      }
+
+      const resObj = {
+        ...(data as any),
+        location_visibility: updates.location_visibility ?? (data as any)?.show_location_publicly ?? true
+      };
+
       clearProfileCache(userId);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('opencomm:profile-updated'));
       }
 
-      return data as LocalProfile;
+      return resObj as LocalProfile;
     }
 
     // Local fallback only if no Supabase instance
@@ -548,45 +579,72 @@ export const dbService = {
     bio_summary?: string;
     work_location?: string;
   }): Promise<void> {
+    console.log('[Supabase Debug] updateWorkerProfileData initiating for userId:', userId, 'updates:', updates);
     if (supabase && userId) {
+      // First attempt to sync email verification status if user is authenticated
       try {
-        const payload: any = {};
-        if (updates.profession !== undefined || updates.professional_title !== undefined) {
-          const titleVal = updates.professional_title || updates.profession || '';
-          payload.profession = titleVal;
-          payload.professional_title = titleVal;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email_confirmed_at) {
+          await supabase.rpc('sync_email_verification');
         }
-        if (updates.experience_years !== undefined) {
-          payload.experience_years = updates.experience_years;
-          payload.years_experience = updates.experience_years;
-        }
-        if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate;
-        if (updates.expected_salary !== undefined) payload.expected_salary = updates.expected_salary;
-        if (updates.expected_salary_min !== undefined) payload.expected_salary_min = updates.expected_salary_min;
-        if (updates.expected_salary_max !== undefined) payload.expected_salary_max = updates.expected_salary_max;
-        if (updates.salary_period !== undefined) payload.salary_period = updates.salary_period;
-        if (updates.work_preference !== undefined) payload.work_preference = updates.work_preference;
-        if (updates.primary_category !== undefined) payload.primary_category = updates.primary_category;
-        if (updates.availability !== undefined) {
-          payload.availability = updates.availability;
-          payload.availability_status = updates.availability;
-        }
-        if (updates.skills !== undefined) payload.skills = updates.skills;
-        if (updates.bio_summary !== undefined) payload.bio_summary = updates.bio_summary;
-        if (updates.work_location !== undefined) payload.work_location = updates.work_location;
+      } catch (e) {
+        console.warn('[Supabase Debug] sync_email_verification pre-check warning in worker update:', e);
+      }
 
-        if (Object.keys(payload).length > 0) {
-          payload.updated_at = new Date().toISOString();
-          await supabase
-            .from('worker_profiles')
-            .upsert({
-              id: userId,
-              user_id: userId,
-              ...payload
-            });
+      const titleVal = updates.professional_title !== undefined ? updates.professional_title : updates.profession;
+      const expVal = updates.experience_years;
+      const availVal = updates.availability;
+
+      const payload: any = {};
+      if (titleVal !== undefined) payload.profession = titleVal;
+      if (expVal !== undefined) payload.experience_years = expVal;
+      if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate;
+      if (updates.expected_salary !== undefined) payload.expected_salary = updates.expected_salary;
+      if (updates.expected_salary_min !== undefined) payload.expected_salary_min = updates.expected_salary_min;
+      if (updates.expected_salary_max !== undefined) payload.expected_salary_max = updates.expected_salary_max;
+      if (updates.salary_period !== undefined) payload.salary_period = updates.salary_period;
+      if (updates.work_preference !== undefined) payload.work_preference = updates.work_preference;
+      if (updates.primary_category !== undefined) payload.primary_category = updates.primary_category;
+      if (availVal !== undefined) payload.availability = availVal;
+      if (updates.skills !== undefined) payload.skills = updates.skills;
+      if (updates.bio_summary !== undefined) payload.bio_summary = updates.bio_summary;
+      if (updates.work_location !== undefined) payload.work_location = updates.work_location;
+
+      if (Object.keys(payload).length > 0) {
+        payload.updated_at = new Date().toISOString();
+        
+        console.log('[Supabase Debug] Executing worker_profiles upsert with payload:', payload);
+
+        const { data, error } = await supabase
+          .from('worker_profiles')
+          .upsert({
+            id: userId,
+            user_id: userId,
+            ...payload
+          }, { onConflict: 'id' })
+          .select();
+
+        console.log('[Supabase Debug] worker_profiles upsert response:', { data, error, affectedRows: data ? data.length : 0 });
+
+        if (error) {
+          console.error('[Supabase Debug] CRITICAL worker_profiles upsert error:', error);
+          throw new Error(`Worker profile update failed: ${error.message}`);
         }
-      } catch (err) {
-        console.error('updateWorkerProfileData error:', err);
+
+        if (!data || data.length === 0) {
+          console.warn('[Supabase Debug] worker_profiles upsert returned 0 rows. Attempting explicit UPDATE...');
+          const { data: updateData, error: updateErr } = await supabase
+            .from('worker_profiles')
+            .update(payload)
+            .eq('id', userId)
+            .select();
+
+          console.log('[Supabase Debug] worker_profiles explicit UPDATE response:', { updateData, updateErr });
+
+          if (updateErr) {
+            throw new Error(`Worker profile update failed: ${updateErr.message}`);
+          }
+        }
       }
     }
     clearProfileCache(userId);
