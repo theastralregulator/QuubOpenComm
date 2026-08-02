@@ -38,18 +38,18 @@ DROP TABLE IF EXISTS public.deal_proposals CASCADE;
 -- -----------------------------------------------------------------------------
 -- 3. Extend existing hiring_requests table
 -- -----------------------------------------------------------------------------
-ALTER TABLE public.hiring_requests 
+ALTER TABLE public.hiring_requests
   DROP CONSTRAINT IF EXISTS hiring_requests_status_check;
 
-ALTER TABLE public.hiring_requests 
-  ADD CONSTRAINT hiring_requests_status_check 
+ALTER TABLE public.hiring_requests
+  ADD CONSTRAINT hiring_requests_status_check
   CHECK (status IN (
-    'pending', 'accepted', 'rejected', 'withdrawn', 
-    'negotiating', 'proposal_pending', 'changes_requested', 
+    'pending', 'accepted', 'rejected', 'withdrawn',
+    'negotiating', 'proposal_pending', 'changes_requested',
     'confirmed', 'cancelled', 'expired', 'completed'
   ));
 
-ALTER TABLE public.hiring_requests 
+ALTER TABLE public.hiring_requests
   ADD COLUMN IF NOT EXISTS negotiation_room_id uuid,
   ADD COLUMN IF NOT EXISTS active_proposal_id uuid,
   ADD COLUMN IF NOT EXISTS work_contract_id uuid,
@@ -66,15 +66,16 @@ ALTER TABLE public.hiring_requests
 
 -- -----------------------------------------------------------------------------
 -- 4. Extend existing conversations table
+-- Preserve existing conversation types (application, worker_direct, direct) and add work_contract
 -- -----------------------------------------------------------------------------
-ALTER TABLE public.conversations 
+ALTER TABLE public.conversations
   DROP CONSTRAINT IF EXISTS conversations_conversation_type_check;
 
-ALTER TABLE public.conversations 
-  ADD CONSTRAINT conversations_conversation_type_check 
+ALTER TABLE public.conversations
+  ADD CONSTRAINT conversations_conversation_type_check
   CHECK (conversation_type IN ('application', 'worker_direct', 'work_contract', 'direct'));
 
-ALTER TABLE public.conversations 
+ALTER TABLE public.conversations
   ADD COLUMN IF NOT EXISTS work_contract_id uuid;
 
 -- -----------------------------------------------------------------------------
@@ -85,11 +86,13 @@ CREATE TABLE IF NOT EXISTS public.negotiation_rooms (
   hiring_request_id uuid NOT NULL REFERENCES public.hiring_requests(id) ON DELETE CASCADE,
   client_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   worker_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'locked', 'closed', 'cancelled')),
-  active_proposal_id uuid,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'locked', 'cancelled', 'completed')),
+  last_message_at timestamp with time zone DEFAULT now() NOT NULL,
+  locked_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT negotiation_rooms_unique_request UNIQUE (hiring_request_id)
+  CONSTRAINT negotiation_rooms_unique_request UNIQUE (hiring_request_id),
+  CONSTRAINT negotiation_rooms_different_users CHECK (client_id <> worker_id)
 );
 
 -- -----------------------------------------------------------------------------
@@ -99,10 +102,13 @@ CREATE TABLE IF NOT EXISTS public.negotiation_messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   negotiation_room_id uuid NOT NULL REFERENCES public.negotiation_rooms(id) ON DELETE CASCADE,
   sender_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  message_type text NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'system', 'proposal_event', 'action')),
+  message_type text NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'system', 'proposal_event', 'status_event')),
   text text NOT NULL,
   metadata jsonb DEFAULT '{}'::jsonb,
-  created_at timestamp with time zone DEFAULT now() NOT NULL
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  edited_at timestamp with time zone,
+  deleted_at timestamp with time zone,
+  CONSTRAINT negotiation_messages_text_length CHECK (char_length(trim(text)) > 0 AND char_length(text) <= 5000)
 );
 
 -- -----------------------------------------------------------------------------
@@ -112,18 +118,18 @@ CREATE TABLE public.deal_proposals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   hiring_request_id uuid NOT NULL REFERENCES public.hiring_requests(id) ON DELETE CASCADE,
   negotiation_room_id uuid NOT NULL REFERENCES public.negotiation_rooms(id) ON DELETE CASCADE,
-  proposer_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   version_number integer NOT NULL DEFAULT 1,
+  proposed_by uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   work_title text NOT NULL,
   work_description text NOT NULL,
   final_price numeric(10,2) NOT NULL CHECK (final_price >= 0),
-  payment_type text NOT NULL DEFAULT 'fixed' CHECK (payment_type IN ('fixed', 'hourly', 'milestone')),
+  payment_type text NOT NULL DEFAULT 'fixed' CHECK (payment_type IN ('hourly', 'fixed', 'monthly', 'daily', 'project')),
   work_date date,
   start_time time,
   duration text,
   location text,
   additional_terms text,
-  proposal_status text NOT NULL DEFAULT 'pending' CHECK (proposal_status IN ('pending', 'accepted', 'rejected', 'changes_requested', 'superseded')),
+  proposal_status text NOT NULL DEFAULT 'pending' CHECK (proposal_status IN ('pending', 'changes_requested', 'rejected', 'superseded', 'accepted')),
   client_response text NOT NULL DEFAULT 'pending' CHECK (client_response IN ('pending', 'accepted', 'rejected', 'changes_requested')),
   worker_response text NOT NULL DEFAULT 'pending' CHECK (worker_response IN ('pending', 'accepted', 'rejected', 'changes_requested')),
   client_responded_at timestamp with time zone,
@@ -141,9 +147,7 @@ CREATE TABLE public.deal_proposals (
 CREATE TABLE public.work_contracts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   hiring_request_id uuid NOT NULL REFERENCES public.hiring_requests(id) ON DELETE CASCADE,
-  negotiation_room_id uuid REFERENCES public.negotiation_rooms(id) ON DELETE SET NULL,
-  agreed_proposal_id uuid NOT NULL REFERENCES public.deal_proposals(id) ON DELETE RESTRICT,
-  permanent_conversation_id uuid REFERENCES public.conversations(id) ON DELETE SET NULL,
+  deal_proposal_id uuid NOT NULL REFERENCES public.deal_proposals(id) ON DELETE RESTRICT,
   client_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   worker_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   work_title text NOT NULL,
@@ -155,15 +159,19 @@ CREATE TABLE public.work_contracts (
   duration text,
   location text,
   additional_terms text,
-  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'disputed', 'cancelled')),
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cancelled', 'disputed')),
+  permanent_conversation_id uuid REFERENCES public.conversations(id) ON DELETE SET NULL,
   confirmed_at timestamp with time zone DEFAULT now() NOT NULL,
+  completed_at timestamp with time zone,
+  cancelled_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT work_contracts_unique_request UNIQUE (hiring_request_id)
+  CONSTRAINT work_contracts_unique_hiring_request UNIQUE (hiring_request_id),
+  CONSTRAINT work_contracts_unique_deal_proposal UNIQUE (deal_proposal_id)
 );
 
 -- -----------------------------------------------------------------------------
--- 9. Add Foreign Keys & Indexes
+-- 9. Add Foreign Keys, Constraints & Unique Partial Indexes
 -- -----------------------------------------------------------------------------
 ALTER TABLE public.hiring_requests
   ADD CONSTRAINT hiring_requests_negotiation_room_id_fkey
@@ -179,6 +187,12 @@ ALTER TABLE public.conversations
   ADD CONSTRAINT conversations_work_contract_id_fkey
   FOREIGN KEY (work_contract_id) REFERENCES public.work_contracts(id) ON DELETE SET NULL;
 
+-- Unique partial index on conversations(work_contract_id)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_conversations_work_contract
+  ON public.conversations(work_contract_id)
+  WHERE work_contract_id IS NOT NULL;
+
+-- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_negotiation_rooms_request ON public.negotiation_rooms(hiring_request_id);
 CREATE INDEX IF NOT EXISTS idx_negotiation_rooms_client ON public.negotiation_rooms(client_id);
 CREATE INDEX IF NOT EXISTS idx_negotiation_rooms_worker ON public.negotiation_rooms(worker_id);
@@ -193,29 +207,31 @@ CREATE INDEX IF NOT EXISTS idx_deal_proposals_status ON public.deal_proposals(pr
 CREATE INDEX IF NOT EXISTS idx_work_contracts_request ON public.work_contracts(hiring_request_id);
 CREATE INDEX IF NOT EXISTS idx_work_contracts_client ON public.work_contracts(client_id);
 CREATE INDEX IF NOT EXISTS idx_work_contracts_worker ON public.work_contracts(worker_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_work_contract ON public.conversations(work_contract_id);
 
 -- -----------------------------------------------------------------------------
--- 10. Enable Row Level Security (RLS) & Define Policies
+-- 10. Enable Row Level Security (RLS) & Define Participant SELECT Policies ONLY
+-- Direct INSERT and UPDATE are disabled; all mutations must run via SECURITY DEFINER RPCs.
 -- -----------------------------------------------------------------------------
 ALTER TABLE public.negotiation_rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.negotiation_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.deal_proposals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.work_contracts ENABLE ROW LEVEL SECURITY;
 
--- Policies for negotiation_rooms
+-- Clean up any existing policies
 DROP POLICY IF EXISTS "Users can view negotiation rooms they are part of" ON public.negotiation_rooms;
-CREATE POLICY "Users can view negotiation rooms they are part of"
+DROP POLICY IF EXISTS "Participants can update negotiation rooms" ON public.negotiation_rooms;
+DROP POLICY IF EXISTS "Participants can view negotiation messages" ON public.negotiation_messages;
+DROP POLICY IF EXISTS "Participants can insert negotiation messages" ON public.negotiation_messages;
+DROP POLICY IF EXISTS "Participants can view deal proposals" ON public.deal_proposals;
+DROP POLICY IF EXISTS "Participants can insert deal proposals" ON public.deal_proposals;
+DROP POLICY IF EXISTS "Participants can update deal proposals" ON public.deal_proposals;
+DROP POLICY IF EXISTS "Participants can view their work contracts" ON public.work_contracts;
+
+-- SELECT Policies for Authorized Participants Only
+CREATE POLICY "Participants can view negotiation rooms"
   ON public.negotiation_rooms FOR SELECT
   USING (auth.uid() = client_id OR auth.uid() = worker_id);
 
-DROP POLICY IF EXISTS "Participants can update negotiation rooms" ON public.negotiation_rooms;
-CREATE POLICY "Participants can update negotiation rooms"
-  ON public.negotiation_rooms FOR UPDATE
-  USING (auth.uid() = client_id OR auth.uid() = worker_id);
-
--- Policies for negotiation_messages
-DROP POLICY IF EXISTS "Participants can view negotiation messages" ON public.negotiation_messages;
 CREATE POLICY "Participants can view negotiation messages"
   ON public.negotiation_messages FOR SELECT
   USING (
@@ -226,21 +242,6 @@ CREATE POLICY "Participants can view negotiation messages"
     )
   );
 
-DROP POLICY IF EXISTS "Participants can insert negotiation messages" ON public.negotiation_messages;
-CREATE POLICY "Participants can insert negotiation messages"
-  ON public.negotiation_messages FOR INSERT
-  WITH CHECK (
-    auth.uid() = sender_id AND
-    EXISTS (
-      SELECT 1 FROM public.negotiation_rooms nr
-      WHERE nr.id = negotiation_messages.negotiation_room_id
-        AND (nr.client_id = auth.uid() OR nr.worker_id = auth.uid())
-        AND nr.status = 'active'
-    )
-  );
-
--- Policies for deal_proposals
-DROP POLICY IF EXISTS "Participants can view deal proposals" ON public.deal_proposals;
 CREATE POLICY "Participants can view deal proposals"
   ON public.deal_proposals FOR SELECT
   USING (
@@ -251,32 +252,7 @@ CREATE POLICY "Participants can view deal proposals"
     )
   );
 
-DROP POLICY IF EXISTS "Participants can insert deal proposals" ON public.deal_proposals;
-CREATE POLICY "Participants can insert deal proposals"
-  ON public.deal_proposals FOR INSERT
-  WITH CHECK (
-    auth.uid() = proposer_id AND
-    EXISTS (
-      SELECT 1 FROM public.hiring_requests hr
-      WHERE hr.id = deal_proposals.hiring_request_id
-        AND (hr.client_id = auth.uid() OR hr.worker_id = auth.uid())
-    )
-  );
-
-DROP POLICY IF EXISTS "Participants can update deal proposals" ON public.deal_proposals;
-CREATE POLICY "Participants can update deal proposals"
-  ON public.deal_proposals FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.hiring_requests hr
-      WHERE hr.id = deal_proposals.hiring_request_id
-        AND (hr.client_id = auth.uid() OR hr.worker_id = auth.uid())
-    )
-  );
-
--- Policies for work_contracts
-DROP POLICY IF EXISTS "Participants can view their work contracts" ON public.work_contracts;
-CREATE POLICY "Participants can view their work contracts"
+CREATE POLICY "Participants can view work contracts"
   ON public.work_contracts FOR SELECT
   USING (auth.uid() = client_id OR auth.uid() = worker_id);
 
@@ -299,6 +275,7 @@ CREATE OR REPLACE FUNCTION public.accept_hiring_request(p_request_id uuid)
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
@@ -311,7 +288,11 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  SELECT * INTO v_request FROM public.hiring_requests WHERE id = p_request_id;
+  SELECT * INTO v_request
+  FROM public.hiring_requests
+  WHERE id = p_request_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Hiring request not found.';
   END IF;
@@ -324,14 +305,14 @@ BEGIN
     RAISE EXCEPTION 'This hiring request cannot be accepted in its current state (status: %).', v_request.status;
   END IF;
 
-  INSERT INTO public.negotiation_rooms (hiring_request_id, client_id, worker_id, status)
-  VALUES (v_request.id, v_request.client_id, v_request.worker_id, 'active')
-  ON CONFLICT (hiring_request_id) 
+  INSERT INTO public.negotiation_rooms (hiring_request_id, client_id, worker_id, status, last_message_at)
+  VALUES (v_request.id, v_request.client_id, v_request.worker_id, 'active', now())
+  ON CONFLICT (hiring_request_id)
   DO UPDATE SET status = 'active', updated_at = now()
   RETURNING id INTO v_room_id;
 
   UPDATE public.hiring_requests
-  SET 
+  SET
     status = 'negotiating',
     accepted_at = now(),
     negotiation_room_id = v_room_id,
@@ -340,9 +321,9 @@ BEGIN
 
   INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_type, text)
   VALUES (
-    v_room_id, 
-    v_user_id, 
-    'system', 
+    v_room_id,
+    v_user_id,
+    'system',
     'Hiring request accepted! Negotiation room initialized for initial discussions and final deal preparation.'
   );
 
@@ -364,6 +345,7 @@ CREATE OR REPLACE FUNCTION public.decline_hiring_request(p_request_id uuid, p_re
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
@@ -374,7 +356,11 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  SELECT * INTO v_request FROM public.hiring_requests WHERE id = p_request_id;
+  SELECT * INTO v_request
+  FROM public.hiring_requests
+  WHERE id = p_request_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Hiring request not found.';
   END IF;
@@ -388,7 +374,7 @@ BEGIN
   END IF;
 
   UPDATE public.hiring_requests
-  SET 
+  SET
     status = 'rejected',
     declined_at = now(),
     decline_reason = p_reason,
@@ -410,6 +396,7 @@ CREATE OR REPLACE FUNCTION public.withdraw_hiring_request(p_request_id uuid, p_r
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
@@ -420,7 +407,11 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  SELECT * INTO v_request FROM public.hiring_requests WHERE id = p_request_id;
+  SELECT * INTO v_request
+  FROM public.hiring_requests
+  WHERE id = p_request_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Hiring request not found.';
   END IF;
@@ -434,7 +425,7 @@ BEGIN
   END IF;
 
   UPDATE public.hiring_requests
-  SET 
+  SET
     status = 'withdrawn',
     cancellation_reason = p_reason,
     cancelled_at = now(),
@@ -443,7 +434,7 @@ BEGIN
 
   IF v_request.negotiation_room_id IS NOT NULL THEN
     UPDATE public.negotiation_rooms
-    SET status = 'closed', updated_at = now()
+    SET status = 'cancelled', locked_at = now(), updated_at = now()
     WHERE id = v_request.negotiation_room_id;
   END IF;
 
@@ -462,19 +453,34 @@ CREATE OR REPLACE FUNCTION public.send_negotiation_message(p_room_id uuid, p_tex
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
   v_room public.negotiation_rooms%ROWTYPE;
   v_msg_id uuid;
   v_created_at timestamp with time zone;
+  v_clean_text text;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  SELECT * INTO v_room FROM public.negotiation_rooms WHERE id = p_room_id;
+  v_clean_text := trim(p_text);
+  IF v_clean_text IS NULL OR char_length(v_clean_text) = 0 THEN
+    RAISE EXCEPTION 'Message text cannot be empty.';
+  END IF;
+
+  IF char_length(v_clean_text) > 5000 THEN
+    RAISE EXCEPTION 'Message text exceeds maximum length of 5000 characters.';
+  END IF;
+
+  SELECT * INTO v_room
+  FROM public.negotiation_rooms
+  WHERE id = p_room_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Negotiation room not found.';
   END IF;
@@ -487,22 +493,20 @@ BEGIN
     RAISE EXCEPTION 'This negotiation room is locked or closed.';
   END IF;
 
-  IF p_text IS NULL OR trim(p_text) = '' THEN
-    RAISE EXCEPTION 'Message text cannot be empty.';
-  END IF;
-
   INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_type, text)
-  VALUES (p_room_id, v_user_id, 'text', trim(p_text))
+  VALUES (p_room_id, v_user_id, 'text', v_clean_text)
   RETURNING id, created_at INTO v_msg_id, v_created_at;
 
-  UPDATE public.negotiation_rooms SET updated_at = now() WHERE id = p_room_id;
+  UPDATE public.negotiation_rooms
+  SET last_message_at = now(), updated_at = now()
+  WHERE id = p_room_id;
 
   RETURN json_build_object(
     'id', v_msg_id,
     'negotiation_room_id', p_room_id,
     'sender_id', v_user_id,
     'message_type', 'text',
-    'text', trim(p_text),
+    'text', v_clean_text,
     'created_at', v_created_at
   );
 END;
@@ -526,6 +530,7 @@ CREATE OR REPLACE FUNCTION public.submit_deal_proposal(
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
@@ -541,7 +546,11 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  SELECT * INTO v_request FROM public.hiring_requests WHERE id = p_request_id;
+  SELECT * INTO v_request
+  FROM public.hiring_requests
+  WHERE id = p_request_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Hiring request not found.';
   END IF;
@@ -550,7 +559,11 @@ BEGIN
     RAISE EXCEPTION 'Only client or worker can submit deal proposals for this request.';
   END IF;
 
-  SELECT * INTO v_room FROM public.negotiation_rooms WHERE hiring_request_id = p_request_id;
+  SELECT * INTO v_room
+  FROM public.negotiation_rooms
+  WHERE hiring_request_id = p_request_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Active negotiation room required before submitting a deal proposal.';
   END IF;
@@ -578,8 +591,8 @@ BEGIN
   INSERT INTO public.deal_proposals (
     hiring_request_id,
     negotiation_room_id,
-    proposer_id,
     version_number,
+    proposed_by,
     work_title,
     work_description,
     final_price,
@@ -597,8 +610,8 @@ BEGIN
   ) VALUES (
     p_request_id,
     v_room.id,
-    v_user_id,
     v_version,
+    v_user_id,
     trim(p_work_title),
     trim(p_work_description),
     p_final_price,
@@ -616,15 +629,14 @@ BEGIN
   ) RETURNING id INTO v_proposal_id;
 
   UPDATE public.hiring_requests
-  SET 
+  SET
     active_proposal_id = v_proposal_id,
     status = 'proposal_pending',
     updated_at = now()
   WHERE id = p_request_id;
 
   UPDATE public.negotiation_rooms
-  SET 
-    active_proposal_id = v_proposal_id,
+  SET
     updated_at = now()
   WHERE id = v_room.id;
 
@@ -657,11 +669,13 @@ CREATE OR REPLACE FUNCTION public.respond_to_deal_proposal(
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
   v_proposal public.deal_proposals%ROWTYPE;
   v_request public.hiring_requests%ROWTYPE;
+  v_room public.negotiation_rooms%ROWTYPE;
   v_is_client boolean;
   v_is_worker boolean;
   v_both_accepted boolean := false;
@@ -673,15 +687,28 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  SELECT * INTO v_proposal FROM public.deal_proposals WHERE id = p_proposal_id;
+  SELECT * INTO v_proposal
+  FROM public.deal_proposals
+  WHERE id = p_proposal_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Deal proposal not found.';
   END IF;
 
-  SELECT * INTO v_request FROM public.hiring_requests WHERE id = v_proposal.hiring_request_id;
+  SELECT * INTO v_request
+  FROM public.hiring_requests
+  WHERE id = v_proposal.hiring_request_id
+  FOR UPDATE;
+
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Associated hiring request not found.';
   END IF;
+
+  SELECT * INTO v_room
+  FROM public.negotiation_rooms
+  WHERE id = v_proposal.negotiation_room_id
+  FOR UPDATE;
 
   v_is_client := (v_request.client_id = v_user_id);
   v_is_worker := (v_request.worker_id = v_user_id);
@@ -691,7 +718,7 @@ BEGIN
   END IF;
 
   IF v_proposal.proposal_status NOT IN ('pending', 'changes_requested') THEN
-    RAISE EXCEPTION 'This proposal is no longer pending (status: %).', v_proposal.proposal_status;
+    RAISE EXCEPTION 'This proposal is no longer active or pending (status: %).', v_proposal.proposal_status;
   END IF;
 
   IF p_response NOT IN ('accept', 'reject', 'request_changes') THEN
@@ -700,11 +727,11 @@ BEGIN
 
   IF p_response = 'accept' THEN
     IF v_is_client THEN
-      UPDATE public.deal_proposals 
+      UPDATE public.deal_proposals
       SET client_response = 'accepted', client_responded_at = now(), updated_at = now()
       WHERE id = p_proposal_id;
     ELSIF v_is_worker THEN
-      UPDATE public.deal_proposals 
+      UPDATE public.deal_proposals
       SET worker_response = 'accepted', worker_responded_at = now(), updated_at = now()
       WHERE id = p_proposal_id;
     END IF;
@@ -717,41 +744,46 @@ BEGIN
       SET proposal_status = 'accepted', updated_at = now()
       WHERE id = p_proposal_id;
 
-      INSERT INTO public.work_contracts (
-        hiring_request_id,
-        negotiation_room_id,
-        agreed_proposal_id,
-        client_id,
-        worker_id,
-        work_title,
-        work_description,
-        final_price,
-        payment_type,
-        work_date,
-        start_time,
-        duration,
-        location,
-        additional_terms,
-        status,
-        confirmed_at
-      ) VALUES (
-        v_request.id,
-        v_proposal.negotiation_room_id,
-        v_proposal.id,
-        v_request.client_id,
-        v_request.worker_id,
-        v_proposal.work_title,
-        v_proposal.work_description,
-        v_proposal.final_price,
-        v_proposal.payment_type,
-        v_proposal.work_date,
-        v_proposal.start_time,
-        v_proposal.duration,
-        v_proposal.location,
-        v_proposal.additional_terms,
-        'active',
-        now()
-      ) RETURNING id INTO v_contract_id;
+      -- Check if contract already exists for this hiring request
+      SELECT id INTO v_contract_id
+      FROM public.work_contracts
+      WHERE hiring_request_id = v_request.id;
+
+      IF v_contract_id IS NULL THEN
+        INSERT INTO public.work_contracts (
+          hiring_request_id,
+          deal_proposal_id,
+          client_id,
+          worker_id,
+          work_title,
+          work_description,
+          final_price,
+          payment_type,
+          work_date,
+          start_time,
+          duration,
+          location,
+          additional_terms,
+          status,
+          confirmed_at
+        ) VALUES (
+          v_request.id,
+          v_proposal.id,
+          v_request.client_id,
+          v_request.worker_id,
+          v_proposal.work_title,
+          v_proposal.work_description,
+          v_proposal.final_price,
+          v_proposal.payment_type,
+          v_proposal.work_date,
+          v_proposal.start_time,
+          v_proposal.duration,
+          v_proposal.location,
+          v_proposal.additional_terms,
+          'active',
+          now()
+        ) RETURNING id INTO v_contract_id;
+      END IF;
 
       -- Check or create permanent main chat thread
       SELECT id INTO v_conv_id
@@ -776,10 +808,10 @@ BEGIN
         ) RETURNING id INTO v_conv_id;
 
         INSERT INTO public.conversation_members (conversation_id, user_id)
-        VALUES 
+        VALUES
           (v_conv_id, v_request.client_id),
           (v_conv_id, v_request.worker_id)
-        ON CONFLICT DO NOTHING;
+        ON CONFLICT (conversation_id, user_id) DO NOTHING;
 
         INSERT INTO public.messages (
           conversation_id,
@@ -799,7 +831,7 @@ BEGIN
       WHERE id = v_contract_id;
 
       UPDATE public.hiring_requests
-      SET 
+      SET
         status = 'confirmed',
         confirmed_at = now(),
         work_contract_id = v_contract_id,
@@ -808,7 +840,7 @@ BEGIN
       WHERE id = v_request.id;
 
       UPDATE public.negotiation_rooms
-      SET status = 'locked', updated_at = now()
+      SET status = 'locked', locked_at = now(), updated_at = now()
       WHERE id = v_proposal.negotiation_room_id;
 
       INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_type, text)
@@ -836,7 +868,7 @@ BEGIN
 
   ELSIF p_response = 'reject' THEN
     UPDATE public.deal_proposals
-    SET 
+    SET
       proposal_status = 'rejected',
       rejection_reason = p_reason,
       client_response = CASE WHEN v_is_client THEN 'rejected' ELSE client_response END,
@@ -865,7 +897,7 @@ BEGIN
 
   ELSIF p_response = 'request_changes' THEN
     UPDATE public.deal_proposals
-    SET 
+    SET
       proposal_status = 'changes_requested',
       change_request_notes = p_reason,
       client_response = CASE WHEN v_is_client THEN 'changes_requested' ELSE client_response END,
@@ -904,6 +936,7 @@ CREATE OR REPLACE FUNCTION public.get_hire_workflow_details(p_request_id uuid)
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
@@ -959,12 +992,12 @@ BEGIN
   FROM public.work_contracts wc WHERE hiring_request_id = p_request_id;
 
   RETURN json_build_object(
-    'request', row_to_json(v_request),
+    'hiring_request', row_to_json(v_request),
     'client_profile', v_client_prof,
     'worker_profile', v_worker_prof,
     'negotiation_room', v_room,
     'active_proposal', v_active_proposal,
-    'proposals', v_all_proposals,
+    'deal_proposals_history', v_all_proposals,
     'negotiation_messages', v_messages,
     'work_contract', v_contract
   );
@@ -978,6 +1011,7 @@ CREATE OR REPLACE FUNCTION public.get_hiring_requests_for_current_user()
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_user_id uuid;
@@ -990,7 +1024,7 @@ BEGIN
 
   SELECT COALESCE(json_agg(row_to_json(item) ORDER BY item.updated_at DESC), '[]'::json) INTO v_result
   FROM (
-    SELECT 
+    SELECT
       hr.*,
       cp.full_name as client_name_resolved,
       cp.avatar_url as client_avatar,
@@ -1010,5 +1044,26 @@ BEGIN
   RETURN v_result;
 END;
 $$;
+
+-- -----------------------------------------------------------------------------
+-- 20. Revoke Permissions from PUBLIC / anon & Grant to authenticated ONLY
+-- -----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.accept_hiring_request(uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.decline_hiring_request(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.withdraw_hiring_request(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.send_negotiation_message(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.submit_deal_proposal(uuid, text, text, numeric, text, date, time, text, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.respond_to_deal_proposal(uuid, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_hire_workflow_details(uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_hiring_requests_for_current_user() FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.accept_hiring_request(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.decline_hiring_request(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.withdraw_hiring_request(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.send_negotiation_message(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_deal_proposal(uuid, text, text, numeric, text, date, time, text, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.respond_to_deal_proposal(uuid, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_hire_workflow_details(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_hiring_requests_for_current_user() TO authenticated;
 
 COMMIT;
