@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
+import {
   User, Mail, Phone, MapPin, Briefcase, Calendar, Edit2,
   BadgeCheck, ShieldAlert, Lock, Globe, Star, X, Camera, ShieldCheck, CheckCircle2, Bookmark, Users, AlertCircle,
   MoreHorizontal, Share2, LogOut, Settings, Eye, ExternalLink, Plus, Trash2, Building2, Wrench, ChevronRight, Award, Clock, CheckCircle, MessageSquare,
@@ -102,7 +102,7 @@ export default function ProfilePage({
 
   const [isOwner, setIsOwner] = useState(true);
   const [isPublic, setIsPublic] = useState(false);
-  
+
   // Real Statistics
   const [myJobPostsCount, setMyJobPostsCount] = useState(0);
   const [jobsAppliedCount, setJobsAppliedCount] = useState<number | null>(null);
@@ -138,6 +138,19 @@ export default function ProfilePage({
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
 
+  const [workerHireStats, setWorkerHireStats] = useState<{
+    pendingReceived: number;
+    activeNegotiations: number;
+    confirmedWorks: number;
+    sentRequests: number;
+  }>({
+    pendingReceived: 0,
+    activeNegotiations: 0,
+    confirmedWorks: 0,
+    sentRequests: 0,
+  });
+  const [loadingWorkerHireStats, setLoadingWorkerHireStats] = useState(false);
+
   const updateMenuPosition = () => {
     if (menuButtonRef.current) {
       const rect = menuButtonRef.current.getBoundingClientRect();
@@ -161,7 +174,7 @@ export default function ProfilePage({
 
   const [showSkillsExpanded, setShowSkillsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  
+
   // Company modal
   const [showCompanyModal, setShowCompanyModal] = useState(false);
   const [companyLegalName, setCompanyLegalName] = useState('');
@@ -338,12 +351,12 @@ export default function ProfilePage({
     const setupSubscriptions = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      
+
       channel = supabase
         .channel(`profile-job-applications-${user.id}`)
-        .on('postgres_changes', { 
-          event: '*', 
-          schema: 'public', 
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
           table: 'job_applications',
           filter: `applicant_id=eq.${user.id}`
         }, () => refreshJobsAppliedCount())
@@ -386,7 +399,7 @@ export default function ProfilePage({
       let isOwnerCheck = false;
       const { data: authData } = await supabase.auth.getUser();
       const authUser = authData?.user;
-      
+
       if (authUser) {
         setLoggedInId(authUser.id);
       } else {
@@ -482,6 +495,40 @@ export default function ProfilePage({
             }
           } catch (err) {
             setEmployerJobStats([]);
+          }
+
+          // Fetch Direct Hire Requests stats for owner
+          try {
+            setLoadingWorkerHireStats(true);
+            const hireList = await dbService.getCurrentUserHiringRequests();
+            const uid = authUser.id;
+
+            const pendingRec = hireList.filter((r: any) => r.worker_id === uid && r.status === 'pending').length;
+            const activeNeg = hireList.filter((r: any) =>
+              (r.client_id === uid || r.worker_id === uid) &&
+              ['negotiating', 'proposal_pending', 'changes_requested'].includes(r.status)
+            ).length;
+            const confirmed = hireList.filter((r: any) =>
+              (r.client_id === uid || r.worker_id === uid) && r.status === 'confirmed'
+            ).length;
+            const sent = hireList.filter((r: any) => r.client_id === uid).length;
+
+            setWorkerHireStats({
+              pendingReceived: pendingRec,
+              activeNegotiations: activeNeg,
+              confirmedWorks: confirmed,
+              sentRequests: sent,
+            });
+          } catch (hireErr) {
+            console.warn('Failed to load hiring stats in ProfilePage.tsx:', hireErr);
+            setWorkerHireStats({
+              pendingReceived: 0,
+              activeNegotiations: 0,
+              confirmedWorks: 0,
+              sentRequests: 0,
+            });
+          } finally {
+            setLoadingWorkerHireStats(false);
           }
         } else {
           setEmployerJobStats([]);
@@ -615,7 +662,7 @@ export default function ProfilePage({
 
       if (userType === 'worker' || workerProfile) {
         console.log('[Edit Profile Debug] Calling dbService.updateWorkerProfileData for targetUserId:', targetUserId);
-        
+
         let formattedSalary = '';
         let computedHourlyRate = 0;
 
@@ -661,11 +708,11 @@ export default function ProfilePage({
         triggerToast("Profile updated successfully!");
       }
       setIsEditing(false);
-      
+
       // Force invalidate profile cache & reload profile data from DB
       clearProfileCache(targetUserId);
       await loadProfileData();
-      
+
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('opencomm:profile-updated'));
       }
@@ -907,7 +954,7 @@ export default function ProfilePage({
           <AnimatePresence>
             {isEditing && (
               <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-sm">
-                <motion.div 
+                <motion.div
                   initial={{ y: "100%", opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: "100%", opacity: 0 }}
@@ -916,7 +963,7 @@ export default function ProfilePage({
                 >
                   <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-[#111827] shrink-0 z-10">
                     <span className="font-bold text-lg text-slate-900 dark:text-white">Edit Profile</span>
-                    <button 
+                    <button
                       onClick={handleCloseEdit}
                       className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
                     >
@@ -927,8 +974,8 @@ export default function ProfilePage({
                   <form id="basic-edit-profile-form" onSubmit={handleSaveProfile} className="p-6 space-y-6 overflow-y-auto flex-1">
                     <div className="space-y-1.5">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Full Name</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         required
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
@@ -951,22 +998,22 @@ export default function ProfilePage({
                         </button>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={editCity}
                           onChange={(e) => setEditCity(e.target.value)}
                           placeholder="City"
                           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
                         />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={editState}
                           onChange={(e) => setEditState(e.target.value)}
                           placeholder="State"
                           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
                         />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={editCountry}
                           onChange={(e) => setEditCountry(e.target.value)}
                           placeholder="Country"
@@ -974,8 +1021,8 @@ export default function ProfilePage({
                         />
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer mt-3">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={editLocationVisibility}
                           onChange={(e) => setEditLocationVisibility(e.target.checked)}
                           className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 dark:border-slate-700 dark:bg-slate-900"
@@ -986,8 +1033,8 @@ export default function ProfilePage({
 
                     <div className="space-y-1.5">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Preferred Language</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={editLang}
                         onChange={(e) => setEditLang(e.target.value)}
                         placeholder="e.g. English, Hindi"
@@ -997,7 +1044,7 @@ export default function ProfilePage({
 
                     <div className="space-y-1.5">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Bio / Summary</label>
-                      <textarea 
+                      <textarea
                         rows={4}
                         value={editBio}
                         onChange={(e) => setEditBio(e.target.value.substring(0, 500))}
@@ -1008,14 +1055,14 @@ export default function ProfilePage({
                   </form>
 
                   <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex gap-3 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-                    <button 
+                    <button
                       type="button"
                       onClick={handleCloseEdit}
                       className="flex-1 sm:flex-none px-6 py-3 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 font-bold transition-colors"
                     >
                       Cancel
                     </button>
-                    <button 
+                    <button
                       type="submit"
                       form="basic-edit-profile-form"
                       disabled={loading}
@@ -1050,7 +1097,7 @@ export default function ProfilePage({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
-      
+
       {/* 1. GUEST GATEWAY BANNER (If not logged in) */}
       {!isLoggedIn && (
         <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/20 dark:to-pink-950/30 border border-purple-500/15 p-5 sm:p-6 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 text-left shadow-xs">
@@ -1063,7 +1110,7 @@ export default function ProfilePage({
               Sign in or create an account to save bookmarks, post work, manage applications, and connect with contractors.
             </p>
           </div>
-          <button 
+          <button
             onClick={() => setCurrentView('home')}
             className="px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer transition-transform duration-200 hover:scale-102 self-start md:self-auto"
           >
@@ -1104,7 +1151,7 @@ export default function ProfilePage({
       {/* ========================================================================= */}
       {(!loading || profile) && (
         <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-7 relative overflow-hidden shadow-xs">
-          
+
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 relative z-10">
             {/* Avatar & Main Identity */}
             <div className="flex items-center space-x-4 min-w-0">
@@ -1116,7 +1163,7 @@ export default function ProfilePage({
                   className="w-20 h-20 sm:w-24 sm:h-24 text-2xl sm:text-3xl border-4 border-white dark:border-[#111827] shadow-md bg-slate-100"
                 />
                 {isOwner && isLoggedIn && (
-                  <button 
+                  <button
                     onClick={() => setShowAvatarMenu(true)}
                     className="absolute bottom-0 right-0 p-2 bg-[#7C3AED] hover:bg-purple-700 text-white rounded-full transition-all shadow-md cursor-pointer border-2 border-white dark:border-[#111827]"
                     title="Change profile photo"
@@ -1136,8 +1183,8 @@ export default function ProfilePage({
                   )}
                   {workerProfile?.availability && (
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      workerProfile.availability === 'Available Now' 
-                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' 
+                      workerProfile.availability === 'Available Now'
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                         : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}>
                       ● {workerProfile.availability}
@@ -1233,9 +1280,9 @@ export default function ProfilePage({
                 {/* Portal menu outside the hero card overflow-hidden context */}
                 {showMenuPopover && menuPosition && createPortal(
                   <>
-                    <div 
-                      className="fixed inset-0 z-[9998] bg-transparent" 
-                      onClick={() => setShowMenuPopover(false)} 
+                    <div
+                      className="fixed inset-0 z-[9998] bg-transparent"
+                      onClick={() => setShowMenuPopover(false)}
                     />
                     <AnimatePresence>
                       <motion.div
@@ -1321,7 +1368,7 @@ export default function ProfilePage({
                 Overview of applicant responses across your active job postings.
               </p>
             </div>
-            
+
             {/* Manage button maintaining navigation origin */}
             <button
               type="button"
@@ -1356,11 +1403,60 @@ export default function ProfilePage({
       )}
 
       {/* ========================================================================= */}
+      {/* DIRECT HIRE REQUESTS SECTION FOR WORKER OWNER PROFILE */}
+      {/* ========================================================================= */}
+      {isOwner && profile?.profile_type === 'worker' && (
+        <div
+          onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
+          className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs relative overflow-hidden text-left cursor-pointer hover:border-purple-500/30 transition-all group"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+                <span>Direct Hire Requests</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Incoming client proposals, active negotiations, and confirmed work contracts.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS);
+              }}
+              className="h-9 px-4 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 active:scale-95 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer self-start sm:self-auto shrink-0 select-none"
+            >
+              <span>View Requests</span>
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+            <div className="bg-amber-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider font-mono truncate">Pending Received</span>
+              <span className="text-base sm:text-lg font-extrabold text-amber-700 dark:text-amber-300 truncate">{loadingWorkerHireStats ? '...' : workerHireStats.pendingReceived}</span>
+            </div>
+            <div className="bg-blue-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-blue-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider font-mono truncate">Active Negotiations</span>
+              <span className="text-base sm:text-lg font-extrabold text-blue-700 dark:text-blue-300 truncate">{loadingWorkerHireStats ? '...' : workerHireStats.activeNegotiations}</span>
+            </div>
+            <div className="bg-emerald-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-emerald-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono truncate">Confirmed Works</span>
+              <span className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-300 truncate">{loadingWorkerHireStats ? '...' : workerHireStats.confirmedWorks}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* 6. PROFILE STATISTICS (4 Equal Premium Cards with Origin Navigation) */}
       {/* ========================================================================= */}
       {isOwner && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-left">
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -1372,7 +1468,7 @@ export default function ProfilePage({
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block">Jobs Posted</span>
           </div>
 
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/jobs-applied', location, SESSION_STORAGE_KEYS.JOBS_APPLIED)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -1384,7 +1480,7 @@ export default function ProfilePage({
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block">Jobs Applied</span>
           </div>
 
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/saved-jobs', location, SESSION_STORAGE_KEYS.SAVED_JOBS)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -1396,7 +1492,7 @@ export default function ProfilePage({
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block">Saved Jobs</span>
           </div>
 
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/saved-workers', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -1443,7 +1539,7 @@ export default function ProfilePage({
       {/* TAB CONTENTS */}
       {/* ========================================================================= */}
       <AnimatePresence mode="wait">
-        
+
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <motion.div
@@ -1825,7 +1921,7 @@ export default function ProfilePage({
       </AnimatePresence>
 
       {/* AVATAR UPLOAD MENU */}
-      <AvatarUploadMenu 
+      <AvatarUploadMenu
         isOpen={showAvatarMenu}
         onClose={() => setShowAvatarMenu(false)}
         userId={loggedInId || ''}
@@ -1844,7 +1940,7 @@ export default function ProfilePage({
       <AnimatePresence>
         {isEditing && (
           <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-sm">
-            <motion.div 
+            <motion.div
               initial={{ y: "100%", opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: "100%", opacity: 0 }}
@@ -1853,7 +1949,7 @@ export default function ProfilePage({
             >
               <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-[#111827] shrink-0 z-10">
                 <span className="font-bold text-lg text-slate-900 dark:text-white">Edit Profile</span>
-                <button 
+                <button
                   onClick={handleCloseEdit}
                   className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
                 >
@@ -1864,8 +1960,8 @@ export default function ProfilePage({
               <form id="edit-profile-form" onSubmit={handleSaveProfile} className="p-6 space-y-6 overflow-y-auto flex-1">
                 <div className="space-y-1.5">
                   <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Full Name</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
@@ -1876,22 +1972,22 @@ export default function ProfilePage({
                 <div className="space-y-3">
                   <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Location</label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={editCity}
                       onChange={(e) => setEditCity(e.target.value)}
                       placeholder="City"
                       className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={editState}
                       onChange={(e) => setEditState(e.target.value)}
                       placeholder="State"
                       className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
                     />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={editCountry}
                       onChange={(e) => setEditCountry(e.target.value)}
                       placeholder="Country"
@@ -1899,8 +1995,8 @@ export default function ProfilePage({
                     />
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer mt-3">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={editLocationVisibility}
                       onChange={(e) => setEditLocationVisibility(e.target.checked)}
                       className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 dark:border-slate-700 dark:bg-slate-900"
@@ -1913,8 +2009,8 @@ export default function ProfilePage({
                   <>
                     <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Professional Title / Role</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={editTitle}
                         onChange={(e) => setEditTitle(e.target.value)}
                         placeholder="e.g. Lead Product Designer, Senior Electrician"
@@ -1925,8 +2021,8 @@ export default function ProfilePage({
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Worker Category</label>
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={editCategory}
                           onChange={(e) => setEditCategory(e.target.value)}
                           placeholder="e.g. Design, IT, Skilled Trades"
@@ -1936,8 +2032,8 @@ export default function ProfilePage({
 
                       <div className="space-y-1.5">
                         <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Experience (Years)</label>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           min="0"
                           value={editExperience}
                           onChange={(e) => setEditExperience(e.target.value === '' ? '' : Number(e.target.value))}
@@ -1950,7 +2046,7 @@ export default function ProfilePage({
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Work Preference</label>
-                        <select 
+                        <select
                           value={editWorkPreference}
                           onChange={(e) => setEditWorkPreference(e.target.value)}
                           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
@@ -1963,7 +2059,7 @@ export default function ProfilePage({
 
                       <div className="space-y-1.5">
                         <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Salary / Rate Period</label>
-                        <select 
+                        <select
                           value={editSalaryPeriod}
                           onChange={(e) => setEditSalaryPeriod(e.target.value)}
                           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
@@ -1980,8 +2076,8 @@ export default function ProfilePage({
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Expected Min Salary (₹/mo)</label>
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             min="0"
                             value={editSalaryMin}
                             onChange={(e) => setEditSalaryMin(e.target.value === '' ? '' : Number(e.target.value))}
@@ -1991,8 +2087,8 @@ export default function ProfilePage({
                         </div>
                         <div className="space-y-1.5">
                           <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Expected Max Salary (₹/mo)</label>
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             min="0"
                             value={editSalaryMax}
                             onChange={(e) => setEditSalaryMax(e.target.value === '' ? '' : Number(e.target.value))}
@@ -2004,8 +2100,8 @@ export default function ProfilePage({
                     ) : (
                       <div className="space-y-1.5">
                         <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Rate / Amount (INR ₹)</label>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           min="0"
                           value={editHourlyRate}
                           onChange={(e) => setEditHourlyRate(e.target.value === '' ? '' : Number(e.target.value))}
@@ -2017,7 +2113,7 @@ export default function ProfilePage({
 
                     <div className="space-y-1.5">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Availability Status</label>
-                      <select 
+                      <select
                         value={editAvailability}
                         onChange={(e) => setEditAvailability(e.target.value)}
                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
@@ -2031,8 +2127,8 @@ export default function ProfilePage({
 
                     <div className="space-y-1.5">
                       <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Core Skills (comma separated)</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={editSkills}
                         onChange={(e) => setEditSkills(e.target.value)}
                         placeholder="e.g. React, TypeScript, Figma, Wiring, Safety"
@@ -2044,8 +2140,8 @@ export default function ProfilePage({
 
                 <div className="space-y-1.5">
                   <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Preferred Language</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={editLang}
                     onChange={(e) => setEditLang(e.target.value)}
                     placeholder="e.g. English, Hindi"
@@ -2055,7 +2151,7 @@ export default function ProfilePage({
 
                 <div className="space-y-1.5">
                   <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Bio / Professional Summary</label>
-                  <textarea 
+                  <textarea
                     rows={4}
                     value={editBio}
                     onChange={(e) => setEditBio(e.target.value.substring(0, 500))}
@@ -2066,14 +2162,14 @@ export default function ProfilePage({
               </form>
 
               <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex gap-3 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-                <button 
+                <button
                   type="button"
                   onClick={handleCloseEdit}
                   className="flex-1 sm:flex-none px-6 py-3 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 font-bold transition-colors"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   form="edit-profile-form"
                   disabled={loading}
