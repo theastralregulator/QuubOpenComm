@@ -76,11 +76,17 @@ export default function BasicProfileDashboard({
     activeNegotiations: number;
     confirmedWorks: number;
     sentRequests: number;
+    sentPending: number;
+    sentNegotiations: number;
+    sentConfirmed: number;
   }>({
     pendingReceived: 0,
     activeNegotiations: 0,
     confirmedWorks: 0,
     sentRequests: 0,
+    sentPending: 0,
+    sentNegotiations: 0,
+    sentConfirmed: 0,
   });
   const [loadingHireStats, setLoadingHireStats] = useState(true);
 
@@ -132,11 +138,21 @@ export default function BasicProfileDashboard({
             ).length;
             const sent = list.filter((r: any) => r.client_id === uid).length;
 
+            const sentPend = list.filter((r: any) => r.client_id === uid && r.status === 'pending').length;
+            const sentNeg = list.filter((r: any) =>
+              r.client_id === uid &&
+              ['negotiating', 'proposal_pending', 'changes_requested'].includes(r.status)
+            ).length;
+            const sentConf = list.filter((r: any) => r.client_id === uid && r.status === 'confirmed').length;
+
             setHireStats({
               pendingReceived: pendingRec,
               activeNegotiations: activeNeg,
               confirmedWorks: confirmed,
               sentRequests: sent,
+              sentPending: sentPend,
+              sentNegotiations: sentNeg,
+              sentConfirmed: sentConf,
             });
           }
         }
@@ -147,6 +163,9 @@ export default function BasicProfileDashboard({
           activeNegotiations: 0,
           confirmedWorks: 0,
           sentRequests: 0,
+          sentPending: 0,
+          sentNegotiations: 0,
+          sentConfirmed: 0,
         });
       } finally {
         setHasWorkerProfile(resolvedHasWorker);
@@ -456,6 +475,55 @@ export default function BasicProfileDashboard({
       )}
 
       {/* ========================================================================= */}
+      {/* SENT HIRE REQUESTS SECTION (BASIC ACCOUNTS) */}
+      {/* ========================================================================= */}
+      {isOwner && hasWorkerProfile === false && (
+        <div
+          onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests?tab=sent', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
+          className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs relative overflow-hidden text-left cursor-pointer hover:border-purple-500/30 transition-all group"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+                <span>Sent Hire Requests</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Track direct hire requests you've sent to workers, monitor negotiations, and view confirmed work contracts.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateWithOrigin(navigate, '/profile/hire-requests?tab=sent', location, SESSION_STORAGE_KEYS.SAVED_WORKERS);
+              }}
+              className="h-9 px-4 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 active:scale-95 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer self-start sm:self-auto shrink-0 select-none"
+            >
+              <span>View Requests</span>
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+            <div className="bg-amber-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider font-mono truncate">Pending</span>
+              <span className="text-base sm:text-lg font-extrabold text-amber-700 dark:text-amber-300 truncate">{loadingHireStats ? '...' : hireStats.sentPending}</span>
+            </div>
+            <div className="bg-blue-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-blue-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider font-mono truncate">Active Negotiations</span>
+              <span className="text-base sm:text-lg font-extrabold text-blue-700 dark:text-blue-300 truncate">{loadingHireStats ? '...' : hireStats.sentNegotiations}</span>
+            </div>
+            <div className="bg-emerald-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-emerald-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono truncate">Confirmed Works</span>
+              <span className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-300 truncate">{loadingHireStats ? '...' : hireStats.sentConfirmed}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* 3. PROFILE STATISTICS CARDS */}
       {/* ========================================================================= */}
       {isOwner && (
@@ -483,32 +551,6 @@ export default function BasicProfileDashboard({
             <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{jobsAppliedCount || 0}</span>
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Jobs Applied</span>
           </div>
-
-          {hasWorkerProfile === false ? (
-            <div
-              onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests?tab=sent', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
-              className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{loadingHireStats ? '...' : hireStats.sentRequests}</span>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Sent Hire Requests</span>
-            </div>
-          ) : (
-            <div
-              onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
-              className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{loadingHireStats ? '...' : (hireStats.pendingReceived + hireStats.activeNegotiations + hireStats.confirmedWorks)}</span>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Direct Hire Requests</span>
-            </div>
-          )}
 
           <div
             onClick={() => navigateWithOrigin(navigate, '/profile/saved-jobs', location, SESSION_STORAGE_KEYS.SAVED_JOBS)}
