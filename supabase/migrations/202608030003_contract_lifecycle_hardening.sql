@@ -118,8 +118,6 @@ DECLARE
   v_user_id UUID;
   v_contract RECORD;
   v_trimmed_note TEXT;
-  v_work_date DATE;
-  v_start_time TIME;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -150,24 +148,15 @@ BEGIN
   END IF;
 
   -- Schedule validation: prevent early completion if work_date is in the future
-  IF v_contract.work_date IS NOT NULL AND v_contract.work_date ~ '^\d{4}-\d{2}-\d{2}$' THEN
-    v_work_date := v_contract.work_date::DATE;
-
-    IF v_work_date > CURRENT_DATE THEN
+  IF v_contract.work_date IS NOT NULL THEN
+    IF v_contract.work_date > CURRENT_DATE THEN
       RAISE EXCEPTION 'Cannot request completion before the agreed work date (%).', v_contract.work_date;
     END IF;
 
-    -- If work_date is today and start_time is set
-    IF v_work_date = CURRENT_DATE AND v_contract.start_time IS NOT NULL AND v_contract.start_time ~ '^\d{1,2}:\d{2}' THEN
-      BEGIN
-        v_start_time := v_contract.start_time::TIME;
-        IF v_start_time > CURRENT_TIME THEN
-          RAISE EXCEPTION 'Cannot request completion before the agreed work start time (%).', v_contract.start_time;
-        END IF;
-      EXCEPTION WHEN OTHERS THEN
-        -- Ignore time parsing errors if string format differs
-        NULL;
-      END;
+    IF v_contract.work_date = CURRENT_DATE
+       AND v_contract.start_time IS NOT NULL
+       AND v_contract.start_time > LOCALTIME THEN
+      RAISE EXCEPTION 'Cannot request completion before the agreed work start time (%).', v_contract.start_time;
     END IF;
   END IF;
 

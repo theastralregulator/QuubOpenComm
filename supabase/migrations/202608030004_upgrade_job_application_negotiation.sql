@@ -58,7 +58,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_negotiation_rooms_unique_app
   WHERE job_application_id IS NOT NULL;
 
 -- -----------------------------------------------------------------------------
--- 3. Update public.deal_proposals Table
+-- 3. Update public.deal_proposals Table & Unique Partial Indexes
 -- -----------------------------------------------------------------------------
 ALTER TABLE public.deal_proposals
   ALTER COLUMN hiring_request_id DROP NOT NULL;
@@ -75,6 +75,10 @@ ALTER TABLE public.deal_proposals
     (hiring_request_id IS NOT NULL AND job_application_id IS NULL) OR
     (hiring_request_id IS NULL AND job_application_id IS NOT NULL)
   );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deal_proposals_unique_app_version
+  ON public.deal_proposals(job_application_id, version_number)
+  WHERE job_application_id IS NOT NULL;
 
 -- -----------------------------------------------------------------------------
 -- 4. Update public.work_contracts Table
@@ -171,12 +175,20 @@ BEGIN
     RAISE EXCEPTION 'Cannot start negotiation for an application with status: %', v_app.status;
   END IF;
 
-  -- Create or reuse negotiation room
-  INSERT INTO public.negotiation_rooms (job_application_id, client_id, worker_id, status, last_message_at)
-  VALUES (v_app.id, v_app.job_owner, v_app.applicant_id, 'active', now())
-  ON CONFLICT (job_application_id)
-  DO UPDATE SET status = 'active', updated_at = now()
-  RETURNING id INTO v_room_id;
+  -- Atomic select/insert/update within row lock to prevent partial index conflict syntax issues
+  SELECT id INTO v_room_id
+  FROM public.negotiation_rooms
+  WHERE job_application_id = v_app.id;
+
+  IF v_room_id IS NULL THEN
+    INSERT INTO public.negotiation_rooms (job_application_id, client_id, worker_id, status, last_message_at)
+    VALUES (v_app.id, v_app.job_owner, v_app.applicant_id, 'active', now())
+    RETURNING id INTO v_room_id;
+  ELSE
+    UPDATE public.negotiation_rooms
+    SET status = 'active', updated_at = now()
+    WHERE id = v_room_id;
+  END IF;
 
   -- Update application status
   UPDATE public.job_applications
@@ -287,8 +299,35 @@ END;
 $$;
 
 -- -----------------------------------------------------------------------------
--- 8. Updated submit_deal_proposal RPC (Dual-Source Support)
+-- 8. Updated submit_deal_proposal RPC (Dual-Source & Overload Resolution)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.submit_deal_proposal(
+  uuid,
+  text,
+  text,
+  numeric,
+  text,
+  date,
+  time,
+  text,
+  text,
+  text
+);
+
+DROP FUNCTION IF EXISTS public.submit_deal_proposal(
+  uuid,
+  text,
+  text,
+  numeric,
+  text,
+  date,
+  time,
+  text,
+  text,
+  text,
+  uuid
+);
+
 CREATE OR REPLACE FUNCTION public.submit_deal_proposal(
   p_request_id uuid DEFAULT NULL,
   p_work_title text DEFAULT '',
@@ -324,8 +363,9 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  IF p_request_id IS NULL AND p_application_id IS NULL THEN
-    RAISE EXCEPTION 'Either p_request_id or p_application_id must be provided.';
+  -- Validate exactly one input source is supplied
+  IF (p_request_id IS NULL AND p_application_id IS NULL) OR (p_request_id IS NOT NULL AND p_application_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'Exactly one of p_request_id or p_application_id must be provided.';
   END IF;
 
   IF p_application_id IS NOT NULL THEN
