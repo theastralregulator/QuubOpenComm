@@ -65,18 +65,29 @@ ALTER TABLE public.hiring_requests
   ADD COLUMN IF NOT EXISTS cancellation_reason text;
 
 -- -----------------------------------------------------------------------------
--- 4. Extend existing conversations table
--- Preserve existing conversation types (application, worker_direct, direct) and add work_contract
+-- 4. Extend existing conversations & messages table constraints
+-- Drop legacy constraint names and apply canonical single constraint
 -- -----------------------------------------------------------------------------
+ALTER TABLE public.conversations
+  DROP CONSTRAINT IF EXISTS conversations_type_check;
+
 ALTER TABLE public.conversations
   DROP CONSTRAINT IF EXISTS conversations_conversation_type_check;
 
 ALTER TABLE public.conversations
   ADD CONSTRAINT conversations_conversation_type_check
-  CHECK (conversation_type IN ('application', 'worker_direct', 'work_contract', 'direct'));
+  CHECK (conversation_type IN ('application', 'direct', 'worker_direct', 'work_contract'));
 
 ALTER TABLE public.conversations
   ADD COLUMN IF NOT EXISTS work_contract_id uuid;
+
+-- Safely extend messages role constraint to support system messages
+ALTER TABLE public.messages
+  DROP CONSTRAINT IF EXISTS messages_role_check;
+
+ALTER TABLE public.messages
+  ADD CONSTRAINT messages_role_check
+  CHECK (role IN ('user', 'assistant', 'system'));
 
 -- -----------------------------------------------------------------------------
 -- 5. Create public.negotiation_rooms Table
@@ -813,16 +824,21 @@ BEGIN
           (v_conv_id, v_request.worker_id)
         ON CONFLICT (conversation_id, user_id) DO NOTHING;
 
+        -- Insert contract confirmation system message using live messages schema
         INSERT INTO public.messages (
           conversation_id,
           sender_id,
+          sender_name,
           text,
-          message_type
+          role,
+          unread
         ) VALUES (
           v_conv_id,
           v_request.client_id,
+          'OpenComm System',
           'Work Contract confirmed! Official project conversation thread opened.',
-          'system'
+          'system',
+          true
         );
       END IF;
 
