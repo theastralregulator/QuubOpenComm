@@ -59,8 +59,18 @@ export default function BasicProfileDashboard({
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [showMenuPopover, setShowMenuPopover] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const profileSaysWorker = Boolean(
+    profile && (
+      profile.profile_type === 'worker' ||
+      (profile as any).account_type === 'worker' ||
+      (profile as any).primary_role === 'worker' ||
+      (profile as any).signup_role === 'worker' ||
+      profile.is_worker_listed === true
+    )
+  );
+
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [hasWorkerProfile, setHasWorkerProfile] = useState<boolean | null>(null);
+  const [hasWorkerProfile, setHasWorkerProfile] = useState<boolean>(profileSaysWorker);
   const [hireStats, setHireStats] = useState<{
     pendingReceived: number;
     activeNegotiations: number;
@@ -75,21 +85,39 @@ export default function BasicProfileDashboard({
   const [loadingHireStats, setLoadingHireStats] = useState(true);
 
   useEffect(() => {
+    setHasWorkerProfile(profileSaysWorker);
+  }, [profileSaysWorker]);
+
+  useEffect(() => {
     async function loadHireData() {
       if (!isOwner) return;
       setLoadingHireStats(true);
+
+      let resolvedHasWorker = profileSaysWorker;
+
       try {
         if (supabase) {
           const { data: { user } } = await supabase.auth.getUser();
           if (user) {
             setCurrentUserId(user.id);
-            const { data: wp } = await supabase
-              .from('worker_profiles')
-              .select('id')
-              .eq('id', user.id)
-              .maybeSingle();
 
-            setHasWorkerProfile(Boolean(wp));
+            try {
+              const { data: wp, error: wpError } = await supabase
+                .from('worker_profiles')
+                .select('id')
+                .eq('id', user.id)
+                .maybeSingle();
+
+              if (wpError) {
+                console.warn('worker_profiles query warning:', wpError.message);
+              } else if (wp) {
+                resolvedHasWorker = true;
+              }
+            } catch (wpErr) {
+              console.warn('Error querying worker_profiles:', wpErr);
+            }
+
+            setHasWorkerProfile(resolvedHasWorker);
 
             const list = await dbService.getCurrentUserHiringRequests();
             const uid = user.id;
@@ -121,11 +149,12 @@ export default function BasicProfileDashboard({
           sentRequests: 0,
         });
       } finally {
+        setHasWorkerProfile(resolvedHasWorker);
         setLoadingHireStats(false);
       }
     }
     loadHireData();
-  }, [isOwner]);
+  }, [isOwner, profileSaysWorker]);
 
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -197,10 +226,10 @@ export default function BasicProfileDashboard({
                 )}
               </div>
 
-              {/* Basic Account Badge */}
+              {/* Dynamic Account Badge */}
               <div>
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                  ● Basic Account
+                  ● {hasWorkerProfile ? 'Worker Member' : 'Basic Account'}
                 </span>
               </div>
 
