@@ -254,13 +254,33 @@ export interface WorkContract {
   duration?: string | null;
   location?: string | null;
   additional_terms?: string | null;
-  status: 'active' | 'completed' | 'cancelled' | 'disputed';
+  status: 'active' | 'cancellation_requested' | 'cancelled' | 'completion_requested' | 'completed' | 'disputed';
   permanent_conversation_id?: string | null;
   confirmed_at: string;
   completed_at?: string | null;
   cancelled_at?: string | null;
   created_at: string;
   updated_at: string;
+
+  // Mutual Cancellation fields
+  cancellation_requested_by?: string | null;
+  cancellation_reason?: string | null;
+  cancellation_requested_at?: string | null;
+  cancellation_client_response?: 'pending' | 'accepted' | 'rejected' | null;
+  cancellation_worker_response?: 'pending' | 'accepted' | 'rejected' | null;
+  cancellation_client_responded_at?: string | null;
+  cancellation_worker_responded_at?: string | null;
+  cancellation_rejection_reason?: string | null;
+
+  // Mutual Completion fields
+  completion_requested_by?: string | null;
+  completion_note?: string | null;
+  completion_requested_at?: string | null;
+  completion_client_response?: 'pending' | 'accepted' | 'rejected' | null;
+  completion_worker_response?: 'pending' | 'accepted' | 'rejected' | null;
+  completion_client_responded_at?: string | null;
+  completion_worker_responded_at?: string | null;
+  completion_rejection_reason?: string | null;
 }
 
 export interface HireWorkflowDetails {

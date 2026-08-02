@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { 
-  Briefcase, ArrowLeft, ShieldCheck, Calendar, MapPin, Clock, 
+import {
+  Briefcase, ArrowLeft, ShieldCheck, Calendar, MapPin, Clock,
   MessageSquare, FileText, CheckCircle2, AlertCircle, Loader2, Lock, Eye
 } from 'lucide-react';
 import { dbService, supabase } from '../../lib/supabase';
@@ -64,7 +64,7 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
         <p className="text-xs text-slate-500 dark:text-slate-400">
           {error || 'You do not have authorization to view this hiring request.'}
         </p>
-        <button 
+        <button
           onClick={() => navigate('/profile/hire-requests')}
           className="px-5 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold cursor-pointer"
         >
@@ -85,11 +85,11 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
 
   return (
     <div className="w-full max-w-4xl mx-auto py-6 sm:py-8 px-3 sm:px-6 space-y-6 text-left">
-      
+
       {/* Header Navigation */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
-          <button 
+          <button
             onClick={() => navigate('/profile/hire-requests')}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs transition-colors"
           >
@@ -113,10 +113,10 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
       {/* Participants Card */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-5 flex items-center space-x-3 shadow-xs">
-          <UserAvatar avatarUrl={null} fullName={req.client_name} size="lg" />
+          <UserAvatar avatarUrl={details.client_profile?.avatar_url} fullName={req.client_name} size="lg" />
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Client (Employer)</span>
-            <h4 
+            <h4
               onClick={() => navigate(`/profile/${req.client_id}`)}
               className="text-sm font-extrabold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 cursor-pointer"
             >
@@ -127,10 +127,10 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
         </div>
 
         <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-5 flex items-center space-x-3 shadow-xs">
-          <UserAvatar avatarUrl={null} fullName={req.worker_name} size="lg" />
+          <UserAvatar avatarUrl={details.worker_profile?.avatar_url} fullName={req.worker_name} size="lg" />
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Worker (Contractor)</span>
-            <h4 
+            <h4
               onClick={() => navigate(`/profile/${req.worker_id}`)}
               className="text-sm font-extrabold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 cursor-pointer"
             >

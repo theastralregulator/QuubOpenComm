@@ -358,14 +358,14 @@ export async function assertUserEmailConfirmed() {
     if (error || !user) {
       throw new Error("Authentication required. Please sign in.");
     }
-    
+
     // Fetch profile and check email_verified_for_actions
     const { data: profile, error: profileErr } = await supabase
       .from('profiles')
       .select('email_verified_for_actions')
       .eq('id', user.id)
       .single();
-      
+
     if (profileErr || !profile || !profile.email_verified_for_actions) {
       if (user.email_confirmed_at) {
         // Native auth says confirmed, but profile is out of sync. Sync it using RPC.
@@ -428,7 +428,7 @@ export const dbService = {
 
   async uploadAvatar(userId: string, file: File): Promise<string> {
     if (!supabase) throw new Error("Supabase is not initialized.");
-    
+
     const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `${Date.now()}-profile.${fileExt}`;
     const filePath = `${userId}/${fileName}`;
@@ -451,13 +451,13 @@ export const dbService = {
       await this.updateProfile(userId, { avatar_url: data.publicUrl });
       return data.publicUrl;
     }
-    
+
     throw new Error("Failed to get public URL for uploaded avatar.");
   },
 
   async uploadBanner(userId: string, file: File): Promise<string> {
     if (!supabase) throw new Error("Supabase is not initialized.");
-    
+
     const fileExt = file.name.split('.').pop();
     const fileName = `banner_${Date.now()}.${fileExt}`;
     const filePath = `${userId}/${fileName}`;
@@ -481,7 +481,7 @@ export const dbService = {
       await this.updateProfile(userId, { banner_id: data.publicUrl });
       return data.publicUrl;
     }
-    
+
     throw new Error("Failed to get public URL for uploaded banner.");
   },
 
@@ -498,8 +498,8 @@ export const dbService = {
         console.warn('[Supabase Debug] sync_email_verification pre-check warning:', e);
       }
 
-      const showLocationVal = updates.show_location_publicly !== undefined 
-        ? updates.show_location_publicly 
+      const showLocationVal = updates.show_location_publicly !== undefined
+        ? updates.show_location_publicly
         : (updates.location_visibility !== undefined ? updates.location_visibility : true);
 
       // 2. Execute update_my_basic_profile RPC with exact parameter p_show_location_publicly
@@ -524,7 +524,7 @@ export const dbService = {
         console.error('[Supabase Debug] updateProfile RPC error returned:', error.message);
         throw new Error(error.message);
       }
-      
+
       // Also update show_location_publicly directly on profiles table if needed
       if (showLocationVal !== undefined && userId) {
         const { error: directErr } = await supabase
@@ -1241,6 +1241,60 @@ export const dbService = {
     return data;
   },
 
+  async requestContractCancellation(contractId: string, reason: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('request_contract_cancellation', {
+      p_contract_id: contractId,
+      p_reason: reason
+    });
+    if (error) {
+      console.error('requestContractCancellation error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async respondToContractCancellation(contractId: string, response: 'accept' | 'reject', reason?: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('respond_to_contract_cancellation', {
+      p_contract_id: contractId,
+      p_response: response,
+      p_reason: reason || null
+    });
+    if (error) {
+      console.error('respondToContractCancellation error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async requestContractCompletion(contractId: string, note?: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('request_contract_completion', {
+      p_contract_id: contractId,
+      p_note: note || null
+    });
+    if (error) {
+      console.error('requestContractCompletion error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async respondToContractCompletion(contractId: string, response: 'accept' | 'reject', reason?: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('respond_to_contract_completion', {
+      p_contract_id: contractId,
+      p_response: response,
+      p_reason: reason || null
+    });
+    if (error) {
+      console.error('respondToContractCompletion error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
   async getCurrentUserHiringRequests(): Promise<any[]> {
     if (!supabase) throw new Error("Supabase client is not initialized.");
     const { data, error } = await supabase.rpc('get_hiring_requests_for_current_user');
@@ -1414,7 +1468,7 @@ export const dbService = {
             const posterObj = job.poster || job.profiles;
             const companyName = job.companies?.name || posterObj?.full_name || 'Individual Employer';
             const companyLogo = job.companies?.logo_url || posterObj?.avatar_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80';
-            
+
             return {
               id: job.id,
               title: job.title,
@@ -1805,7 +1859,7 @@ export const dbService = {
         .from('worker_portfolio_items')
         .select('*')
         .eq('worker_id', userId);
-      
+
       if (!isOwner) {
         query = query.eq('is_public', true);
       }
@@ -1872,8 +1926,8 @@ export const dbService = {
     if (!supabase || !userId) return null;
     try {
       const docTypeLower = (doc.document_type || 'portfolio').toLowerCase();
-      const validFileType = ['portfolio', 'cv', 'resume', 'certificate', 'other'].includes(docTypeLower) 
-        ? docTypeLower 
+      const validFileType = ['portfolio', 'cv', 'resume', 'certificate', 'other'].includes(docTypeLower)
+        ? docTypeLower
         : 'other';
 
       const payload = {
@@ -1937,7 +1991,7 @@ export const dbService = {
       .from('jobs')
       .select('*', { count: 'exact', head: true })
       .eq('posted_by', userId);
-    
+
     if (error) {
       console.error('Error fetching job posts count:', error);
       return 0;
@@ -1950,7 +2004,7 @@ export const dbService = {
       .from('job_applications')
       .select('id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at')
       .eq('applicant_id', userId);
-    
+
     if (error) {
       console.error('[dbService] Error fetching job applications:', error);
     }
@@ -1990,7 +2044,7 @@ export const dbService = {
   // Messaging Service Methods
   async getOrCreateApplicationConversation(applicationId: string): Promise<string | null> {
     if (!supabase) return null;
-    
+
     // Pre-flight check: Enforce that messaging is ONLY allowed after application acceptance
     const { data: appData, error: appError } = await supabase
       .from('job_applications')
@@ -2030,13 +2084,13 @@ export const dbService = {
     if (user.id === workerId) {
       throw new Error('You cannot message yourself.');
     }
-    
+
     // Optional check if worker profile exists/is valid can be done if needed,
     // but the RPC usually handles it or returns error
     const { data, error } = await supabase.rpc('get_or_create_worker_conversation', {
       p_worker_id: workerId
     });
-    
+
     if (error) {
       console.error('get_or_create_worker_conversation error:', error);
       throw new Error(error.message || 'Worker profile not found or unavailable');
@@ -2066,7 +2120,7 @@ export const dbService = {
       return [];
     }
 
-    const otherParticipantIds = [...new Set(convRows.map((c: any) => 
+    const otherParticipantIds = [...new Set(convRows.map((c: any) =>
       c.creator_id === user.id ? c.member_id : c.creator_id
     ).filter(Boolean))] as string[];
 
@@ -2142,8 +2196,8 @@ export const dbService = {
       const otherProfile = profileMap.get(otherId) || {};
       const jobTitle = jobMap[c.job_id] || 'Job Opportunity';
       const profession = professionMap.get(otherId) || 'Professional';
-      
-      const lastTimeFormatted = c.last_message_time 
+
+      const lastTimeFormatted = c.last_message_time
         ? new Date(c.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : (c.created_at ? new Date(c.created_at).toLocaleDateString() : '');
 
@@ -2156,8 +2210,8 @@ export const dbService = {
         otherParticipantId: otherId,
         otherParticipantName: otherProfile.full_name?.trim() || otherProfile.username?.trim() || 'OpenComm User',
         otherParticipantAvatar: otherProfile.avatar_url || null,
-        otherParticipantTitle: c.conversation_type === 'worker_direct' 
-          ? profession 
+        otherParticipantTitle: c.conversation_type === 'worker_direct'
+          ? profession
           : jobTitle,
         lastMessageText: c.last_message_text || 'No messages yet',
         lastMessageTime: lastTimeFormatted,

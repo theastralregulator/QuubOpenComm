@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
-import { 
-  ShieldCheck, FileText, ArrowLeft, Calendar, Clock, MapPin, 
-  CheckCircle2, MessageSquare, AlertCircle, Loader2, UserCheck, DollarSign
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  ShieldCheck, FileText, ArrowLeft, Calendar, Clock, MapPin,
+  CheckCircle2, MessageSquare, AlertCircle, Loader2, UserCheck, DollarSign,
+  XCircle, AlertTriangle, Check, RefreshCw
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { formatINR } from '../../lib/currency';
@@ -22,6 +23,15 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
   const [workerProfile, setWorkerProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Modal State
+  const [activeModal, setActiveModal] = useState<
+    'cancel_request' | 'cancel_respond_accept' | 'cancel_respond_reject' |
+    'complete_request' | 'complete_respond_accept' | 'complete_respond_reject' | null
+  >(null);
+  const [modalReasonInput, setModalReasonInput] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     async function fetchContract() {
@@ -29,6 +39,11 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
       setLoading(true);
       setError(null);
       try {
+        if (supabase) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) setCurrentUserId(user.id);
+        }
+
         const data = await dbService.getWorkContractById(contractId);
         if (!data) {
           throw new Error('Work contract not found.');
@@ -36,12 +51,13 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
 
         setContract(data);
 
-        // Fetch client and worker names/avatars
-        const { data: cp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.client_id).single();
-        const { data: wp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.worker_id).single();
-        
-        setClientProfile(cp);
-        setWorkerProfile(wp);
+        // Fetch client and worker profiles for avatars and full names
+        if (supabase) {
+          const { data: cp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.client_id).maybeSingle();
+          const { data: wp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.worker_id).maybeSingle();
+          setClientProfile(cp);
+          setWorkerProfile(wp);
+        }
       } catch (err: any) {
         console.error('Failed to load work contract:', err);
         setError(err.message || 'Failed to load contract details.');
@@ -51,6 +67,97 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
     }
     fetchContract();
   }, [contractId]);
+
+  const refreshContract = async () => {
+    if (!contractId) return;
+    try {
+      const data = await dbService.getWorkContractById(contractId);
+      if (data) setContract(data);
+    } catch (err) {
+      console.error('Error refreshing contract:', err);
+    }
+  };
+
+  // Action Handlers
+  const handleRequestCancellation = async () => {
+    if (!modalReasonInput.trim()) {
+      triggerToast('Please provide a reason for cancellation.');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await dbService.requestContractCancellation(contract.id, modalReasonInput.trim());
+      triggerToast(res.message || 'Cancellation requested.');
+      setActiveModal(null);
+      setModalReasonInput('');
+      await refreshContract();
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to request cancellation.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRespondCancellation = async (response: 'accept' | 'reject') => {
+    if (response === 'reject' && !modalReasonInput.trim()) {
+      triggerToast('Please provide a reason for rejecting cancellation.');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await dbService.respondToContractCancellation(
+        contract.id,
+        response,
+        response === 'reject' ? modalReasonInput.trim() : undefined
+      );
+      triggerToast(res.message || `Cancellation ${response}ed.`);
+      setActiveModal(null);
+      setModalReasonInput('');
+      await refreshContract();
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to respond to cancellation.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRequestCompletion = async () => {
+    setActionLoading(true);
+    try {
+      const res = await dbService.requestContractCompletion(contract.id, modalReasonInput.trim());
+      triggerToast(res.message || 'Completion requested.');
+      setActiveModal(null);
+      setModalReasonInput('');
+      await refreshContract();
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to request completion.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRespondCompletion = async (response: 'accept' | 'reject') => {
+    if (response === 'reject' && !modalReasonInput.trim()) {
+      triggerToast('Please provide a reason or issue description.');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await dbService.respondToContractCompletion(
+        contract.id,
+        response,
+        response === 'reject' ? modalReasonInput.trim() : undefined
+      );
+      triggerToast(res.message || `Completion ${response}ed.`);
+      setActiveModal(null);
+      setModalReasonInput('');
+      await refreshContract();
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to respond to completion.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -67,28 +174,52 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
         <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
         <h3 className="text-base font-bold text-slate-900 dark:text-white">Contract Not Found</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">{error || 'Unable to load contract.'}</p>
-        <button onClick={() => navigate('/profile/hire-requests')} className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold">
+        <button onClick={() => navigate('/profile/hire-requests')} className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold cursor-pointer">
           Back to Hire Requests
         </button>
       </div>
     );
   }
 
+  const isClient = currentUserId === contract.client_id;
+  const isWorker = currentUserId === contract.worker_id;
+
+  const getContractBadge = (status: string) => {
+    switch (status) {
+      case 'active':
+        return { label: 'Contract Active', class: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
+      case 'cancellation_requested':
+        return { label: 'Cancellation Requested', class: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
+      case 'cancelled':
+        return { label: 'Contract Cancelled', class: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' };
+      case 'completion_requested':
+        return { label: 'Completion Requested', class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
+      case 'completed':
+        return { label: 'Contract Completed', class: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
+      case 'disputed':
+        return { label: 'Contract Disputed', class: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20' };
+      default:
+        return { label: status, class: 'bg-slate-500/10 text-slate-600 border-slate-500/20' };
+    }
+  };
+
+  const badge = getContractBadge(contract.status);
+
   return (
     <div className="w-full max-w-4xl mx-auto py-6 sm:py-8 px-3 sm:px-6 space-y-6 text-left">
-      
+
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
-          <button 
+          <button
             onClick={() => navigate('/profile/hire-requests')}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs"
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-              <ShieldCheck className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+              <ShieldCheck className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               Work Contract
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
@@ -97,35 +228,102 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
           </div>
         </div>
 
-        <span className="inline-flex items-center text-xs font-extrabold px-3.5 py-1 rounded-full border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
-          ● Contract Active
+        <span className={`inline-flex items-center text-xs font-extrabold px-3.5 py-1 rounded-full border ${badge.class}`}>
+          ● {badge.label}
         </span>
       </div>
 
+      {/* Dynamic Lifecycle Banners */}
+      {contract.status === 'cancellation_requested' && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-3xl p-5 space-y-2">
+          <div className="flex items-center space-x-2 text-amber-700 dark:text-amber-300 font-extrabold text-xs uppercase tracking-wider">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>Mutual Cancellation Requested</span>
+          </div>
+          <p className="text-xs text-slate-700 dark:text-slate-300">
+            {contract.cancellation_requested_by === currentUserId
+              ? `You requested contract cancellation on ${new Date(contract.cancellation_requested_at).toLocaleString()}. Reason: "${contract.cancellation_reason}". Awaiting response from the other party.`
+              : `The other party requested contract cancellation. Reason: "${contract.cancellation_reason}". Please accept or reject below.`
+            }
+          </p>
+        </div>
+      )}
+
+      {contract.status === 'completion_requested' && (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-3xl p-5 space-y-2">
+          <div className="flex items-center space-x-2 text-blue-700 dark:text-blue-300 font-extrabold text-xs uppercase tracking-wider">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>Work Completion Marked</span>
+          </div>
+          <p className="text-xs text-slate-700 dark:text-slate-300">
+            {contract.completion_requested_by === currentUserId
+              ? `You marked the work as completed on ${new Date(contract.completion_requested_at).toLocaleString()}.${contract.completion_note ? ' Note: "' + contract.completion_note + '".' : ''} Awaiting confirmation from the other party.`
+              : `The other party marked the work as completed.${contract.completion_note ? ' Note: "' + contract.completion_note + '".' : ''} Please confirm completion or report an issue below.`
+            }
+          </p>
+        </div>
+      )}
+
+      {contract.status === 'active' && contract.cancellation_rejection_reason && (
+        <div className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 text-xs text-slate-600 dark:text-slate-400">
+          <span className="font-bold text-slate-800 dark:text-slate-200">Previous cancellation request was rejected:</span> "{contract.cancellation_rejection_reason}"
+        </div>
+      )}
+
+      {contract.status === 'active' && contract.completion_rejection_reason && (
+        <div className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 text-xs text-slate-600 dark:text-slate-400">
+          <span className="font-bold text-slate-800 dark:text-slate-200">Previous completion request was rejected / issue reported:</span> "{contract.completion_rejection_reason}"
+        </div>
+      )}
+
+      {contract.status === 'cancelled' && (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-3xl p-5 space-y-1">
+          <div className="flex items-center space-x-2 text-rose-700 dark:text-rose-400 font-extrabold text-xs uppercase tracking-wider">
+            <XCircle className="w-4 h-4 shrink-0" />
+            <span>Contract Mutually Cancelled</span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            This work contract was mutually cancelled on {new Date(contract.cancelled_at || contract.updated_at).toLocaleString()}. Contract records and chat history remain preserved.
+          </p>
+        </div>
+      )}
+
+      {contract.status === 'completed' && (
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-3xl p-5 space-y-1">
+          <div className="flex items-center space-x-2 text-emerald-700 dark:text-emerald-400 font-extrabold text-xs uppercase tracking-wider">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>Contract Mutually Completed</span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            This work contract was mutually confirmed as completed on {new Date(contract.completed_at || contract.updated_at).toLocaleString()}. Contract records and chat history remain preserved.
+          </p>
+        </div>
+      )}
+
       {/* Parties Card */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div 
+        <div
           onClick={() => navigate(`/profile/${contract.client_id}`)}
-          className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-5 flex items-center space-x-3 shadow-xs cursor-pointer hover:border-purple-500/30 transition-all"
+          className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-5 flex items-center space-x-3 shadow-xs cursor-pointer hover:border-purple-500/30 transition-all group"
         >
           <UserAvatar avatarUrl={clientProfile?.avatar_url} fullName={clientProfile?.full_name || 'Client'} size="lg" />
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Client (Employer)</span>
-            <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+            <h4 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
               {clientProfile?.full_name || 'Client'}
             </h4>
             <p className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">View Profile →</p>
           </div>
         </div>
 
-        <div 
+        <div
           onClick={() => navigate(`/profile/${contract.worker_id}`)}
-          className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-5 flex items-center space-x-3 shadow-xs cursor-pointer hover:border-purple-500/30 transition-all"
+          className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-5 flex items-center space-x-3 shadow-xs cursor-pointer hover:border-purple-500/30 transition-all group"
         >
           <UserAvatar avatarUrl={workerProfile?.avatar_url} fullName={workerProfile?.full_name || 'Worker'} size="lg" />
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Worker (Contractor)</span>
-            <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+            <h4 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
               {workerProfile?.full_name || 'Worker'}
             </h4>
             <p className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">View Profile →</p>
@@ -135,7 +333,7 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
 
       {/* Contract Terms Container */}
       <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-xs space-y-5">
-        
+
         <div className="border-b border-slate-100 dark:border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Agreed Project Title</span>
@@ -199,18 +397,328 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
         </div>
       </div>
 
-      {/* Footer Action */}
-      <div className="flex justify-end pt-2">
-        {contract.permanent_conversation_id && (
+      {/* Action Buttons Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        {/* Main Chat Button Always Available */}
+        {contract.permanent_conversation_id ? (
           <button
             onClick={() => navigate(`/messages/${contract.permanent_conversation_id}`)}
-            className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer hover:scale-[1.01] transition-transform flex items-center space-x-2"
+            className="px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-extrabold text-xs rounded-xl shadow-xs cursor-pointer hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors flex items-center space-x-2"
           >
             <MessageSquare className="w-4 h-4" />
-            <span>Open Permanent Main Chat Thread</span>
+            <span>Open Main Chat</span>
           </button>
-        )}
+        ) : <div />}
+
+        {/* Dynamic Lifecycle Actions */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Active Actions */}
+          {contract.status === 'active' && (isClient || isWorker) && (
+            <>
+              <button
+                onClick={() => {
+                  setModalReasonInput('');
+                  setActiveModal('cancel_request');
+                }}
+                className="px-4 py-2.5 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-bold text-xs rounded-xl cursor-pointer hover:bg-rose-100 transition-colors flex items-center space-x-1.5"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>Request Cancellation</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setModalReasonInput('');
+                  setActiveModal('complete_request');
+                }}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer transition-colors flex items-center space-x-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Mark Work as Completed</span>
+              </button>
+            </>
+          )}
+
+          {/* Cancellation Response Actions */}
+          {contract.status === 'cancellation_requested' && contract.cancellation_requested_by !== currentUserId && (
+            <>
+              <button
+                onClick={() => {
+                  setModalReasonInput('');
+                  setActiveModal('cancel_respond_reject');
+                }}
+                className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                Reject Cancellation
+              </button>
+              <button
+                onClick={() => setActiveModal('cancel_respond_accept')}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer transition-colors flex items-center space-x-1.5"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>Accept Cancellation</span>
+              </button>
+            </>
+          )}
+
+          {/* Completion Response Actions */}
+          {contract.status === 'completion_requested' && contract.completion_requested_by !== currentUserId && (
+            <>
+              <button
+                onClick={() => {
+                  setModalReasonInput('');
+                  setActiveModal('complete_respond_reject');
+                }}
+                className="px-4 py-2.5 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-bold text-xs rounded-xl cursor-pointer hover:bg-rose-100 transition-colors"
+              >
+                Report Issue / Reject
+              </button>
+              <button
+                onClick={() => setActiveModal('complete_respond_accept')}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer transition-colors flex items-center space-x-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Confirm Completion</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Confirmation Modals */}
+      <AnimatePresence>
+        {activeModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-md w-full shadow-2xl space-y-4 text-left"
+            >
+              {/* Modal: Request Cancellation */}
+              {activeModal === 'cancel_request' && (
+                <>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <XCircle className="w-5 h-5 text-rose-500" />
+                    <span>Request Contract Cancellation</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    This will send a mutual cancellation request to the other party. The contract will become cancelled only after both parties agree.
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase font-mono block">Cancellation Reason (Required)</label>
+                    <textarea
+                      rows={3}
+                      value={modalReasonInput}
+                      onChange={(e) => setModalReasonInput(e.target.value)}
+                      placeholder="Explain why you are requesting to cancel this contract..."
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleRequestCancellation}
+                      disabled={actionLoading || !modalReasonInput.trim()}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Submit Request</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Modal: Accept Cancellation */}
+              {activeModal === 'cancel_respond_accept' && (
+                <>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <XCircle className="w-5 h-5 text-rose-500" />
+                    <span>Accept Cancellation</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Are you sure you want to accept the cancellation request? The contract status will become <strong className="text-rose-600">Cancelled</strong>. Contract history will remain preserved.
+                  </p>
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Go Back
+                    </button>
+                    <button
+                      onClick={() => handleRespondCancellation('accept')}
+                      disabled={actionLoading}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center space-x-1.5"
+                    >
+                      {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Confirm Cancellation</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Modal: Reject Cancellation */}
+              {activeModal === 'cancel_respond_reject' && (
+                <>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
+                    <span>Reject Cancellation</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    This will reject the cancellation request and keep the contract in <strong className="text-emerald-600">Active</strong> status.
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase font-mono block">Rejection Reason (Required)</label>
+                    <textarea
+                      rows={3}
+                      value={modalReasonInput}
+                      onChange={(e) => setModalReasonInput(e.target.value)}
+                      placeholder="Explain why you are rejecting the cancellation..."
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleRespondCancellation('reject')}
+                      disabled={actionLoading || !modalReasonInput.trim()}
+                      className="px-5 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Reject Request</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Modal: Request Completion */}
+              {activeModal === 'complete_request' && (
+                <>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    <span>Mark Work as Completed</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    This will send a completion confirmation request to the other party. The contract will become <strong className="text-emerald-600">Completed</strong> after both parties confirm.
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase font-mono block">Completion Note / Remarks (Optional)</label>
+                    <textarea
+                      rows={3}
+                      value={modalReasonInput}
+                      onChange={(e) => setModalReasonInput(e.target.value)}
+                      placeholder="Add any completion notes or instructions..."
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleRequestCompletion}
+                      disabled={actionLoading}
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center space-x-1.5"
+                    >
+                      {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Send Completion Request</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Modal: Confirm Completion */}
+              {activeModal === 'complete_respond_accept' && (
+                <>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    <span>Confirm Work Completion</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Are you sure all work deliverables are satisfactory? Confirming will transition the contract status to <strong className="text-purple-600">Completed</strong>.
+                  </p>
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Go Back
+                    </button>
+                    <button
+                      onClick={() => handleRespondCompletion('accept')}
+                      disabled={actionLoading}
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center space-x-1.5"
+                    >
+                      {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Confirm & Complete</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Modal: Reject Completion / Report Issue */}
+              {activeModal === 'complete_respond_reject' && (
+                <>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-rose-500" />
+                    <span>Report Issue / Reject Completion</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Rejecting completion will keep the contract in <strong className="text-emerald-600">Active</strong> status so remaining issues can be resolved.
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase font-mono block">Issue Description / Reason (Required)</label>
+                    <textarea
+                      rows={3}
+                      value={modalReasonInput}
+                      onChange={(e) => setModalReasonInput(e.target.value)}
+                      placeholder="Explain what work remains incomplete or needs revision..."
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-end space-x-2 pt-2">
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      disabled={actionLoading}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleRespondCompletion('reject')}
+                      disabled={actionLoading || !modalReasonInput.trim()}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      {actionLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Report Issue & Reject</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

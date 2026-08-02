@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  MessageSquare, Send, ArrowLeft, ShieldAlert, Lock, CheckCircle2, 
+import {
+  MessageSquare, Send, ArrowLeft, ShieldAlert, Lock, CheckCircle2,
   FileText, Info, Loader2, Sparkles, AlertCircle, RefreshCw, Eye
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
@@ -115,8 +115,8 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   };
 
   const handleRespondToProposal = async (
-    proposalId: string, 
-    response: 'accept' | 'reject' | 'request_changes', 
+    proposalId: string,
+    response: 'accept' | 'reject' | 'request_changes',
     reason?: string
   ) => {
     setRespondingProposal(true);
@@ -166,28 +166,29 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   const isClient = currentUserId === req.client_id;
   const otherPartyName = isClient ? req.worker_name : req.client_name;
   const otherPartyId = isClient ? req.worker_id : req.client_id;
+  const otherPartyAvatar = isClient ? details.worker_profile?.avatar_url : details.client_profile?.avatar_url;
   const badge = getStatusBadge(req.status);
 
   const isRoomLocked = room?.status === 'locked' || req.status === 'confirmed';
 
   return (
     <div className="w-full max-w-4xl mx-auto py-4 sm:py-6 px-2 sm:px-6 space-y-4 text-left">
-      
+
       {/* Header Bar */}
       <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <button 
+          <button
             onClick={() => navigate('/profile/hire-requests')}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
 
-          <div 
+          <div
             onClick={() => navigate(`/profile/${otherPartyId}`)}
             className="flex items-center space-x-3 cursor-pointer group"
           >
-            <UserAvatar avatarUrl={null} fullName={otherPartyName} size="md" />
+            <UserAvatar avatarUrl={otherPartyAvatar} fullName={otherPartyName} size="md" />
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-sm text-slate-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
@@ -271,7 +272,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
 
       {/* Active Deal Proposal Card Component */}
       {activeProposal && (
-        <DealProposalCard 
+        <DealProposalCard
           proposal={activeProposal}
           currentUserId={currentUserId || ''}
           clientId={req.client_id}
@@ -283,7 +284,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
 
       {/* Chat Thread Box */}
       <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 flex flex-col h-[480px] shadow-xs overflow-hidden">
-        
+
         {/* Messages List */}
         <div className="flex-1 p-4 overflow-y-auto space-y-3">
           {messages.length === 0 ? (
@@ -311,8 +312,8 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
               return (
                 <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-2.5 text-xs ${
-                    isMine 
-                      ? 'bg-purple-600 text-white rounded-br-xs' 
+                    isMine
+                      ? 'bg-purple-600 text-white rounded-br-xs'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-xs'
                   }`}>
                     <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
@@ -337,7 +338,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
           </div>
         ) : (
           <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-100 dark:border-slate-800 flex items-center space-x-2 bg-slate-50/50 dark:bg-slate-900/50">
-            <input 
+            <input
               type="text"
               placeholder="Type message to negotiate terms..."
               value={inputText}
@@ -346,7 +347,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
               maxLength={5000}
               className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] rounded-xl text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
             />
-            <button 
+            <button
               type="submit"
               disabled={!inputText.trim() || sending}
               className="h-10 px-4 bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer disabled:opacity-40 flex items-center justify-center shrink-0"
