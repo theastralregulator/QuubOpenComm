@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { 
+import {
   MapPin, Calendar, Globe, Camera, Edit2,
   Briefcase, Bookmark, Users, Wrench,
   ChevronRight, Share2, LogOut, MoreHorizontal, Settings,
   CheckCircle2, ShieldCheck, Clock
 } from 'lucide-react';
 import UserAvatar from '../common/UserAvatar';
-import { LocalProfile, dbService } from '../../lib/supabase';
+import { supabase, LocalProfile, dbService } from '../../lib/supabase';
 import { Job, Worker } from '../../types';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
@@ -54,25 +54,77 @@ export default function BasicProfileDashboard({
 }: BasicProfileDashboardProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [showMenuPopover, setShowMenuPopover] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
-  const [hireRequestsCount, setHireRequestsCount] = useState<number>(0);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [hasWorkerProfile, setHasWorkerProfile] = useState<boolean | null>(null);
+  const [hireStats, setHireStats] = useState<{
+    pendingReceived: number;
+    activeNegotiations: number;
+    confirmedWorks: number;
+    sentRequests: number;
+  }>({
+    pendingReceived: 0,
+    activeNegotiations: 0,
+    confirmedWorks: 0,
+    sentRequests: 0,
+  });
+  const [loadingHireStats, setLoadingHireStats] = useState(true);
 
   useEffect(() => {
-    async function loadHireCount() {
+    async function loadHireData() {
+      if (!isOwner) return;
+      setLoadingHireStats(true);
       try {
-        const list = await dbService.getCurrentUserHiringRequests();
-        setHireRequestsCount(list.length);
+        if (supabase) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            setCurrentUserId(user.id);
+            const { data: wp } = await supabase
+              .from('worker_profiles')
+              .select('id')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            setHasWorkerProfile(Boolean(wp));
+
+            const list = await dbService.getCurrentUserHiringRequests();
+            const uid = user.id;
+
+            const pendingRec = list.filter((r: any) => r.worker_id === uid && r.status === 'pending').length;
+            const activeNeg = list.filter((r: any) =>
+              (r.client_id === uid || r.worker_id === uid) &&
+              ['negotiating', 'proposal_pending', 'changes_requested'].includes(r.status)
+            ).length;
+            const confirmed = list.filter((r: any) =>
+              (r.client_id === uid || r.worker_id === uid) && r.status === 'confirmed'
+            ).length;
+            const sent = list.filter((r: any) => r.client_id === uid).length;
+
+            setHireStats({
+              pendingReceived: pendingRec,
+              activeNegotiations: activeNeg,
+              confirmedWorks: confirmed,
+              sentRequests: sent,
+            });
+          }
+        }
       } catch (err) {
-        console.warn('Failed to fetch hire requests count:', err);
+        console.warn('Failed to fetch hire stats for profile dashboard:', err);
+        setHireStats({
+          pendingReceived: 0,
+          activeNegotiations: 0,
+          confirmedWorks: 0,
+          sentRequests: 0,
+        });
+      } finally {
+        setLoadingHireStats(false);
       }
     }
-    if (isOwner) {
-      loadHireCount();
-    }
+    loadHireData();
   }, [isOwner]);
 
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -107,12 +159,12 @@ export default function BasicProfileDashboard({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
-      
+
       {/* ========================================================================= */}
       {/* 1. HERO PROFILE CARD */}
       {/* ========================================================================= */}
       <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-7 relative overflow-hidden shadow-xs">
-        
+
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 relative z-10">
           {/* Avatar & Info */}
           <div className="flex items-center space-x-4 min-w-0">
@@ -124,7 +176,7 @@ export default function BasicProfileDashboard({
                 className="w-20 h-20 sm:w-24 sm:h-24 text-2xl sm:text-3xl border-4 border-white dark:border-[#111827] shadow-md bg-slate-100"
               />
               {isOwner && (
-                <button 
+                <button
                   onClick={onUpdatePhoto}
                   className="absolute bottom-0 right-0 p-2 bg-[#7C3AED] hover:bg-purple-700 text-white rounded-full transition-all shadow-md cursor-pointer border-2 border-white dark:border-[#111827]"
                   title="Change profile photo"
@@ -221,9 +273,9 @@ export default function BasicProfileDashboard({
 
               {showMenuPopover && menuPosition && createPortal(
                 <>
-                  <div 
-                    className="fixed inset-0 z-[9998] bg-transparent" 
-                    onClick={() => setShowMenuPopover(false)} 
+                  <div
+                    className="fixed inset-0 z-[9998] bg-transparent"
+                    onClick={() => setShowMenuPopover(false)}
                   />
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95, y: -4 }}
@@ -265,7 +317,7 @@ export default function BasicProfileDashboard({
             </div>
           ) : (
             <div className="flex items-center space-x-2">
-              <button 
+              <button
                 onClick={() => triggerToast("Profile link copied to clipboard!")}
                 className="h-9 w-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center transition-all cursor-pointer"
                 title="Share Profile"
@@ -292,7 +344,7 @@ export default function BasicProfileDashboard({
                 Overview of applicant responses across your active job postings.
               </p>
             </div>
-            
+
             <button
               type="button"
               onClick={() => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
@@ -326,11 +378,60 @@ export default function BasicProfileDashboard({
       )}
 
       {/* ========================================================================= */}
+      {/* DIRECT HIRE REQUESTS SECTION (WORKER ACCOUNTS) */}
+      {/* ========================================================================= */}
+      {isOwner && hasWorkerProfile === true && (
+        <div
+          onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
+          className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xs relative overflow-hidden text-left cursor-pointer hover:border-purple-500/30 transition-all group"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+                <span>Direct Hire Requests</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Incoming client proposals, active negotiations, and confirmed work contracts.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.SAVED_WORKERS);
+              }}
+              className="h-9 px-4 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 active:scale-95 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer self-start sm:self-auto shrink-0 select-none"
+            >
+              <span>View Requests</span>
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+            <div className="bg-amber-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider font-mono truncate">Pending Received</span>
+              <span className="text-base sm:text-lg font-extrabold text-amber-700 dark:text-amber-300 truncate">{loadingHireStats ? '...' : hireStats.pendingReceived}</span>
+            </div>
+            <div className="bg-blue-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-blue-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider font-mono truncate">Active Negotiations</span>
+              <span className="text-base sm:text-lg font-extrabold text-blue-700 dark:text-blue-300 truncate">{loadingHireStats ? '...' : hireStats.activeNegotiations}</span>
+            </div>
+            <div className="bg-emerald-500/10 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-emerald-500/15 text-center flex flex-col justify-center min-w-0">
+              <span className="block text-[9px] sm:text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono truncate">Confirmed Works</span>
+              <span className="text-base sm:text-lg font-extrabold text-emerald-700 dark:text-emerald-300 truncate">{loadingHireStats ? '...' : hireStats.confirmedWorks}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* 3. PROFILE STATISTICS CARDS */}
       {/* ========================================================================= */}
       {isOwner && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-left">
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/my-job-posts', location, SESSION_STORAGE_KEYS.MY_JOB_POSTS)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -342,7 +443,7 @@ export default function BasicProfileDashboard({
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">My Job Posts</span>
           </div>
 
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/jobs-applied', location, SESSION_STORAGE_KEYS.JOBS_APPLIED)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -354,17 +455,31 @@ export default function BasicProfileDashboard({
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Jobs Applied</span>
           </div>
 
-          <div 
-            onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
-            className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+          {hasWorkerProfile === false ? (
+            <div
+              onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests?tab=sent', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
+              className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              </div>
+              <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{loadingHireStats ? '...' : hireStats.sentRequests}</span>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Sent Hire Requests</span>
             </div>
-            <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{hireRequestsCount}</span>
-            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Hire Requests</span>
-          </div>
+          ) : (
+            <div
+              onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
+              className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              </div>
+              <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{loadingHireStats ? '...' : (hireStats.pendingReceived + hireStats.activeNegotiations + hireStats.confirmedWorks)}</span>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Direct Hire Requests</span>
+            </div>
+          )}
 
           <div
             onClick={() => navigateWithOrigin(navigate, '/profile/saved-jobs', location, SESSION_STORAGE_KEYS.SAVED_JOBS)}
@@ -378,7 +493,7 @@ export default function BasicProfileDashboard({
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Saved Jobs</span>
           </div>
 
-          <div 
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/saved-workers', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
@@ -409,7 +524,7 @@ export default function BasicProfileDashboard({
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
             Converting to a Worker Account lets you showcase your skills, set your hourly rate, upload portfolio projects, manage availability, and accept direct hiring requests from employers.
           </p>
-          <button 
+          <button
             onClick={onCreateWorker}
             className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 hover:scale-102"
           >
@@ -426,7 +541,7 @@ export default function BasicProfileDashboard({
         <div className="pb-2 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Verification Status</h3>
         </div>
-        
+
         {isVerified ? (
           <div className="flex items-center space-x-3 p-3.5 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 text-xs">
             <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
@@ -484,7 +599,7 @@ export default function BasicProfileDashboard({
               </div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">Log out of OpenComm?</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 font-medium">You will need to sign in again to access your account.</p>
-              
+
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowLogoutConfirm(false)}
