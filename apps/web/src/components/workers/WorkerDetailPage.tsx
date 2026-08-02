@@ -14,6 +14,7 @@ import { analytics } from '../../lib/analytics';
 import { formatINR } from '../../lib/currency';
 import { resolveReturnRoute, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
+import HireRequestForm from '../hiring/HireRequestForm';
 
 interface WorkerDetailPageProps {
   workers: Worker[];
@@ -504,87 +505,12 @@ export default function WorkerDetailPage({
 
         {/* Dynamic Hire Form */}
         <AnimatePresence>
-          {showHireForm && (
-            <motion.form
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3 }}
-              onSubmit={handleHireSubmit}
-              className="border-t border-purple-500/15 pt-5 space-y-4 text-left overflow-hidden"
-            >
-              <div className="bg-white/80 dark:bg-slate-900/80 border border-purple-500/15 p-3.5 rounded-2xl flex items-start space-x-2.5">
-                <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">Direct Hire Escrow Protection</h4>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Funds remain safely in escrow until project milestones are completed and verified.</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="md:col-span-1 space-y-2">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Project Title
-                    </label>
-                    <input 
-                      type="text" 
-                      required
-                      value={projectTitle}
-                      onChange={(e) => setProjectTitle(e.target.value)}
-                      className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
-                      placeholder="e.g. Mobile App UI Design"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Total Budget (INR ₹)
-                    </label>
-                    <input 
-                      type="number" 
-                      required
-                      value={budget}
-                      onChange={(e) => setBudget(e.target.value)}
-                      className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="md:col-span-2 flex flex-col justify-between space-y-2">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Message & Requirements
-                    </label>
-                    <textarea 
-                      rows={4}
-                      required
-                      value={projectDesc}
-                      onChange={(e) => setProjectDesc(e.target.value)}
-                      className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-900 dark:text-white text-xs focus:outline-none focus:border-purple-500 resize-none"
-                      placeholder="Describe the job deliverables, deadlines, and expected timeline..."
-                    />
-                  </div>
-
-                  <div className="flex justify-end space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowHireForm(false)}
-                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold flex items-center space-x-1.5 disabled:opacity-50"
-                    >
-                      <span>{isSubmitting ? 'Sending Proposal...' : 'Send Escrow Hire Offer'}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.form>
+          {showHireForm && worker && (
+            <HireRequestForm
+              worker={worker}
+              onClose={() => setShowHireForm(false)}
+              triggerToast={triggerToast}
+            />
           )}
         </AnimatePresence>
       </div>

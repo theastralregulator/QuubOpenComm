@@ -104,7 +104,8 @@ export interface DbConversation {
   last_message_time: string | null;
   unread_count: number;
   created_at: string;
-  conversation_type?: 'application' | 'worker_direct';
+  conversation_type?: 'application' | 'worker_direct' | 'work_contract' | 'direct';
+  work_contract_id?: string;
 }
 
 export interface ConversationViewModel {
@@ -121,7 +122,8 @@ export interface ConversationViewModel {
   lastMessageTime: string;
   unreadCount: number;
   createdAt: string;
-  conversationType?: 'application' | 'worker_direct';
+  conversationType?: 'application' | 'worker_direct' | 'work_contract' | 'direct';
+  workContractId?: string;
 }
 
 export interface Conversation {
@@ -171,5 +173,102 @@ export interface Category {
   icon: string; // Lucide icon name
   count: number;
   color: string; // CSS custom color style
+}
+
+export type HiringRequestWorkflowStatus =
+  | 'pending'
+  | 'accepted'
+  | 'rejected'
+  | 'withdrawn'
+  | 'negotiating'
+  | 'proposal_pending'
+  | 'changes_requested'
+  | 'confirmed'
+  | 'cancelled'
+  | 'expired'
+  | 'completed';
+
+export interface NegotiationRoom {
+  id: string;
+  hiring_request_id: string;
+  client_id: string;
+  worker_id: string;
+  status: 'active' | 'locked' | 'cancelled' | 'completed';
+  last_message_at: string;
+  locked_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NegotiationMessage {
+  id: string;
+  negotiation_room_id: string;
+  sender_id: string;
+  message_type: 'text' | 'system' | 'proposal_event' | 'status_event';
+  text: string;
+  metadata?: any;
+  created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+}
+
+export type DealProposalResponse = 'pending' | 'accepted' | 'rejected' | 'changes_requested';
+
+export interface DealProposal {
+  id: string;
+  hiring_request_id: string;
+  negotiation_room_id: string;
+  version_number: number;
+  proposed_by: string;
+  work_title: string;
+  work_description: string;
+  final_price: number;
+  payment_type: 'hourly' | 'fixed' | 'monthly' | 'daily' | 'project';
+  work_date?: string | null;
+  start_time?: string | null;
+  duration?: string | null;
+  location?: string | null;
+  additional_terms?: string | null;
+  proposal_status: 'pending' | 'changes_requested' | 'rejected' | 'superseded' | 'accepted';
+  client_response: DealProposalResponse;
+  worker_response: DealProposalResponse;
+  client_responded_at?: string | null;
+  worker_responded_at?: string | null;
+  superseded_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkContract {
+  id: string;
+  hiring_request_id: string;
+  deal_proposal_id: string;
+  client_id: string;
+  worker_id: string;
+  work_title: string;
+  work_description: string;
+  final_price: number;
+  payment_type: string;
+  work_date?: string | null;
+  start_time?: string | null;
+  duration?: string | null;
+  location?: string | null;
+  additional_terms?: string | null;
+  status: 'active' | 'completed' | 'cancelled' | 'disputed';
+  permanent_conversation_id?: string | null;
+  confirmed_at: string;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HireWorkflowDetails {
+  hiring_request: any;
+  negotiation_room: NegotiationRoom | null;
+  active_proposal: DealProposal | null;
+  work_contract: WorkContract | null;
+  negotiation_messages: NegotiationMessage[];
+  deal_proposals_history: DealProposal[];
 }
 

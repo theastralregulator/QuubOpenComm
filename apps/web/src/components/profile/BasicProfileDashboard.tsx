@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
@@ -9,7 +9,7 @@ import {
   CheckCircle2, ShieldCheck, Clock
 } from 'lucide-react';
 import UserAvatar from '../common/UserAvatar';
-import { LocalProfile } from '../../lib/supabase';
+import { LocalProfile, dbService } from '../../lib/supabase';
 import { Job, Worker } from '../../types';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
@@ -59,6 +59,21 @@ export default function BasicProfileDashboard({
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [showMenuPopover, setShowMenuPopover] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const [hireRequestsCount, setHireRequestsCount] = useState<number>(0);
+
+  useEffect(() => {
+    async function loadHireCount() {
+      try {
+        const list = await dbService.getCurrentUserHiringRequests();
+        setHireRequestsCount(list.length);
+      } catch (err) {
+        console.warn('Failed to fetch hire requests count:', err);
+      }
+    }
+    if (isOwner) {
+      loadHireCount();
+    }
+  }, [isOwner]);
 
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -340,11 +355,23 @@ export default function BasicProfileDashboard({
           </div>
 
           <div 
+            onClick={() => navigateWithOrigin(navigate, '/profile/hire-requests', location, SESSION_STORAGE_KEYS.SAVED_WORKERS)}
+            className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+            <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{hireRequestsCount}</span>
+            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono block truncate">Hire Requests</span>
+          </div>
+
+          <div
             onClick={() => navigateWithOrigin(navigate, '/profile/saved-jobs', location, SESSION_STORAGE_KEYS.SAVED_JOBS)}
             className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs cursor-pointer hover:border-purple-500/30 hover:shadow-md transition-all group"
           >
             <div className="flex items-center justify-between mb-2">
-              <Bookmark className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+              <Bookmark className="w-4 h-4 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
               <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             </div>
             <span className="text-xl font-extrabold text-slate-900 dark:text-white block leading-none mb-1">{savedJobsCount}</span>

@@ -357,6 +357,20 @@ export default function Navbar({
 
                             <button 
                               onClick={() => {
+                                navigate('/profile/hire-requests');
+                                setShowProfileMenu(false);
+                              }}
+                              className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 flex items-center justify-between cursor-pointer group transition-all"
+                            >
+                              <span className="flex items-center font-semibold">
+                                <Briefcase className="w-4 h-4 mr-2.5 text-purple-500 group-hover:text-purple-600" />
+                                Direct Hire Requests
+                              </span>
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                            </button>
+
+                            <button
+                              onClick={() => {
                                 handleNavClick('saved-jobs');
                                 setShowProfileMenu(false);
                               }}

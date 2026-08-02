@@ -8,6 +8,7 @@ import {
 import { supabase, dbService } from '../../lib/supabase';
 import { ConversationViewModel, DbMessage } from '../../types';
 import UserAvatar from '../common/UserAvatar';
+import WorkContractBanner from '../contracts/WorkContractBanner';
 
 export interface ConversationGroup {
   participantId: string;
@@ -550,6 +551,11 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                   </div>
                 </div>
               </div>
+
+              {/* Work Contract Banner */}
+              {activeConv?.workContractId && (
+                <WorkContractBanner contractId={activeConv.workContractId} />
+              )}
 
               {/* Safety Banner */}
               <div className="px-4 py-2 bg-slate-50 dark:bg-[#0E1320] border-b border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-center gap-1.5">

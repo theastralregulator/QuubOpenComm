@@ -303,8 +303,10 @@ export interface LocalHiringRequest {
   description: string;
   budget: number;
   preferred_date: string;
+  location?: string;
+  duration?: string;
   message?: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'withdrawn';
+  status: 'pending' | 'accepted' | 'rejected' | 'withdrawn' | string;
   created_at: string;
 }
 
@@ -1013,6 +1015,8 @@ export const dbService = {
           description: req.description,
           budget: req.budget,
           preferred_date: req.preferred_date,
+          location: req.location || '',
+          duration: req.duration || '',
           message: req.message || '',
           status: 'pending'
         }).select().single();
@@ -1027,6 +1031,8 @@ export const dbService = {
             description: data.description,
             budget: Number(data.budget),
             preferred_date: data.preferred_date,
+            location: data.location,
+            duration: data.duration,
             message: data.message,
             status: data.status,
             created_at: data.created_at
@@ -1108,6 +1114,141 @@ export const dbService = {
     }
     const requests = openCommDb.getHiringRequests();
     return requests.filter(r => r.client_id === userId || r.worker_id === userId);
+  },
+
+  // --- DIRECT HIRING WORKFLOW RPCS ---
+
+  async acceptHiringRequest(requestId: string): Promise<{ request_id: string; room_id: string; status: string }> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('accept_hiring_request', { p_request_id: requestId });
+    if (error) {
+      console.error('acceptHiringRequest RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async declineHiringRequest(requestId: string, reason?: string): Promise<{ request_id: string; status: string }> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('decline_hiring_request', {
+      p_request_id: requestId,
+      p_reason: reason || null
+    });
+    if (error) {
+      console.error('declineHiringRequest RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async withdrawHiringRequest(requestId: string, reason?: string): Promise<{ request_id: string; status: string }> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('withdraw_hiring_request', {
+      p_request_id: requestId,
+      p_reason: reason || null
+    });
+    if (error) {
+      console.error('withdrawHiringRequest RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async sendNegotiationMessage(roomId: string, text: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('send_negotiation_message', {
+      p_room_id: roomId,
+      p_text: text
+    });
+    if (error) {
+      console.error('sendNegotiationMessage RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async submitDealProposal(payload: {
+    request_id: string;
+    work_title: string;
+    work_description: string;
+    final_price: number;
+    payment_type?: string;
+    work_date?: string;
+    start_time?: string;
+    duration?: string;
+    location?: string;
+    additional_terms?: string;
+  }): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('submit_deal_proposal', {
+      p_request_id: payload.request_id,
+      p_work_title: payload.work_title,
+      p_work_description: payload.work_description,
+      p_final_price: payload.final_price,
+      p_payment_type: payload.payment_type || 'fixed',
+      p_work_date: payload.work_date || null,
+      p_start_time: payload.start_time || null,
+      p_duration: payload.duration || null,
+      p_location: payload.location || null,
+      p_additional_terms: payload.additional_terms || null,
+    });
+    if (error) {
+      console.error('submitDealProposal RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async respondToDealProposal(
+    proposalId: string,
+    response: 'accept' | 'reject' | 'request_changes',
+    reason?: string
+  ): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('respond_to_deal_proposal', {
+      p_proposal_id: proposalId,
+      p_response: response,
+      p_reason: reason || null,
+    });
+    if (error) {
+      console.error('respondToDealProposal RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async getHireWorkflowDetails(requestId: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('get_hire_workflow_details', { p_request_id: requestId });
+    if (error) {
+      console.error('getHireWorkflowDetails RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async getWorkContractById(contractId: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase
+      .from('work_contracts')
+      .select('*')
+      .eq('id', contractId)
+      .single();
+    if (error) {
+      console.error('getWorkContractById error:', error);
+      throw new Error(error.message || 'Work contract not found or unauthorized.');
+    }
+    return data;
+  },
+
+  async getCurrentUserHiringRequests(): Promise<any[]> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('get_hiring_requests_for_current_user');
+    if (error) {
+      console.error('getCurrentUserHiringRequests RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data || [];
   },
 
   // Jobs integration
@@ -2022,7 +2163,8 @@ export const dbService = {
         lastMessageTime: lastTimeFormatted,
         unreadCount: unreadCountMap[c.id] || 0,
         createdAt: c.created_at,
-        conversationType: c.conversation_type
+        conversationType: c.conversation_type,
+        workContractId: c.work_contract_id
       };
     });
 
