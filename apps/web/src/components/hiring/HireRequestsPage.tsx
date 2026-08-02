@@ -47,6 +47,7 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
   const [activeTab, setActiveTab] = useState<'received' | 'sent'>(activeTabParam);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [hasWorkerProfile, setHasWorkerProfile] = useState<boolean | null>(null);
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +73,18 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setCurrentUserId(user.id);
+          const { data: wp } = await supabase
+            .from('worker_profiles')
+            .select('id')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          const isWorker = Boolean(wp);
+          setHasWorkerProfile(isWorker);
+
+          if (!isWorker) {
+            setActiveTab('sent');
+          }
         }
       }
       const data = await dbService.getCurrentUserHiringRequests();
@@ -133,7 +146,8 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
 
   const receivedRequests = requests.filter(r => r.worker_id === currentUserId);
   const sentRequests = requests.filter(r => r.client_id === currentUserId);
-  const displayedRequests = activeTab === 'received' ? receivedRequests : sentRequests;
+  const effectiveTab = hasWorkerProfile === false ? 'sent' : activeTab;
+  const displayedRequests = effectiveTab === 'received' ? receivedRequests : sentRequests;
 
   return (
     <div className="w-full max-w-5xl mx-auto py-6 sm:py-8 px-3 sm:px-6 space-y-6 text-left">
@@ -153,7 +167,9 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
               Direct Hire Requests
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Manage incoming proposals, negotiate terms, and confirm work contracts.
+              {hasWorkerProfile === false
+                ? 'Track direct hire requests sent to contractors, negotiate terms, and confirm work contracts.'
+                : 'Manage incoming proposals, negotiate terms, and confirm work contracts.'}
             </p>
           </div>
         </div>
@@ -170,24 +186,26 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 dark:border-slate-800 space-x-2">
-        <button
-          onClick={() => handleTabChange('received')}
-          className={`pb-3 px-4 font-bold text-xs sm:text-sm flex items-center space-x-2 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'received'
-              ? 'border-purple-600 text-purple-600 dark:text-purple-400'
-              : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <span>Received Requests</span>
-          <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 font-extrabold">
-            {receivedRequests.length}
-          </span>
-        </button>
+        {hasWorkerProfile !== false && (
+          <button
+            onClick={() => handleTabChange('received')}
+            className={`pb-3 px-4 font-bold text-xs sm:text-sm flex items-center space-x-2 border-b-2 transition-all cursor-pointer ${
+              effectiveTab === 'received'
+                ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span>Received Requests</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 font-extrabold">
+              {receivedRequests.length}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => handleTabChange('sent')}
           className={`pb-3 px-4 font-bold text-xs sm:text-sm flex items-center space-x-2 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'sent'
+            effectiveTab === 'sent'
               ? 'border-purple-600 text-purple-600 dark:text-purple-400'
               : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
@@ -221,14 +239,14 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
         <div className="p-12 text-center bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 space-y-3">
           <Briefcase className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
           <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-            No {activeTab === 'received' ? 'received' : 'sent'} hire requests found
+            No {effectiveTab === 'received' ? 'received' : 'sent'} hire requests found
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-            {activeTab === 'received'
+            {effectiveTab === 'received'
               ? 'When clients discover your worker profile and send hire offers, they will appear here.'
               : 'Browse certified service providers in the Worker Directory to initiate direct hiring offers.'}
           </p>
-          {activeTab === 'sent' && (
+          {effectiveTab === 'sent' && (
             <button
               onClick={() => navigate('/workers')}
               className="mt-2 px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer"
