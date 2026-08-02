@@ -2777,6 +2777,12 @@ export default function App() {
             </ProtectedRoute>
           } />
 
+          <Route path="/applications/:applicationId/negotiation" element={
+            <ProtectedRoute>
+              <NegotiationPage triggerToast={triggerToast} />
+            </ProtectedRoute>
+          } />
+
           <Route path="/work-contracts/:contractId" element={
             <ProtectedRoute>
               <WorkContractPage triggerToast={triggerToast} />

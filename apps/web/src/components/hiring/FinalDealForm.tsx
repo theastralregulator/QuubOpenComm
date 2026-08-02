@@ -4,7 +4,8 @@ import { FileText, DollarSign, Calendar, Clock, MapPin, X, Send, ShieldCheck, Al
 import { dbService } from '../../lib/supabase';
 
 interface FinalDealFormProps {
-  requestId: string;
+  requestId?: string;
+  applicationId?: string;
   initialTitle?: string;
   initialDescription?: string;
   initialBudget?: number;
@@ -15,6 +16,7 @@ interface FinalDealFormProps {
 
 export default function FinalDealForm({
   requestId,
+  applicationId,
   initialTitle = '',
   initialDescription = '',
   initialBudget = 1000,
@@ -55,7 +57,8 @@ export default function FinalDealForm({
     setSubmitting(true);
     try {
       const proposal = await dbService.submitDealProposal({
-        request_id: requestId,
+        request_id: requestId || undefined,
+        application_id: applicationId || undefined,
         work_title: workTitle.trim(),
         work_description: workDescription.trim(),
         final_price: Number(finalPrice),

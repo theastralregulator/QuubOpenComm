@@ -22,6 +22,10 @@ interface AppliedJobRecord {
   cover_letter: string | null;
   status: string;
   created_at: string;
+  negotiation_room_id?: string | null;
+  active_proposal_id?: string | null;
+  work_contract_id?: string | null;
+  permanent_conversation_id?: string | null;
   job: {
     id: string;
     title: string;
@@ -116,25 +120,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
       const employerIds = [...new Set(Object.values(jobMap).map((j: any) => j.posted_by).filter(Boolean))];
       const profilesMap = await getPublicProfilesByIds(employerIds);
 
-      // Diagnostic Live Data Trace for Section 1
-      if (rawApps.length > 0) {
-        const firstApp = rawApps[0];
-        const firstJob = jobMap[firstApp.job_id];
-        const firstEmp = firstJob?.posted_by ? profilesMap.get(firstJob.posted_by) : null;
-        console.log('[Jobs Applied Live Data Trace]', {
-          application_id: firstApp.id,
-          application_applicant_id: firstApp.applicant_id,
-          application_job_id: firstApp.job_id,
-          fetched_job_id: firstJob?.id,
-          fetched_job_posted_by: firstJob?.posted_by,
-          authenticated_user_id: user.id,
-          profile_lookup_table: 'profile_directory & profiles',
-          profile_lookup_id_column: 'id',
-          returned_profile_row: firstEmp,
-        });
-      }
-
-      // Step 4: Merge all datasets ensuring strict employer resolution via job.posted_by
+      // Step 4: Merge all datasets
       const mergedApplications: AppliedJobRecord[] = rawApps.map(app => {
         const job = jobMap[app.job_id];
         const employerId = job?.posted_by || '';
@@ -153,6 +139,10 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
           cover_letter: app.cover_letter || null,
           status: app.status || 'pending',
           created_at: app.created_at,
+          negotiation_room_id: app.negotiation_room_id,
+          active_proposal_id: app.active_proposal_id,
+          work_contract_id: app.work_contract_id,
+          permanent_conversation_id: app.permanent_conversation_id,
           job: {
             id: job?.id || app.job_id,
             title: job?.title || 'Job Listing',
@@ -181,16 +171,16 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
 
   useEffect(() => {
     let channel: any;
-    
+
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      
+
       channel = supabase
         .channel(`job-applications-${user.id}`)
-        .on('postgres_changes', { 
-          event: '*', 
-          schema: 'public', 
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
           table: 'job_applications',
           filter: `applicant_id=eq.${user.id}`
         }, fetchApplications)
@@ -218,19 +208,17 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
     if (!window.confirm('Withdraw application?\nThis action may not be reversible. Are you sure you want to proceed?')) {
       return;
     }
-    
+
     setWithdrawingId(appId);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Authentication required.");
 
-      // Try RPC first
       const { error: rpcErr } = await supabase.rpc('withdraw_job_application', {
         p_application_id: appId
       });
 
       if (rpcErr) {
-        // Fallback to direct update
         const { error: updateErr } = await supabase
           .from('job_applications')
           .update({ status: 'withdrawn', updated_at: new Date().toISOString() })
@@ -239,8 +227,8 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
 
         if (updateErr) throw updateErr;
       }
-      
-      setApplications(prev => prev.map(app => 
+
+      setApplications(prev => prev.map(app =>
         app.id === appId ? { ...app, status: 'withdrawn' } : app
       ));
     } catch (err: any) {
@@ -261,14 +249,29 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
     } else if (status === 'shortlisted') {
       label = 'Shortlisted';
       styleClass = 'bg-purple-50 dark:bg-purple-950/30 text-purple-800 dark:text-purple-300 border-purple-200/60';
+    } else if (status === 'negotiating') {
+      label = 'Negotiation Open';
+      styleClass = 'bg-purple-50 dark:bg-purple-950/30 text-purple-800 dark:text-purple-300 border-purple-200/60';
+    } else if (status === 'proposal_pending') {
+      label = 'Final Deal Pending';
+      styleClass = 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200/60';
+    } else if (status === 'changes_requested') {
+      label = 'Changes Requested';
+      styleClass = 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200/60';
+    } else if (status === 'confirmed') {
+      label = 'Work Confirmed';
+      styleClass = 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200/60';
+    } else if (status === 'completed') {
+      label = 'Completed';
+      styleClass = 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200/60';
     } else if (status === 'accepted') {
       label = 'Accepted';
       styleClass = 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200/60';
     } else if (status === 'rejected') {
       label = 'Rejected';
       styleClass = 'bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200/60';
-    } else if (status === 'withdrawn') {
-      label = 'Withdrawn';
+    } else if (status === 'withdrawn' || status === 'cancelled') {
+      label = status === 'cancelled' ? 'Cancelled' : 'Withdrawn';
       styleClass = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
     }
 
@@ -283,11 +286,11 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
   return (
     <div className="w-full bg-[linear-gradient(180deg,#FAFBFF_0%,#F7F5FF_55%,#FAFCFF_100%)] dark:bg-[#080C14] min-h-screen text-left">
       <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 pt-3 sm:pt-4 pb-[calc(110px+env(safe-area-inset-bottom))] space-y-4">
-        
+
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
           <div className="flex items-center space-x-3">
-            <button 
+            <button
               type="button"
               onClick={() => navigate(-1)}
               className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer border border-slate-200/60 dark:border-slate-800"
@@ -326,20 +329,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
         {loading ? (
           <div className="space-y-3.5">
             {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 h-44 animate-pulse flex flex-col justify-between">
-                <div className="flex justify-between items-start">
-                  <div className="flex space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-800" />
-                    <div className="space-y-2">
-                      <div className="w-28 h-4 bg-slate-200 dark:bg-slate-800 rounded" />
-                      <div className="w-16 h-3 bg-slate-200 dark:bg-slate-800 rounded" />
-                    </div>
-                  </div>
-                  <div className="w-24 h-6 bg-slate-200 dark:bg-slate-800 rounded-full" />
-                </div>
-                <div className="w-3/4 h-5 bg-slate-200 dark:bg-slate-800 rounded" />
-                <div className="w-1/2 h-4 bg-slate-200 dark:bg-slate-800 rounded" />
-              </div>
+              <div key={i} className="bg-white dark:bg-[#111827] border border-[#ECEEF5] dark:border-slate-800 rounded-[22px] p-4 h-44 animate-pulse flex flex-col justify-between" />
             ))}
           </div>
         ) : error ? (
@@ -347,7 +337,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
             <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
             <h3 className="text-base font-bold text-rose-700 dark:text-rose-300">Unable to load your applications</h3>
             <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto">{error}</p>
-            <button 
+            <button
               type="button"
               onClick={fetchApplications}
               className="inline-flex items-center space-x-1.5 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 font-bold text-xs transition-all cursor-pointer shadow-2xs"
@@ -383,6 +373,8 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
               const formattedSalary = formatSalaryRange(undefined, undefined, app.job.salary_range);
               const displayJobType = formatJobType(app.job.job_type);
 
+              const canWithdraw = app.status === 'pending' || app.status === 'under_review' || app.status === 'shortlisted';
+
               return (
                 <motion.div
                   key={app.id}
@@ -390,11 +382,8 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                   className="bg-[linear-gradient(180deg,#FFFFFF_0%,#FBF9FF_60%,#FAFBFF_100%)] dark:bg-[#111827] border border-[#ECEEF5] dark:border-[#273449]/40 rounded-[22px] p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xs hover:shadow-md text-left"
                 >
                   <div className="space-y-2.5">
-                    {/* Top Row: Employer Avatar, Name & Status Pill */}
                     <div className="flex justify-between items-start gap-2">
-                      
-                      {/* Clickable Employer Avatar & Name (Strictly resolved from job.posted_by) */}
-                      <div 
+                      <div
                         onClick={() => {
                           if (app.job.posted_by) {
                             navigate(`/profile/${app.job.posted_by}`);
@@ -404,12 +393,12 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                         title={`View ${app.employer.name}'s profile`}
                       >
                         {app.employer.avatarUrl && !avatarErrors[app.id] ? (
-                          <img 
-                            src={app.employer.avatarUrl} 
-                            alt={app.employer.name} 
+                          <img
+                            src={app.employer.avatarUrl}
+                            alt={app.employer.name}
                             referrerPolicy="no-referrer"
                             onError={() => setAvatarErrors(prev => ({ ...prev, [app.id]: true }))}
-                            className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0 group-hover:brightness-95 transition-all" 
+                            className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0 group-hover:brightness-95 transition-all"
                           />
                         ) : (
                           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#6C4DFF] to-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0 group-hover:scale-105 transition-transform">
@@ -429,25 +418,21 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                         </div>
                       </div>
 
-                      {/* Live Application Status Pill */}
                       <div className="shrink-0">
                         {renderStatusPill(app.status)}
                       </div>
                     </div>
 
-                    {/* Job Title - UN-TRUNCATED 2-3 LINES */}
                     <h3 className="text-sm sm:text-base font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-tight leading-snug whitespace-normal break-words overflow-visible text-left hover:text-[#2563EB] transition-colors cursor-pointer" onClick={() => navigate(`/jobs/${app.job_id}`)}>
                       {app.job.title}
                     </h3>
 
-                    {/* Short Description */}
                     {app.job.description && (
                       <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed text-left">
                         {app.job.description}
                       </p>
                     )}
 
-                    {/* Meta Details: Location, Salary, Date Range & Application Date */}
                     <div className="space-y-1.5 text-xs text-[#475569] dark:text-slate-300 text-left pt-0.5">
                       <div className="flex items-center space-x-1.5">
                         <MapPin className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
@@ -474,7 +459,6 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                       </div>
                     </div>
 
-                    {/* Tags: Category & Job Type */}
                     <div className="flex flex-wrap gap-1 pt-1">
                       <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
                         {app.job.category || 'Professional'}
@@ -507,7 +491,42 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
                         </button>
                       )}
 
-                      {app.status !== 'withdrawn' && app.status !== 'rejected' && app.status !== 'accepted' && (
+                      {(app.status === 'negotiating' || app.status === 'proposal_pending' || app.status === 'changes_requested') && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/applications/${app.id}/negotiation`)}
+                          className="h-9 px-3.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>{app.status === 'proposal_pending' ? 'Review Final Deal' : 'Open Negotiation'}</span>
+                        </button>
+                      )}
+
+                      {(app.status === 'confirmed' || app.status === 'completed') && (
+                        <>
+                          {app.work_contract_id && (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/work-contracts/${app.work_contract_id}`)}
+                              className="h-9 px-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-bold text-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                            >
+                              <span>View Contract</span>
+                            </button>
+                          )}
+                          {app.permanent_conversation_id && (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/messages/${app.permanent_conversation_id}`)}
+                              className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Open Main Chat</span>
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                      {canWithdraw && (
                         <button
                           type="button"
                           disabled={withdrawingId === app.id}

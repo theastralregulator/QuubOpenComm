@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   MessageSquare, Send, ArrowLeft, ShieldAlert, Lock, CheckCircle2,
@@ -16,8 +16,12 @@ interface NegotiationPageProps {
 }
 
 export default function NegotiationPage({ triggerToast }: NegotiationPageProps) {
-  const { requestId } = useParams<{ requestId: string }>();
+  const { requestId, applicationId } = useParams<{ requestId?: string; applicationId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isJobApp = Boolean(applicationId || location.pathname.includes('/applications/'));
+  const targetId = isJobApp ? applicationId : requestId;
 
   const [details, setDetails] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,10 +37,10 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
 
   useEffect(() => {
     fetchWorkflowDetails();
-  }, [requestId]);
+  }, [requestId, applicationId]);
 
   const fetchWorkflowDetails = async () => {
-    if (!requestId) return;
+    if (!targetId) return;
     setLoading(true);
     setError(null);
     try {
@@ -44,8 +48,13 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
         const { data: { user } } = await supabase.auth.getUser();
         if (user) setCurrentUserId(user.id);
       }
-      const data = await dbService.getHireWorkflowDetails(requestId);
-      setDetails(data);
+      if (isJobApp && applicationId) {
+        const data = await dbService.getApplicationWorkflowDetails(applicationId);
+        setDetails(data);
+      } else if (requestId) {
+        const data = await dbService.getHireWorkflowDetails(requestId);
+        setDetails(data);
+      }
     } catch (err: any) {
       console.error('Failed to fetch negotiation details:', err);
       setError(err.message || 'Failed to load negotiation room.');
@@ -122,7 +131,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     setRespondingProposal(true);
     try {
       const res = await dbService.respondToDealProposal(proposalId, response, reason);
-      if (res?.confirmed) {
+      if (res?.both_accepted || res?.confirmed) {
         triggerToast('🎉 Deal confirmed! Work contract and permanent chat thread unlocked.');
       } else {
         triggerToast(`Proposal response submitted (${response.replace('_', ' ')}).`);
@@ -144,31 +153,51 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     );
   }
 
-  if (error || !details || !details.hiring_request) {
+  const req = isJobApp ? details?.job_application : details?.hiring_request;
+  const job = isJobApp ? details?.job : null;
+
+  if (error || !details || !req) {
     return (
       <div className="w-full max-w-md mx-auto py-12 px-4 text-center space-y-4">
         <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
         <h3 className="text-base font-bold text-slate-900 dark:text-white">Unable to access negotiation room</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">{error || 'Room not found or unauthorized.'}</p>
-        <button onClick={() => navigate('/profile/hire-requests')} className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold">
-          Back to Hire Requests
+        <button
+          onClick={() => isJobApp ? navigate('/profile/jobs-applied') : navigate('/profile/hire-requests')}
+          className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold"
+        >
+          {isJobApp ? 'Back to Applied Jobs' : 'Back to Hire Requests'}
         </button>
       </div>
     );
   }
 
-  const req = details.hiring_request;
   const room = details.negotiation_room;
   const activeProposal = details.active_proposal;
   const contract = details.work_contract;
   const messages = details.negotiation_messages || [];
 
-  const isClient = currentUserId === req.client_id;
-  const otherPartyName = isClient ? req.worker_name : req.client_name;
-  const otherPartyId = isClient ? req.worker_id : req.client_id;
-  const otherPartyAvatar = isClient ? details.worker_profile?.avatar_url : details.client_profile?.avatar_url;
-  const badge = getStatusBadge(req.status);
+  const isClient = isJobApp
+    ? currentUserId === job?.posted_by
+    : currentUserId === req.client_id;
 
+  const otherPartyName = isJobApp
+    ? (isClient ? (details.applicant_profile?.full_name || 'Applicant') : (details.employer_profile?.full_name || 'Employer'))
+    : (isClient ? req.worker_name : req.client_name);
+
+  const otherPartyId = isJobApp
+    ? (isClient ? req.applicant_id : job?.posted_by)
+    : (isClient ? req.worker_id : req.client_id);
+
+  const otherPartyAvatar = isJobApp
+    ? (isClient ? details.applicant_profile?.avatar_url : details.employer_profile?.avatar_url)
+    : (isClient ? details.worker_profile?.avatar_url : details.client_profile?.avatar_url);
+
+  const workTitle = isJobApp ? (job?.title || 'Job Application') : req.work_title;
+  const clientId = isJobApp ? job?.posted_by : req.client_id;
+  const workerId = isJobApp ? req.applicant_id : req.worker_id;
+
+  const badge = getStatusBadge(req.status);
   const isRoomLocked = room?.status === 'locked' || req.status === 'confirmed';
 
   return (
@@ -178,14 +207,14 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
       <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => navigate('/profile/hire-requests')}
+            onClick={() => isJobApp ? navigate(job?.id ? `/jobs/${job.id}/applications` : '/profile/jobs-applied') : navigate('/profile/hire-requests')}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
 
           <div
-            onClick={() => navigate(`/profile/${otherPartyId}`)}
+            onClick={() => otherPartyId && navigate(`/profile/${otherPartyId}`)}
             className="flex items-center space-x-3 cursor-pointer group"
           >
             <UserAvatar avatarUrl={otherPartyAvatar} fullName={otherPartyName} size="md" />
@@ -194,10 +223,10 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
                 <span className="font-extrabold text-sm text-slate-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
                   {otherPartyName}
                 </span>
-                <span className="text-[10px] font-bold text-slate-400">({isClient ? 'Worker' : 'Client'})</span>
+                <span className="text-[10px] font-bold text-slate-400">({isClient ? (isJobApp ? 'Applicant' : 'Worker') : (isJobApp ? 'Employer' : 'Client')})</span>
               </div>
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate max-w-xs">
-                {req.work_title}
+                {workTitle}
               </p>
             </div>
           </div>
@@ -207,13 +236,24 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
           <span className={`inline-flex items-center text-xs font-extrabold px-3 py-1 rounded-full border ${badge.class}`}>
             ● {badge.label}
           </span>
-          <button
-            onClick={() => navigate(`/hire-requests/${req.id}`)}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-            title="View Details"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
+          {!isJobApp && (
+            <button
+              onClick={() => navigate(`/hire-requests/${req.id}`)}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              title="View Details"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          )}
+          {isJobApp && job?.id && (
+            <button
+              onClick={() => navigate(`/jobs/${job.id}`)}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              title="View Job"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -236,17 +276,17 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
             Congratulations! Both parties have accepted the deal terms. The negotiation room is now locked, and your permanent chat thread is open.
           </p>
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            {contract?.id && (
+            {(contract?.id || req.work_contract_id) && (
               <button
-                onClick={() => navigate(`/work-contracts/${contract.id}`)}
+                onClick={() => navigate(`/work-contracts/${contract?.id || req.work_contract_id}`)}
                 className="px-4 py-2 bg-white dark:bg-slate-900 border border-emerald-500/30 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
               >
                 View Confirmed Contract
               </button>
             )}
-            {req.permanent_conversation_id && (
+            {(req.permanent_conversation_id || contract?.permanent_conversation_id) && (
               <button
-                onClick={() => navigate(`/messages/${req.permanent_conversation_id}`)}
+                onClick={() => navigate(`/messages/${req.permanent_conversation_id || contract?.permanent_conversation_id}`)}
                 className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold shadow-xs cursor-pointer flex items-center space-x-1.5"
               >
                 <MessageSquare className="w-3.5 h-3.5" />
@@ -275,8 +315,8 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
         <DealProposalCard
           proposal={activeProposal}
           currentUserId={currentUserId || ''}
-          clientId={req.client_id}
-          workerId={req.worker_id}
+          clientId={clientId}
+          workerId={workerId}
           onRespond={handleRespondToProposal}
           isSubmitting={respondingProposal}
         />
@@ -362,10 +402,11 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
       <AnimatePresence>
         {showProposalForm && (
           <FinalDealForm
-            requestId={req.id}
-            initialTitle={req.work_title}
-            initialDescription={req.description}
-            initialBudget={req.budget}
+            requestId={!isJobApp ? req.id : undefined}
+            applicationId={isJobApp ? req.id : undefined}
+            initialTitle={workTitle}
+            initialDescription={isJobApp ? job?.description : req.description}
+            initialBudget={isJobApp ? undefined : req.budget}
             onClose={() => setShowProposalForm(false)}
             onSuccess={() => fetchWorkflowDetails()}
             triggerToast={triggerToast}

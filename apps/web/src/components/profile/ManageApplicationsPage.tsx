@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Check, X, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, dbService } from '../../lib/supabase';
 import { getPublicProfilesByIds } from '../../lib/profileService';
 import { smartBack, FALLBACK_ROUTES, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
@@ -12,6 +12,10 @@ interface ApplicantData {
   cover_letter: string;
   status: string;
   created_at: string;
+  negotiation_room_id?: string | null;
+  active_proposal_id?: string | null;
+  work_contract_id?: string | null;
+  permanent_conversation_id?: string | null;
   profile: {
     full_name: string;
     avatar_url: string;
@@ -35,7 +39,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   const [applications, setApplications] = useState<ApplicantData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'shortlisted' | 'accepted' | 'rejected'>('all');
   const [expandedCovers, setExpandedCovers] = useState<Record<string, boolean>>({});
 
@@ -55,9 +59,9 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
 
     // Realtime subscription for application updates
     const channel = supabase.channel(`public:job_applications:job_id=${jobId}`)
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'job_applications',
         filter: `job_id=eq.${jobId}`
       }, () => {
@@ -89,7 +93,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
         .select('title, posted_by')
         .eq('id', jobId)
         .single();
-        
+
       if (jobError || !jobData) {
         throw new Error('This job listing could not be found.');
       }
@@ -104,7 +108,8 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
       const { data: appsData, error: appsError } = await supabase
         .from('job_applications')
         .select(`
-          id, applicant_id, proposed_rate, cover_letter, status, created_at
+          id, applicant_id, proposed_rate, cover_letter, status, created_at,
+          negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id
         `)
         .eq('job_id', jobId)
         .order('created_at', { ascending: false });
@@ -113,7 +118,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
 
       const rawApps = appsData || [];
       const applicantIds = [...new Set(rawApps.map(a => a.applicant_id).filter(Boolean))] as string[];
-      
+
       const profilesMap = await getPublicProfilesByIds(applicantIds);
 
       const mergedApps: ApplicantData[] = rawApps.map(app => {
@@ -130,6 +135,10 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
           cover_letter: app.cover_letter,
           status: app.status,
           created_at: app.created_at,
+          negotiation_room_id: app.negotiation_room_id,
+          active_proposal_id: app.active_proposal_id,
+          work_contract_id: app.work_contract_id,
+          permanent_conversation_id: app.permanent_conversation_id,
           profile: {
             full_name: canonical?.name || 'OpenComm User',
             avatar_url: canonical?.avatarUrl || '',
@@ -158,7 +167,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
         p_status: newStatus
       });
       if (error) throw error;
-      
+
       setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a));
     } catch (err: any) {
       alert("Failed to update application status: " + err.message);
@@ -168,10 +177,34 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
     }
   };
 
+  const handleStartNegotiation = async (appId: string) => {
+    setActionLoading(true);
+    try {
+      await dbService.startJobApplicationNegotiation(appId);
+      navigate(`/applications/${appId}/negotiation`);
+    } catch (err: any) {
+      alert("Failed to start negotiation: " + (err.message || "Please try again."));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const renderStatusBadge = (status: string) => {
     switch (status) {
       case 'accepted':
         return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">Accepted</span>;
+      case 'confirmed':
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">Work Confirmed</span>;
+      case 'negotiating':
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">Negotiating</span>;
+      case 'proposal_pending':
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">Proposal Pending</span>;
+      case 'changes_requested':
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">Changes Requested</span>;
+      case 'completed':
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800/40">Completed</span>;
+      case 'cancelled':
+        return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-700">Cancelled</span>;
       case 'rejected':
         return <span className="px-2.5 py-0.5 text-[10px] uppercase tracking-wider font-extrabold rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40">Rejected</span>;
       case 'shortlisted':
@@ -200,7 +233,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
     all: applications.length,
     pending: applications.filter(a => a.status === 'pending' || a.status === 'under_review').length,
     shortlisted: applications.filter(a => a.status === 'shortlisted').length,
-    accepted: applications.filter(a => a.status === 'accepted').length,
+    accepted: applications.filter(a => a.status === 'accepted' || a.status === 'confirmed').length,
     rejected: applications.filter(a => a.status === 'rejected').length,
   };
 
@@ -215,18 +248,18 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
   const filteredApps = applications.filter(app => {
     if (filterStatus === 'all') return true;
     if (filterStatus === 'pending') return app.status === 'pending' || app.status === 'under_review';
+    if (filterStatus === 'accepted') return app.status === 'accepted' || app.status === 'confirmed' || app.status === 'completed';
     return app.status === filterStatus;
   });
 
   return (
     <div className="w-full bg-[linear-gradient(180deg,#FAFBFF_0%,#F7F5FF_55%,#FAFCFF_100%)] dark:bg-[#080C14] min-h-screen text-left">
       <div className="w-full max-w-4xl mx-auto px-2.5 sm:px-4 pt-3 sm:pt-4 pb-[calc(110px+env(safe-area-inset-bottom))] space-y-4">
-        
+
         {/* Header Section */}
         <div className="space-y-3 pt-1">
-          {/* Row 1: Circular Back Button, Page Title & Compact Count Badge */}
           <div className="flex items-center space-x-3">
-            <button 
+            <button
               type="button"
               onClick={handleBack}
               className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer border border-slate-200/60 dark:border-slate-800 shrink-0"
@@ -247,7 +280,6 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             </div>
           </div>
 
-          {/* Row 2: Full Job Title (2-3 lines natural wrapping) */}
           {jobTitle && (
             <div className="bg-white dark:bg-[#111827] border border-slate-200/60 dark:border-slate-800/80 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-0.5">
@@ -259,7 +291,6 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             </div>
           )}
 
-          {/* Row 3: Horizontal Scrolling Filter Tabs */}
           {!loading && !error && (
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0 pt-1">
               {tabs.map(tab => (
@@ -268,8 +299,8 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                   type="button"
                   onClick={() => setFilterStatus(tab.id as any)}
                   className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer border ${
-                    filterStatus === tab.id 
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xs' 
+                    filterStatus === tab.id
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xs'
                       : 'bg-white dark:bg-[#111827] text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                   }`}
                 >
@@ -299,7 +330,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
             <h3 className="text-base font-bold text-rose-700 dark:text-rose-300">Unable to load applications</h3>
             <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto">{error}</p>
-            <button 
+            <button
               type="button"
               onClick={handleBack}
               className="inline-flex items-center space-x-1.5 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 font-bold text-xs transition-all cursor-pointer shadow-2xs"
@@ -316,7 +347,7 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             <div className="space-y-1">
               <h3 className="text-base sm:text-lg font-bold text-[#0F172A] dark:text-white">No applications found.</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                {filterStatus === 'all' 
+                {filterStatus === 'all'
                   ? "When job seekers apply to this posting, their applications will appear here."
                   : `There are currently no applications matching the '${tabs.find(t => t.id === filterStatus)?.label}' filter.`}
               </p>
@@ -327,20 +358,19 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             {filteredApps.map(app => {
               const isExpanded = expandedCovers[app.id];
               return (
-                <div 
+                <div
                   key={app.id}
                   className="bg-[linear-gradient(180deg,#FFFFFF_0%,#FBF9FF_60%,#FAFBFF_100%)] dark:bg-[#111827] border border-[#ECEEF5] dark:border-[#273449]/40 rounded-[22px] p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xs hover:shadow-md text-left"
                 >
                   <div className="space-y-3">
-                    {/* Top Row: Applicant Profile Info & Status Badge */}
                     <div className="flex justify-between items-start gap-2">
                       <div className="flex items-center space-x-3 min-w-0 cursor-pointer group" onClick={() => navigate(`/profile/${app.applicant_id}`)}>
                         {app.profile.avatar_url ? (
-                          <img 
-                            src={app.profile.avatar_url} 
-                            alt={app.profile.full_name} 
+                          <img
+                            src={app.profile.avatar_url}
+                            alt={app.profile.full_name}
                             referrerPolicy="no-referrer"
-                            className="w-10 h-10 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0 group-hover:brightness-95 transition-all" 
+                            className="w-10 h-10 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0 group-hover:brightness-95 transition-all"
                           />
                         ) : (
                           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#6C4DFF] to-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0 group-hover:scale-105 transition-transform">
@@ -365,7 +395,6 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                       </div>
                     </div>
 
-                    {/* Proposed Rate */}
                     {app.proposed_rate && (
                       <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 rounded-xl text-xs">
                         <span className="font-semibold text-slate-500 dark:text-slate-400">Proposed Rate:</span>
@@ -373,7 +402,6 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                       </div>
                     )}
 
-                    {/* Cover Letter */}
                     {app.cover_letter && (
                       <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 text-xs">
                         <p className={`font-medium text-slate-700 dark:text-slate-300 whitespace-pre-wrap ${!isExpanded ? 'line-clamp-3' : ''}`}>
@@ -418,6 +446,27 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                           <span>Message</span>
                         </button>
                       )}
+
+                      {app.permanent_conversation_id && app.status !== 'accepted' && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/messages/${app.permanent_conversation_id}`)}
+                          className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Open Main Chat</span>
+                        </button>
+                      )}
+
+                      {app.work_contract_id && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/work-contracts/${app.work_contract_id}`)}
+                          className="h-9 px-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-bold text-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                        >
+                          <span>View Contract</span>
+                        </button>
+                      )}
                     </div>
 
                     {/* Decision Action Buttons */}
@@ -435,12 +484,12 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                           </button>
                           <button
                             type="button"
-                            onClick={() => setConfirmAction({ type: 'accept', appId: app.id })}
+                            onClick={() => handleStartNegotiation(app.id)}
                             disabled={actionLoading}
-                            className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs disabled:opacity-50"
+                            className="h-9 px-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white font-extrabold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs disabled:opacity-50"
                           >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Accept</span>
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Start Negotiation</span>
                           </button>
                           <button
                             type="button"
@@ -465,12 +514,12 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                           </button>
                           <button
                             type="button"
-                            onClick={() => setConfirmAction({ type: 'accept', appId: app.id })}
+                            onClick={() => handleStartNegotiation(app.id)}
                             disabled={actionLoading}
-                            className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs disabled:opacity-50"
+                            className="h-9 px-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white font-extrabold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs disabled:opacity-50"
                           >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Accept</span>
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Start Negotiation</span>
                           </button>
                           <button
                             type="button"
@@ -482,6 +531,15 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                             <span>Reject</span>
                           </button>
                         </>
+                      ) : app.status === 'negotiating' || app.status === 'proposal_pending' || app.status === 'changes_requested' ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/applications/${app.id}/negotiation`)}
+                          className="h-9 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs transition-all cursor-pointer flex items-center space-x-1 shadow-2xs"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>{app.status === 'proposal_pending' ? 'Review Final Deal' : 'Open Negotiation'}</span>
+                        </button>
                       ) : app.status === 'rejected' ? (
                         <button
                           type="button"
@@ -509,14 +567,14 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
             <div className={`w-12 h-12 mx-auto rounded-full flex items-center justify-center shadow-xs ${confirmAction.type === 'accept' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400'}`}>
               {confirmAction.type === 'accept' ? <Check className="w-6 h-6" /> : <X className="w-6 h-6" />}
             </div>
-            
+
             <div className="space-y-1">
               <h3 className="text-base font-extrabold text-[#0F172A] dark:text-white">
                 {confirmAction.type === 'accept' ? 'Accept Application?' : 'Reject Application?'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                {confirmAction.type === 'accept' 
-                  ? 'The applicant will be notified and messaging will be enabled.' 
+                {confirmAction.type === 'accept'
+                  ? 'The applicant will be notified and messaging will be enabled.'
                   : 'This application will be marked as rejected.'}
               </p>
             </div>
@@ -535,8 +593,8 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
                 onClick={() => updateStatus(confirmAction.appId, confirmAction.type === 'accept' ? 'accepted' : 'rejected')}
                 disabled={actionLoading}
                 className={`flex-1 py-2 px-3 rounded-xl font-bold text-xs text-white transition-all shadow-xs cursor-pointer ${
-                  confirmAction.type === 'accept' 
-                    ? 'bg-emerald-600 hover:bg-emerald-700' 
+                  confirmAction.type === 'accept'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
                     : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
