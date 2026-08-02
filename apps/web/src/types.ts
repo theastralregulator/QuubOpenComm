@@ -190,7 +190,8 @@ export type HiringRequestWorkflowStatus =
 
 export interface NegotiationRoom {
   id: string;
-  hiring_request_id: string;
+  hiring_request_id?: string | null;
+  job_application_id?: string | null;
   client_id: string;
   worker_id: string;
   status: 'active' | 'locked' | 'cancelled' | 'completed';
@@ -216,7 +217,8 @@ export type DealProposalResponse = 'pending' | 'accepted' | 'rejected' | 'change
 
 export interface DealProposal {
   id: string;
-  hiring_request_id: string;
+  hiring_request_id?: string | null;
+  job_application_id?: string | null;
   negotiation_room_id: string;
   version_number: number;
   proposed_by: string;
@@ -241,7 +243,8 @@ export interface DealProposal {
 
 export interface WorkContract {
   id: string;
-  hiring_request_id: string;
+  hiring_request_id?: string | null;
+  job_application_id?: string | null;
   deal_proposal_id: string;
   client_id: string;
   worker_id: string;
@@ -285,6 +288,18 @@ export interface WorkContract {
 
 export interface HireWorkflowDetails {
   hiring_request: any;
+  negotiation_room: NegotiationRoom | null;
+  active_proposal: DealProposal | null;
+  work_contract: WorkContract | null;
+  negotiation_messages: NegotiationMessage[];
+  deal_proposals_history: DealProposal[];
+}
+
+export interface ApplicationWorkflowDetails {
+  job_application: any;
+  job: any;
+  applicant_profile: any;
+  employer_profile: any;
   negotiation_room: NegotiationRoom | null;
   active_proposal: DealProposal | null;
   work_contract: WorkContract | null;

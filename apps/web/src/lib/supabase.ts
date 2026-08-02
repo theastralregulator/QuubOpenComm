@@ -1168,7 +1168,8 @@ export const dbService = {
   },
 
   async submitDealProposal(payload: {
-    request_id: string;
+    request_id?: string;
+    application_id?: string;
     work_title: string;
     work_description: string;
     final_price: number;
@@ -1181,7 +1182,8 @@ export const dbService = {
   }): Promise<any> {
     if (!supabase) throw new Error("Supabase client is not initialized.");
     const { data, error } = await supabase.rpc('submit_deal_proposal', {
-      p_request_id: payload.request_id,
+      p_request_id: payload.request_id || null,
+      p_application_id: payload.application_id || null,
       p_work_title: payload.work_title,
       p_work_description: payload.work_description,
       p_final_price: payload.final_price,
@@ -1222,6 +1224,26 @@ export const dbService = {
     const { data, error } = await supabase.rpc('get_hire_workflow_details', { p_request_id: requestId });
     if (error) {
       console.error('getHireWorkflowDetails RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async startJobApplicationNegotiation(applicationId: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('start_job_application_negotiation', { p_application_id: applicationId });
+    if (error) {
+      console.error('startJobApplicationNegotiation RPC error:', error.message);
+      throw new Error(error.message);
+    }
+    return data;
+  },
+
+  async getApplicationWorkflowDetails(applicationId: string): Promise<any> {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    const { data, error } = await supabase.rpc('get_application_workflow_details', { p_application_id: applicationId });
+    if (error) {
+      console.error('getApplicationWorkflowDetails RPC error:', error.message);
       throw new Error(error.message);
     }
     return data;
