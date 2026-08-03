@@ -70,39 +70,70 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex flex-col md:flex-row font-sans">
       
-      {/* MOBILE HEADER */}
-      <div className="md:hidden flex items-center justify-between p-4 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-50">
+      {/* MOBILE TOP BAR */}
+      <div className="md:hidden flex items-center justify-between p-4 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shrink-0">
         <div className="flex items-center space-x-2">
           <ShieldCheck className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-          <span className="font-black text-slate-900 dark:text-white">Admin Control</span>
+          <span className="font-black text-slate-900 dark:text-white text-base">Admin Control</span>
         </div>
-        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-slate-500">
-          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className="p-2 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-xl transition-colors cursor-pointer"
+          aria-label="Open Admin Menu"
+        >
+          <Menu className="w-6 h-6" />
         </button>
       </div>
 
-      {/* SIDEBAR */}
+      {/* MOBILE BACKDROP OVERLAY */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setMobileMenuOpen(false)}
+            className="md:hidden fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* SIDEBAR (DESKTOP & MOBILE SLIDE-OUT) */}
       <AnimatePresence>
         {(mobileMenuOpen || window.innerWidth >= 768) && (
-          <motion.div
-            initial={{ x: -300 }}
+          <motion.aside
+            initial={{ x: -320 }}
             animate={{ x: 0 }}
-            exit={{ x: -300 }}
-            className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 flex flex-col ${
-              mobileMenuOpen ? 'block' : 'hidden md:flex'
-            } md:relative`}
+            exit={{ x: -320 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-dvh bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 flex flex-col shadow-2xl md:shadow-none ${
+              mobileMenuOpen ? 'flex' : 'hidden md:flex'
+            } md:relative md:w-64 md:h-screen md:max-w-none md:z-auto`}
           >
-            <div className="p-6 hidden md:flex items-center space-x-3 border-b border-slate-200 dark:border-zinc-800">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-5 h-5 text-white" />
+            {/* 1. FIXED HEADER */}
+            <header className="p-4 sm:p-5 flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <h1 className="font-black text-slate-900 dark:text-white text-sm tracking-tight leading-none">OpenComm</h1>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Control Center</p>
+                </div>
               </div>
-              <div>
-                <h1 className="font-black text-slate-900 dark:text-white text-sm tracking-tight leading-none">OpenComm</h1>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Control Center</p>
-              </div>
-            </div>
 
-            <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+              {/* Close Button on Mobile */}
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="md:hidden p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition-colors cursor-pointer"
+                aria-label="Close Admin Menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </header>
+
+            {/* 2. SCROLLABLE NAVIGATION LIST */}
+            <nav className="min-h-0 flex-1 overflow-y-auto p-3 space-y-1 text-left">
               {ADMIN_NAVIGATION.map((item) => {
                 if (role !== 'super_admin' && !item.roles.includes(role)) return null;
                 
@@ -113,23 +144,24 @@ export default function AdminLayout() {
                     end={item.exact}
                     onClick={() => setMobileMenuOpen(false)}
                     className={({ isActive }) =>
-                      `flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                      `flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors ${
                         isActive 
                           ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' 
                           : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50 hover:text-slate-900 dark:hover:text-white'
                       }`
                     }
                   >
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.name}</span>
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.name}</span>
                   </NavLink>
                 );
               })}
-            </div>
+            </nav>
 
-            <div className="p-4 border-t border-slate-200 dark:border-zinc-800 text-left">
-              <div className="mb-3 px-2">
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Logged in as</p>
+            {/* 3. FIXED FOOTER */}
+            <footer className="p-4 border-t border-slate-200 dark:border-zinc-800 text-left shrink-0 bg-white dark:bg-zinc-900">
+              <div className="mb-3 px-1">
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Logged in as</p>
                 <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{getDisplayEmail(adminUser.email)}</p>
                 <div className="inline-block px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 mt-1">
                   {role.replace('_', ' ')}
@@ -139,24 +171,24 @@ export default function AdminLayout() {
                 onClick={() => navigate('/')}
                 className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50 transition-colors mb-1 cursor-pointer"
               >
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-4 h-4 shrink-0" />
                 <span>Return to OpenComm</span>
               </button>
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4 shrink-0" />
                 <span>Logout</span>
               </button>
-            </div>
-          </motion.div>
+            </footer>
+          </motion.aside>
         )}
       </AnimatePresence>
 
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* TOPBAR */}
+        {/* DESKTOP TOPBAR */}
         <header className="hidden md:flex h-16 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 items-center justify-between px-8 shrink-0 z-10">
           <div className="flex-1 max-w-xl text-left">
             <div className="relative">
