@@ -55,7 +55,7 @@ export default function DealProposalCard({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-purple-500/20 pb-3">
         <div className="flex items-center space-x-2">
           <span className="px-2.5 py-1 bg-purple-600 text-white font-extrabold text-[10px] rounded-lg uppercase tracking-wider font-mono">
-            Final Deal Proposal v{proposal.version_number}
+            Work Agreement (v{proposal.version_number})
           </span>
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
             Price: <strong className="text-purple-600 dark:text-purple-400 font-extrabold text-sm">{formatINR(proposal.final_price)}</strong> ({proposal.payment_type})
@@ -73,7 +73,13 @@ export default function DealProposalCard({
             ? 'bg-slate-500/10 text-slate-500 border-slate-500/30'
             : 'bg-amber-500/10 text-amber-600 border-amber-500/30'
         }`}>
-          ● {proposal.proposal_status.replace('_', ' ')}
+          ● {proposal.proposal_status === 'accepted'
+            ? 'Confirmed'
+            : proposal.proposal_status === 'changes_requested'
+            ? 'Revision Requested'
+            : proposal.proposal_status === 'pending'
+            ? 'Awaiting Confirmation'
+            : proposal.proposal_status.replace('_', ' ')}
         </span>
       </div>
 
@@ -130,14 +136,14 @@ export default function DealProposalCard({
           <div className="flex items-center space-x-1.5">
             <span className="text-slate-500 font-medium">Employer:</span>
             <span className={`font-bold ${proposal.client_response === 'accepted' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600'}`}>
-              {proposal.client_response === 'accepted' ? '✓ Accepted' : proposal.client_response}
+              {proposal.client_response === 'accepted' ? '✓ Confirmed' : (proposal.client_response === 'pending' ? 'Pending' : proposal.client_response)}
             </span>
           </div>
 
           <div className="flex items-center space-x-1.5">
             <span className="text-slate-500 font-medium">Worker:</span>
             <span className={`font-bold ${proposal.worker_response === 'accepted' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600'}`}>
-              {proposal.worker_response === 'accepted' ? '✓ Accepted' : proposal.worker_response}
+              {proposal.worker_response === 'accepted' ? '✓ Confirmed' : (proposal.worker_response === 'pending' ? 'Pending' : proposal.worker_response)}
             </span>
           </div>
         </div>
@@ -150,14 +156,14 @@ export default function DealProposalCard({
               disabled={isSubmitting}
               className="px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 font-bold text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer disabled:opacity-50"
             >
-              Request Changes
+              Request Revision
             </button>
             <button
               onClick={() => handleResponseClick('reject')}
               disabled={isSubmitting}
               className="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 font-bold text-xs hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer disabled:opacity-50"
             >
-              Reject
+              Decline
             </button>
             <button
               onClick={() => handleResponseClick('accept')}
@@ -166,14 +172,14 @@ export default function DealProposalCard({
             >
               {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
               <Check className="w-3.5 h-3.5" />
-              <span>Accept Deal</span>
+              <span>Confirm Agreement</span>
             </button>
           </div>
         )}
 
         {myResponse === 'accepted' && proposal.proposal_status !== 'accepted' && (
           <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-            ✓ You Accepted — Waiting for other party
+            ✓ Confirmed by You — Waiting for other party
           </span>
         )}
       </div>

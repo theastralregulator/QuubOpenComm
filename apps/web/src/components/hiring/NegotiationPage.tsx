@@ -11,6 +11,8 @@ import { getStatusBadge } from './HireRequestsPage';
 import FinalDealForm from './FinalDealForm';
 import DealProposalCard from './DealProposalCard';
 
+import WorkflowTimeline, { getWorkflowTimelineSteps } from '../common/WorkflowTimeline';
+
 interface NegotiationPageProps {
   triggerToast: (msg: string) => void;
 }
@@ -57,7 +59,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
       }
     } catch (err: any) {
       console.error('Failed to fetch negotiation details:', err);
-      setError(err.message || 'Failed to load negotiation room.');
+      setError(err.message || 'Failed to load room details.');
     } finally {
       setLoading(false);
     }
@@ -132,11 +134,16 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     try {
       const res = await dbService.respondToDealProposal(proposalId, response, reason);
       if (res?.both_accepted || res?.confirmed) {
-        triggerToast('🎉 Deal confirmed! Work contract and permanent chat thread unlocked.');
+        triggerToast('🎉 Agreement confirmed! Main chat thread unlocked.');
+        if (res?.work_contract_id) {
+          navigate(`/work-contracts/${res.work_contract_id}`);
+        } else {
+          await fetchWorkflowDetails();
+        }
       } else {
-        triggerToast(`Proposal response submitted (${response.replace('_', ' ')}).`);
+        triggerToast(`Response submitted (${response.replace('_', ' ')}).`);
+        await fetchWorkflowDetails();
       }
-      await fetchWorkflowDetails();
     } catch (err: any) {
       triggerToast(err.message || 'Failed to respond to proposal.');
     } finally {
@@ -160,7 +167,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     return (
       <div className="w-full max-w-md mx-auto py-12 px-4 text-center space-y-4">
         <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
-        <h3 className="text-base font-bold text-slate-900 dark:text-white">Unable to access negotiation room</h3>
+        <h3 className="text-base font-bold text-slate-900 dark:text-white">Unable to access discussion room</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">{error || 'Room not found or unauthorized.'}</p>
         <button
           onClick={() => isJobApp ? navigate('/profile/jobs-applied') : navigate('/profile/hire-requests')}
@@ -257,11 +264,14 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
         </div>
       </div>
 
+      {/* Visual Workflow Timeline */}
+      <WorkflowTimeline steps={getWorkflowTimelineSteps(isJobApp ? 'job_application' : 'hire_request', req.status)} />
+
       {/* Temporary Notice Banner */}
       <div className="p-3.5 bg-purple-500/10 border border-purple-500/20 rounded-2xl text-xs text-purple-800 dark:text-purple-300 leading-relaxed font-medium flex items-start space-x-2.5">
         <Info className="w-4 h-4 mt-0.5 shrink-0 text-purple-600 dark:text-purple-400" />
         <span>
-          <strong>Temporary Negotiation Room:</strong> Discuss scope, pricing, and terms here. The permanent main chat unlocks only after both parties accept the final deal.
+          <strong>Discussion & Planning:</strong> Discuss scope, pricing, and timing here. Once both parties confirm the work agreement, main chat unlocks.
         </span>
       </div>
 
@@ -305,7 +315,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
             className="px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-purple-600 text-white font-extrabold text-xs rounded-xl shadow-xs hover:opacity-95 cursor-pointer flex items-center space-x-1.5"
           >
             <FileText className="w-4 h-4" />
-            <span>{activeProposal ? 'Update / Resubmit Proposal' : 'Prepare Final Deal Proposal'}</span>
+            <span>{activeProposal ? 'Update Work Agreement' : 'Send Work Agreement'}</span>
           </button>
         </div>
       )}

@@ -94,7 +94,7 @@ export default function FinalDealForm({
           <div className="flex items-center space-x-2">
             <FileText className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
-              Prepare Final Deal Proposal
+              Prepare Work Agreement
             </h3>
           </div>
           <button 
@@ -111,7 +111,7 @@ export default function FinalDealForm({
           <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-2xl text-[11px] text-purple-700 dark:text-purple-300 leading-relaxed font-medium flex items-start space-x-2">
             <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-purple-600 dark:text-purple-400" />
             <span>
-              <strong>Binding Contract Offer:</strong> Once both parties accept this exact proposal, a formal work contract is automatically generated and the permanent chat unlocks.
+              <strong>Work Agreement:</strong> Once both parties confirm this agreement, official work starts and permanent chat unlocks.
             </span>
           </div>
 
@@ -263,12 +263,12 @@ export default function FinalDealForm({
               {submitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Submitting Proposal...</span>
+                  <span>Sending Agreement...</span>
                 </>
               ) : (
                 <>
                   <Send className="w-3.5 h-3.5" />
-                  <span>Submit Proposal</span>
+                  <span>Send Work Agreement</span>
                 </>
               )}
             </button>

@@ -17,23 +17,29 @@ interface HireRequestsPageProps {
 export function getStatusBadge(status: string) {
   switch (status) {
     case 'pending':
-      return { label: 'Request Pending', class: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
+      return { label: 'Waiting for Review', class: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
+    case 'under_review':
+      return { label: 'Under Review', class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
+    case 'shortlisted':
+      return { label: 'Shortlisted', class: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
     case 'negotiating':
-      return { label: 'Negotiation Active', class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
+      return { label: 'Discussing Details', class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
     case 'proposal_pending':
-      return { label: 'Final Deal Pending', class: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
+      return { label: 'Waiting for Confirmation', class: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
     case 'changes_requested':
-      return { label: 'Changes Requested', class: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' };
+      return { label: 'Revision Requested', class: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' };
     case 'confirmed':
       return { label: 'Work Confirmed', class: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
+    case 'accepted':
+      return { label: 'Work Accepted', class: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
     case 'rejected':
-      return { label: 'Request Declined', class: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' };
+      return { label: 'Declined', class: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' };
     case 'withdrawn':
-      return { label: 'Request Withdrawn', class: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20' };
+      return { label: 'Withdrawn', class: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20' };
     case 'cancelled':
       return { label: 'Cancelled', class: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' };
     case 'completed':
-      return { label: 'Completed', class: 'bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 border-emerald-600/20' };
+      return { label: 'Work Completed', class: 'bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 border-emerald-600/20' };
     default:
       return { label: status, class: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20' };
   }
@@ -375,7 +381,7 @@ export default function HireRequestsPage({ triggerToast }: HireRequestsPageProps
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
                         <span>
-                          {req.status === 'proposal_pending' ? 'Review Final Deal' : 'Open Temporary Negotiation'}
+                          {req.status === 'proposal_pending' ? 'Review Work Agreement' : 'Discuss Details'}
                         </span>
                       </button>
                     )}

@@ -9,6 +9,7 @@ import {
 import { supabase, dbService } from '../../lib/supabase';
 import { formatINR } from '../../lib/currency';
 import UserAvatar from '../common/UserAvatar';
+import WorkflowTimeline, { getWorkflowTimelineSteps } from '../common/WorkflowTimeline';
 
 interface WorkContractPageProps {
   triggerToast: (msg: string) => void;
@@ -187,17 +188,17 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
   const getContractBadge = (status: string) => {
     switch (status) {
       case 'active':
-        return { label: 'Contract Active', class: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
+        return { label: 'Work Active', class: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
       case 'cancellation_requested':
         return { label: 'Cancellation Requested', class: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
       case 'cancelled':
-        return { label: 'Contract Cancelled', class: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' };
+        return { label: 'Work Cancelled', class: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' };
       case 'completion_requested':
-        return { label: 'Completion Requested', class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
+        return { label: 'Completion Awaiting Confirmation', class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
       case 'completed':
-        return { label: 'Contract Completed', class: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
+        return { label: 'Work Completed', class: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' };
       case 'disputed':
-        return { label: 'Contract Disputed', class: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20' };
+        return { label: 'Under Review', class: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20' };
       default:
         return { label: status, class: 'bg-slate-500/10 text-slate-600 border-slate-500/20' };
     }
@@ -212,26 +213,39 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => navigate('/profile/hire-requests')}
+            onClick={() => navigate(-1)}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-xs transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-              <ShieldCheck className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-              Work Contract
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-              Contract ID: {contract.id.slice(0, 13)}...
+            <div className="flex items-center space-x-2">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                Confirmed Work
+              </h1>
+              <span className={`inline-flex items-center text-[11px] font-extrabold px-3 py-1 rounded-full border ${badge.class}`}>
+                ● {badge.label}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Contract ID: <span className="font-mono text-slate-400">{contract.id.slice(0, 8)}...</span>
             </p>
           </div>
         </div>
 
-        <span className={`inline-flex items-center text-xs font-extrabold px-3.5 py-1 rounded-full border ${badge.class}`}>
-          ● {badge.label}
-        </span>
+        {contract.permanent_conversation_id && (
+          <button
+            onClick={() => navigate(`/messages/${contract.permanent_conversation_id}`)}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-extrabold shadow-xs cursor-pointer flex items-center space-x-1.5 shrink-0"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Open Main Chat</span>
+          </button>
+        )}
       </div>
+
+      {/* Workflow Timeline */}
+      <WorkflowTimeline steps={getWorkflowTimelineSteps(contract.job_application_id ? 'job_application' : 'hire_request', contract.status === 'completed' ? 'completed' : 'confirmed')} />
 
       {/* Dynamic Lifecycle Banners */}
       {contract.status === 'cancellation_requested' && (

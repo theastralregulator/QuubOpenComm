@@ -9,6 +9,7 @@ import { dbService, supabase } from '../../lib/supabase';
 import { formatINR } from '../../lib/currency';
 import UserAvatar from '../common/UserAvatar';
 import { getStatusBadge } from './HireRequestsPage';
+import WorkflowTimeline, { getWorkflowTimelineSteps } from '../common/WorkflowTimeline';
 
 interface HireRequestDetailsPageProps {
   triggerToast: (msg: string) => void;
@@ -48,7 +49,7 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
   if (loading) {
     return (
       <div className="w-full max-w-4xl mx-auto py-8 px-4 space-y-6 animate-pulse text-left">
-        <div className="h-8 w-32 bg-slate-200 dark:bg-slate-800 rounded-xl" />
+        <div className="h-8 w-36 bg-slate-200 dark:bg-slate-800 rounded-xl" />
         <div className="h-64 bg-slate-200 dark:bg-slate-800 rounded-3xl" />
       </div>
     );
@@ -56,18 +57,11 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
 
   if (error || !details || !details.hiring_request) {
     return (
-      <div className="w-full max-w-xl mx-auto py-12 px-4 text-center space-y-4">
-        <div className="w-12 h-12 bg-rose-500/10 rounded-2xl flex items-center justify-center mx-auto text-rose-500">
-          <Lock className="w-6 h-6" />
-        </div>
-        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Access Denied or Not Found</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {error || 'You do not have authorization to view this hiring request.'}
-        </p>
-        <button
-          onClick={() => navigate('/profile/hire-requests')}
-          className="px-5 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold cursor-pointer"
-        >
+      <div className="w-full max-w-md mx-auto py-12 px-4 text-center space-y-4">
+        <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
+        <h3 className="text-base font-bold text-slate-900 dark:text-white">Request Not Found</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{error || 'Unable to load request.'}</p>
+        <button onClick={() => navigate('/profile/hire-requests')} className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold cursor-pointer">
           Back to Hire Requests
         </button>
       </div>
@@ -76,17 +70,13 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
 
   const req = details.hiring_request;
   const activeProposal = details.active_proposal;
-  const contract = details.work_contract;
-
-  const isClient = currentUserId === req.client_id;
-  const isWorker = currentUserId === req.worker_id;
-
   const badge = getStatusBadge(req.status);
+  const isClient = currentUserId === req.client_id;
 
   return (
     <div className="w-full max-w-4xl mx-auto py-6 sm:py-8 px-3 sm:px-6 space-y-6 text-left">
 
-      {/* Header Navigation */}
+      {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
           <button
@@ -109,6 +99,9 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
           ● {badge.label}
         </span>
       </div>
+
+      {/* Workflow Timeline */}
+      <WorkflowTimeline steps={getWorkflowTimelineSteps('hire_request', req.status)} />
 
       {/* Participants Card */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -187,7 +180,7 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
         <div className="bg-purple-500/5 dark:bg-purple-950/10 border border-purple-500/20 rounded-3xl p-5 space-y-3">
           <div className="flex justify-between items-center">
             <span className="text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-              Active Final Deal Proposal (v{activeProposal.version_number})
+              Active Work Agreement (v{activeProposal.version_number})
             </span>
             <span className="text-xs font-bold text-purple-600 dark:text-purple-400">
               ₹{activeProposal.final_price} ({activeProposal.payment_type})
@@ -201,7 +194,7 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
               onClick={() => navigate(`/hire-requests/${req.id}/negotiation`)}
               className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
             >
-              Open Proposal in Negotiation Room
+              Review Work Agreement
             </button>
           </div>
         </div>
@@ -215,7 +208,7 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
             className="px-6 py-3 bg-gradient-to-r from-[#7C3AED] to-purple-600 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer hover:scale-[1.01] transition-transform flex items-center space-x-2"
           >
             <MessageSquare className="w-4 h-4" />
-            <span>Open Temporary Negotiation Room</span>
+            <span>Discuss Details</span>
           </button>
         )}
 
@@ -225,7 +218,7 @@ export default function HireRequestDetailsPage({ triggerToast }: HireRequestDeta
             className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer hover:scale-[1.01] transition-transform flex items-center space-x-2"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>View Confirmed Work Contract</span>
+            <span>View Confirmed Work</span>
           </button>
         )}
       </div>
