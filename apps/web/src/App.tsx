@@ -83,6 +83,12 @@ import AdminAnnouncements from './components/admin/AdminAnnouncements';
 import AdminSettings from './components/admin/AdminSettings';
 import AdminStaff from './components/admin/AdminStaff';
 import AdminAuditLogs from './components/admin/AdminAuditLogs';
+import AdminContracts from './components/admin/AdminContracts';
+import AdminReviews from './components/admin/AdminReviews';
+import AdminNotifications from './components/admin/AdminNotifications';
+import AdminFeatureFlags from './components/admin/AdminFeatureFlags';
+import AdminSecurityLogs from './components/admin/AdminSecurityLogs';
+import AdminSystemHealth from './components/admin/AdminSystemHealth';
 
 export default function App() {
   // --- CORE SYSTEM STATES ---
@@ -3120,6 +3126,12 @@ export default function App() {
             <Route path="content" element={<AdminContent />} />
             <Route path="announcements" element={<AdminAnnouncements />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="contracts" element={<AdminContracts />} />
+            <Route path="reviews" element={<AdminReviews />} />
+            <Route path="notifications" element={<AdminNotifications />} />
+            <Route path="feature-flags" element={<AdminFeatureFlags />} />
+            <Route path="security-logs" element={<AdminSecurityLogs />} />
+            <Route path="system-health" element={<AdminSystemHealth />} />
             <Route path="admins" element={<AdminStaff />} />
             <Route path="audit-logs" element={<AdminAuditLogs />} />
           </Route>

@@ -5,35 +5,40 @@ import {
   LayoutDashboard, Users, User, Briefcase, Building2, 
   CheckCircle, AlertOctagon, MessageSquare, LifeBuoy, FileText, 
   Megaphone, Settings, ShieldAlert, Activity, Search, Bell, 
-  Menu, X, LogOut, ExternalLink, ShieldCheck
+  Menu, X, LogOut, ExternalLink, ShieldCheck, Star, ToggleLeft, Radio
 } from 'lucide-react';
 import { useAdminSession } from '../../hooks/useAdminSession';
 import { supabase } from '../../lib/supabase';
 import { getInitials, getDisplayEmail, getDisplayName } from '../../lib/admin-utils';
 
 const ADMIN_NAVIGATION = [
-  { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, exact: true },
-  { name: 'Users', path: '/admin/users', icon: Users },
-  { name: 'Workers', path: '/admin/workers', icon: User },
-  { name: 'Jobs', path: '/admin/jobs', icon: Briefcase },
-  { name: 'Companies', path: '/admin/companies', icon: Building2 },
-  { name: 'Verifications', path: '/admin/verifications', icon: CheckCircle },
-  { name: 'Reports', path: '/admin/reports', icon: AlertOctagon },
-  { name: 'Message Moderation', path: '/admin/messages', icon: MessageSquare },
-  { name: 'Support', path: '/admin/support', icon: LifeBuoy },
-  { name: 'Content', path: '/admin/content', icon: FileText },
-  { name: 'Announcements', path: '/admin/announcements', icon: Megaphone },
-  { name: 'Site Settings', path: '/admin/settings', icon: Settings },
-  { name: 'Admin Management', path: '/admin/admins', icon: ShieldAlert, requiresSuperAdmin: true },
-  { name: 'Audit Logs', path: '/admin/audit-logs', icon: Activity, requiresSuperAdmin: true },
+  { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, exact: true, roles: ['support', 'moderator', 'admin', 'super_admin'] },
+  { name: 'Users', path: '/admin/users', icon: Users, roles: ['support', 'admin', 'super_admin'] },
+  { name: 'Workers', path: '/admin/workers', icon: User, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Jobs', path: '/admin/jobs', icon: Briefcase, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Companies', path: '/admin/companies', icon: Building2, roles: ['admin', 'super_admin'] },
+  { name: 'Verifications', path: '/admin/verifications', icon: CheckCircle, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Reports', path: '/admin/reports', icon: AlertOctagon, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Contracts', path: '/admin/contracts', icon: FileText, roles: ['admin', 'super_admin'] },
+  { name: 'Reviews', path: '/admin/reviews', icon: Star, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Message Moderation', path: '/admin/messages', icon: MessageSquare, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Notifications', path: '/admin/notifications', icon: Bell, roles: ['admin', 'super_admin'] },
+  { name: 'Support', path: '/admin/support', icon: LifeBuoy, roles: ['support', 'moderator', 'admin', 'super_admin'] },
+  { name: 'Content', path: '/admin/content', icon: FileText, roles: ['moderator', 'admin', 'super_admin'] },
+  { name: 'Announcements', path: '/admin/announcements', icon: Megaphone, roles: ['admin', 'super_admin'] },
+  { name: 'Site Settings', path: '/admin/settings', icon: Settings, roles: ['admin', 'super_admin'] },
+  { name: 'Feature Flags', path: '/admin/feature-flags', icon: ToggleLeft, roles: ['super_admin'] },
+  { name: 'Admin Management', path: '/admin/admins', icon: ShieldAlert, roles: ['super_admin'] },
+  { name: 'Audit Logs', path: '/admin/audit-logs', icon: Activity, roles: ['admin', 'super_admin'] },
+  { name: 'Security Logs', path: '/admin/security-logs', icon: ShieldAlert, roles: ['super_admin'] },
+  { name: 'System Health', path: '/admin/system-health', icon: Radio, roles: ['admin', 'super_admin'] },
 ];
 
 export default function AdminLayout() {
-  const { adminUser, isAdminLoading, hasPermission } = useAdminSession();
+  const { adminUser, isAdminLoading } = useAdminSession();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // If loading, show secure loading state
   if (isAdminLoading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex flex-col items-center justify-center">
@@ -44,17 +49,18 @@ export default function AdminLayout() {
     );
   }
 
-  // If not admin, this shouldn't render (should be caught by route guard, but just in case)
   if (!adminUser) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex flex-col items-center justify-center text-left p-4">
         <AlertOctagon className="w-12 h-12 text-red-500 mb-4" />
         <h2 className="text-slate-900 dark:text-white font-bold text-lg">Access Denied</h2>
         <p className="text-slate-500 text-sm mt-2">You do not have permission to access the control center.</p>
-        <button onClick={() => navigate('/')} className="mt-6 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold">Return to Home</button>
+        <button onClick={() => navigate('/')} className="mt-6 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold cursor-pointer">Return to Home</button>
       </div>
     );
   }
+
+  const role = adminUser.role;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -98,7 +104,7 @@ export default function AdminLayout() {
 
             <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
               {ADMIN_NAVIGATION.map((item) => {
-                if (item.requiresSuperAdmin && adminUser.role !== 'super_admin') return null;
+                if (role !== 'super_admin' && !item.roles.includes(role)) return null;
                 
                 return (
                   <NavLink
@@ -107,40 +113,40 @@ export default function AdminLayout() {
                     end={item.exact}
                     onClick={() => setMobileMenuOpen(false)}
                     className={({ isActive }) =>
-                      `flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      `flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
                         isActive 
                           ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' 
                           : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50 hover:text-slate-900 dark:hover:text-white'
                       }`
                     }
                   >
-                    <item.icon className="w-5 h-5" />
+                    <item.icon className="w-4 h-4" />
                     <span>{item.name}</span>
                   </NavLink>
                 );
               })}
             </div>
 
-            <div className="p-4 border-t border-slate-200 dark:border-zinc-800">
-              <div className="mb-4 px-2">
-                <p className="text-xs text-slate-500 mb-1">Logged in as</p>
-                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{getDisplayEmail(adminUser.email)}</p>
-                <div className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 mt-1">
-                  {adminUser.role.replace('_', ' ')}
+            <div className="p-4 border-t border-slate-200 dark:border-zinc-800 text-left">
+              <div className="mb-3 px-2">
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Logged in as</p>
+                <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{getDisplayEmail(adminUser.email)}</p>
+                <div className="inline-block px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 mt-1">
+                  {role.replace('_', ' ')}
                 </div>
               </div>
               <button
                 onClick={() => navigate('/')}
-                className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50 transition-colors mb-1"
+                className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50 transition-colors mb-1 cursor-pointer"
               >
-                <ExternalLink className="w-5 h-5" />
+                <ExternalLink className="w-4 h-4" />
                 <span>Return to OpenComm</span>
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4 h-4" />
                 <span>Logout</span>
               </button>
             </div>
@@ -152,29 +158,23 @@ export default function AdminLayout() {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* TOPBAR */}
         <header className="hidden md:flex h-16 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 items-center justify-between px-8 shrink-0 z-10">
-          <div className="flex-1 max-w-xl">
+          <div className="flex-1 max-w-xl text-left">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 placeholder="Global admin search (User ID, Email, Username, Report ID...)"
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-slate-900 dark:text-white"
               />
             </div>
           </div>
           <div className="flex items-center space-x-6 ml-8">
-            <button className="relative text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors">
-              <Bell className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 border-2 border-white dark:border-zinc-900 rounded-full text-[8px] font-bold text-white flex items-center justify-center">
-                3
-              </span>
-            </button>
             <div className="flex items-center space-x-3 pl-6 border-l border-slate-200 dark:border-zinc-800">
               <div className="text-right">
-                <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight">{getDisplayName(adminUser)}</p>
-                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold">{adminUser.role.replace('_', ' ')}</p>
+                <p className="text-xs font-bold text-slate-900 dark:text-white leading-tight">{getDisplayName(adminUser)}</p>
+                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold uppercase">{role.replace('_', ' ')}</p>
               </div>
-              <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-600 dark:text-zinc-300 font-bold uppercase">
+              <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs">
                 {getInitials(null, adminUser.email)}
               </div>
             </div>
