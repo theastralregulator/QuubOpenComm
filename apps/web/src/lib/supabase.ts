@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
 import { ConversationViewModel, DbMessage } from '../types';
 import { normalizeJobType } from './jobType';
+import { UserSettings } from '../types';
 import { clearProfileCache } from './profileService';
 import { notificationService } from './notificationService';
 
@@ -389,8 +390,133 @@ export async function assertUserEmailConfirmed() {
     }
   }
 }
+async function getCurrentUserId(): Promise<string> {
+  if (supabase) {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) {
+      throw new Error('Authentication required. Please sign in.');
+    }
+    return user.id;
+  } else {
+    return localStorage.getItem('opencomm_user_id') || 'user-demo-id';
+  }
+}
+
 
 export const dbService = {
+  // --------- User Settings & Support Ticket Service Wrappers ---------
+  /**
+   * Fetch the current user's settings.
+   */
+  async getMyUserSettings(): Promise<UserSettings | null> {
+    if (supabase) {
+      const userId = await getCurrentUserId();
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) {
+        console.error('getMyUserSettings Supabase error:', error.message);
+        return null;
+      }
+      return data as UserSettings;
+    }
+    // Local fallback – use stored profile as placeholder
+    const userId = await getCurrentUserId();
+    const profiles = openCommDb.getProfiles();
+    const profile = profiles.find(p => p.id === userId);
+    if (!profile) return null;
+    // Map profile fields to UserSettings shape where possible
+    return {
+      userId: profile.id,
+      profileVisibility: 'public',
+      messagePermissions: 'everyone',
+      hireRequestPermissions: 'everyone',
+      showOnlineStatus: true,
+      showExactLocation: false,
+      searchEngineIndexing: true,
+      themePreference: localStorage.getItem('opencomm_user_theme') || 'system',
+      languagePreference: profile.preferred_language || 'en',
+      timezone: 'UTC',
+      dateFormat: 'YYYY-MM-DD',
+      showReviewsPublicly: true,
+      showCompletedWorkCount: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    } as UserSettings;
+  },
+
+  /**
+   * Update the current user's settings.
+   */
+  async updateMyUserSettings(updates: Partial<UserSettings>): Promise<UserSettings | null> {
+    if (supabase) {
+      const userId = await getCurrentUserId();
+      const { data, error } = await supabase
+        .from('user_settings')
+        .upsert({ ...updates, user_id: userId }, { onConflict: 'user_id' })
+        .select()
+        .single();
+      if (error) {
+        console.error('updateMyUserSettings Supabase error:', error.message);
+        return null;
+      }
+      // Cache theme locally to avoid flicker
+      if (updates.themePreference) {
+        localStorage.setItem('opencomm_user_theme', updates.themePreference);
+      }
+      return data as UserSettings;
+    }
+    // Local fallback – update profile cache (no real settings persistence)
+    if (updates.themePreference) {
+      localStorage.setItem('opencomm_user_theme', updates.themePreference);
+    }
+    return null;
+  },
+
+  /**
+   * Create a support ticket for the current user.
+   */
+  async createSupportTicket(params: { category: string; subject: string; description: string; priority?: string }): Promise<string | null> {
+    if (!supabase) throw new Error('Supabase is not initialized.');
+    const userId = await getCurrentUserId();
+    const payload = {
+      user_id: userId,
+      category: params.category,
+      subject: params.subject,
+      description: params.description,
+      priority: params.priority ?? 'medium',
+      status: 'open'
+    };
+    const { data, error } = await supabase.from('support_tickets').insert(payload).select('id').single();
+    if (error) {
+      console.error('createSupportTicket Supabase error:', error.message);
+      throw new Error(error.message);
+    }
+    return data.id as string;
+  },
+
+  /**
+   * Retrieve all support tickets belonging to the current user.
+   */
+  async getMySupportTickets(): Promise<SupportTicket[]> {
+    if (supabase) {
+      const userId = await getCurrentUserId();
+      const { data, error } = await supabase
+        .from('support_tickets')
+        .select('*')
+        .eq('user_id', userId);
+      if (error) {
+        console.error('getMySupportTickets Supabase error:', error.message);
+        return [];
+      }
+      return data as SupportTicket[];
+    }
+    // Local fallback – empty list
+    return [];
+  },
+
   async getProfile(userId: string): Promise<LocalProfile | null> {
     if (supabase) {
       try {

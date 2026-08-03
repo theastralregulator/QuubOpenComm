@@ -42,6 +42,7 @@ import ProfilePage from './components/profile/ProfilePage';
 import MyJobPostsPage from './components/profile/MyJobPostsPage';
 import MyJobsAppliedPage from './components/profile/MyJobsAppliedPage';
 import ManageApplicationsPage from './components/profile/ManageApplicationsPage';
+import SettingsPage from './components/settings/SettingsPage';
 import HireRequestForm from './components/hiring/HireRequestForm';
 import HireRequestsPage from './components/hiring/HireRequestsPage';
 import HireRequestDetailsPage from './components/hiring/HireRequestDetailsPage';
@@ -2808,6 +2809,7 @@ export default function App() {
               <NotificationSettingsPage />
             </ProtectedRoute>
           } />
+          <Route path="/profile/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
           <Route path="/profile" element={
             <ProtectedRoute>

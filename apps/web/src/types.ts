@@ -417,3 +417,20 @@ export interface DashboardAnalyticsPayload {
   notifications_last_24h: number;
 }
 
+export interface UserSettings {
+  userId: string;
+  profileVisibility: string;
+  messagePermissions: string;
+  hireRequestPermissions: string;
+  showOnlineStatus: boolean;
+  showExactLocation: boolean;
+  searchEngineIndexing: boolean;
+  themePreference: string;
+  languagePreference: string;
+  timezone: string;
+  dateFormat: string;
+  showReviewsPublicly: boolean;
+  showCompletedWorkCount: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

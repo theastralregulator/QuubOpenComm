@@ -211,9 +211,9 @@ export default function BasicProfileDashboard({
       {/* ========================================================================= */}
       {/* 1. HERO PROFILE CARD */}
       {/* ========================================================================= */}
-      <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-7 relative overflow-hidden shadow-xs">
+      <div className="bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-500/10 dark:from-blue-950/40 dark:via-purple-950/30 dark:to-pink-950/20 border border-purple-500/15 rounded-3xl p-5 sm:p-7 relative overflow-visible shadow-xs">
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 relative z-10">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 flex-wrap relative z-10">
           {/* Avatar & Info */}
           <div className="flex items-center space-x-4 min-w-0">
             <div className="relative shrink-0 group">
@@ -236,8 +236,8 @@ export default function BasicProfileDashboard({
 
             <div className="min-w-0 text-left space-y-1">
               {/* Full Name */}
-              <div className="flex items-center space-x-2 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white truncate">
+              <div className="flex items-center space-x-2 flex-wrap flex-1 min-w-0">
+                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white whitespace-normal break-words overflow-visible max-w-full">
                   {profile?.full_name || username}
                 </h1>
                 {isVerified && (

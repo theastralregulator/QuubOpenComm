@@ -322,17 +322,20 @@ export default function Navbar({
                               <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
                             </button>
 
-                            {/* Collapsible Settings Row */}
-                            <button 
-                              onClick={() => setShowSettingsSub(!showSettingsSub)}
-                              className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-blue-500/10 hover:text-[#2563EB] dark:hover:text-[#60A5FA] flex items-center justify-between cursor-pointer group transition-all"
-                            >
-                              <span className="flex items-center font-semibold">
-                                <Settings className="w-4 h-4 mr-2.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-500" />
-                                Settings
-                              </span>
-                              <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showSettingsSub ? 'rotate-90' : 'group-hover:translate-x-0.5'}`} />
-                            </button>
+                            {/* Settings Link */}
+                              <button
+                                onClick={() => {
+                                  navigate('/profile/settings');
+                                  setShowProfileMenu(false);
+                                }}
+                                className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-blue-500/10 hover:text-[#2563EB] dark:hover:text-[#60A5FA] flex items-center justify-between cursor-pointer group transition-all"
+                              >
+                                <span className="flex items-center font-semibold">
+                                  <Settings className="w-4 h-4 mr-2.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-500" />
+                                  Settings
+                                </span>
+                                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                              </button>
 
                             <AnimatePresence>
                               {showSettingsSub && (
