@@ -21,12 +21,15 @@ export function useAdminSession() {
         return;
       }
 
-      // Query admin_members using id = session.user.id (standardized primary key)
-      const { data: member, error } = await supabase
+      // Query admin_members matching id OR user_id with session.user.id
+      // Select only existing columns to prevent errors on legacy table schemas
+      const { data: members, error } = await supabase
         .from('admin_members')
-        .select('id, email, role, is_active')
-        .eq('id', session.user.id)
-        .maybeSingle();
+        .select('id, user_id, role, is_active, created_at, updated_at')
+        .or(`id.eq.${session.user.id},user_id.eq.${session.user.id}`)
+        .limit(1);
+
+      const member = members && members.length > 0 ? members[0] : null;
 
       if (isMounted) {
         if (error || !member || !member.is_active) {
@@ -39,12 +42,12 @@ export function useAdminSession() {
           const normalizedRole = member.role === 'content_admin' ? 'moderator' : member.role;
 
           const adminData: AdminMember = {
-            id: member.id,
-            email: member.email || session.user.email || '',
+            id: member.id || member.user_id || session.user.id,
+            email: session.user.email || '',
             role: normalizedRole as any,
             is_active: member.is_active,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            created_at: member.created_at || new Date().toISOString(),
+            updated_at: member.updated_at || new Date().toISOString()
           };
 
           setAdminUser(adminData);
