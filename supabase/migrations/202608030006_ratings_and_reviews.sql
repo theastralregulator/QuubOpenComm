@@ -228,6 +228,10 @@ BEGIN
   v_title := NULLIF(TRIM(p_title), '');
   v_comment := NULLIF(TRIM(p_comment), '');
 
+  IF v_title IS NOT NULL AND LENGTH(v_title) > 200 THEN
+    RAISE EXCEPTION 'Title exceeds maximum length of 200 characters.';
+  END IF;
+
   IF v_comment IS NOT NULL AND LENGTH(v_comment) > 2000 THEN
     RAISE EXCEPTION 'Comment exceeds maximum length of 2000 characters.';
   END IF;
@@ -330,6 +334,14 @@ BEGIN
   v_title := NULLIF(TRIM(p_title), '');
   v_comment := NULLIF(TRIM(p_comment), '');
 
+  IF v_title IS NOT NULL AND LENGTH(v_title) > 200 THEN
+    RAISE EXCEPTION 'Title exceeds maximum length of 200 characters.';
+  END IF;
+
+  IF v_comment IS NOT NULL AND LENGTH(v_comment) > 2000 THEN
+    RAISE EXCEPTION 'Comment exceeds maximum length of 2000 characters.';
+  END IF;
+
   UPDATE public.contract_reviews
   SET
     rating = COALESCE(p_rating, rating),
@@ -372,7 +384,7 @@ DECLARE
   v_is_top_recommended boolean := false;
   v_top_communication boolean := false;
 BEGIN
-  -- Count completed contracts where profile was participant
+  -- Count completed contracts directly where profile was participant without JOIN duplications
   SELECT COUNT(*)::int INTO v_completed_works
   FROM public.work_contracts
   WHERE (client_id = p_profile_id OR worker_id = p_profile_id)
@@ -560,13 +572,26 @@ AS $$
 DECLARE
   v_user_id uuid := auth.uid();
   v_report_id uuid;
+  v_reason text;
+  v_details text;
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated.';
   END IF;
 
-  IF p_reason IS NULL OR TRIM(p_reason) = '' THEN
+  v_reason := NULLIF(TRIM(p_reason), '');
+  v_details := NULLIF(TRIM(p_details), '');
+
+  IF v_reason IS NULL THEN
     RAISE EXCEPTION 'Report reason is required.';
+  END IF;
+
+  IF LENGTH(v_reason) > 200 THEN
+    RAISE EXCEPTION 'Reason exceeds maximum length of 200 characters.';
+  END IF;
+
+  IF v_details IS NOT NULL AND LENGTH(v_details) > 2000 THEN
+    RAISE EXCEPTION 'Details exceed maximum length of 2000 characters.';
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM public.contract_reviews WHERE id = p_review_id) THEN
@@ -574,7 +599,7 @@ BEGIN
   END IF;
 
   INSERT INTO public.review_reports (review_id, reporter_id, reason, details)
-  VALUES (p_review_id, v_user_id, TRIM(p_reason), NULLIF(TRIM(p_details), ''))
+  VALUES (p_review_id, v_user_id, v_reason, v_details)
   ON CONFLICT (review_id, reporter_id) DO NOTHING
   RETURNING id INTO v_report_id;
 
@@ -624,3 +649,12 @@ CREATE TRIGGER trg_notify_contract_completed
   AFTER UPDATE OF status ON public.work_contracts
   FOR EACH ROW
   EXECUTE FUNCTION public.notify_contract_completed_reviews();
+
+-- 15. Explicit Grants for User RPCs
+GRANT EXECUTE ON FUNCTION public.get_contract_review_eligibility(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_contract_review(uuid, integer, text, text, integer, integer, integer, integer, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_my_contract_review(uuid, integer, text, text, integer, integer, integer, integer, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_profile_rating_summary(uuid) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.get_reviews_for_profile(uuid, integer, integer) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_pending_reviews() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.report_contract_review(uuid, text, text) TO authenticated;
