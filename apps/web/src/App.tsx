@@ -47,6 +47,8 @@ import HireRequestsPage from './components/hiring/HireRequestsPage';
 import HireRequestDetailsPage from './components/hiring/HireRequestDetailsPage';
 import NegotiationPage from './components/hiring/NegotiationPage';
 import WorkContractPage from './components/contracts/WorkContractPage';
+import NotificationsPage from './components/notifications/NotificationsPage';
+import NotificationSettingsPage from './components/notifications/NotificationSettingsPage';
 import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
@@ -2786,6 +2788,18 @@ export default function App() {
           <Route path="/work-contracts/:contractId" element={
             <ProtectedRoute>
               <WorkContractPage triggerToast={triggerToast} />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/profile/notifications" element={
+            <ProtectedRoute>
+              <NotificationsPage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/profile/notification-settings" element={
+            <ProtectedRoute>
+              <NotificationSettingsPage />
             </ProtectedRoute>
           } />
 

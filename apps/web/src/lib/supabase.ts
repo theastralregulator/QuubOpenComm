@@ -3,6 +3,7 @@ import { analytics } from './analytics';
 import { ConversationViewModel, DbMessage } from '../types';
 import { normalizeJobType } from './jobType';
 import { clearProfileCache } from './profileService';
+import { notificationService } from './notificationService';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
@@ -2334,7 +2335,18 @@ export const dbService = {
       return false;
     }
     return true;
-  }
+  },
+
+  // Centralized Notification Helpers
+  createNotification: notificationService.createNotification,
+  getUnreadNotificationCount: notificationService.getUnreadCount,
+  getMyNotifications: notificationService.getMyNotifications,
+  markNotificationRead: notificationService.markRead,
+  markAllNotificationsRead: notificationService.markAllRead,
+  deleteNotification: notificationService.deleteNotification,
+  getNotificationPreferences: notificationService.getPreferences,
+  updateNotificationPreferences: notificationService.updatePreferences,
+  subscribeToNotifications: notificationService.subscribeToRealtime
 };
 
 export function formatWorkerRate(worker: any): string {

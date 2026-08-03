@@ -10,6 +10,7 @@ import { Notification } from '../../types';
 import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
 import OpenCommLogo from '../common/OpenCommLogo';
+import NotificationBell from '../notifications/NotificationBell';
 
 export interface NavbarProps {
   currentView: string;
@@ -189,84 +190,8 @@ export default function Navbar({
               </div>
             ) : (
               <>
-                {/* Notification Icon */}
-                <div className="relative">
-                  <button 
-                    onClick={() => {
-                      setShowNotifications(!showNotifications);
-                      setShowProfileMenu(false);
-                      setShowSettingsMenu(false);
-                      setShowThemeMenu(false);
-                    }}
-                    className="p-2 md:p-2.5 rounded-full text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60 transition-all cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
-                    id="notifications-btn"
-                  >
-                    <Bell className="w-4.5 h-4.5" />
-                    {unreadNotificationsCount > 0 && (
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-                    )}
-                  </button>
-
-                  {/* Notification Dropdown Box */}
-                  <AnimatePresence>
-                    {showNotifications && (
-                      <>
-                        {/* Backdrop to close when clicking outside */}
-                        <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                        <motion.div 
-                          initial={{ opacity: 0, y: 15 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 10 }}
-                          className="absolute right-[-40px] sm:right-0 mt-2.5 w-80 bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-2xl shadow-xl z-50 overflow-hidden"
-                        >
-                          <div className="px-4 py-3 border-b border-slate-200 dark:border-[#273449] flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
-                            <span className="font-semibold text-xs tracking-wide uppercase text-slate-500 dark:text-slate-400 font-display">Notifications</span>
-                            {unreadNotificationsCount > 0 && (
-                              <button 
-                                onClick={() => {
-                                  setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-                                }}
-                                className="text-[11px] text-blue-500 hover:underline cursor-pointer"
-                              >
-                                Mark all read
-                              </button>
-                            )}
-                          </div>
-                          <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
-                            {notifications.length === 0 ? (
-                              <div className="p-6 text-center text-slate-400 dark:text-slate-500 text-sm">No new updates.</div>
-                            ) : (
-                              notifications.map(n => (
-                                <div 
-                                  key={n.id} 
-                                  onClick={() => {
-                                    setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
-                                    setShowNotifications(false);
-                                  }}
-                                  className={`p-3.5 transition-all text-left cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 ${!n.read ? 'bg-blue-500/5 dark:bg-blue-950/10' : ''}`}
-                                >
-                                  <div className="flex space-x-3">
-                                    <div className="mt-0.5 shrink-0">
-                                      {n.type === 'message' && <MessageSquare className="w-4 h-4 text-blue-500" />}
-                                      {n.type === 'application' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-                                      {n.type === 'hire' && <Info className="w-4 h-4 text-purple-500" />}
-                                      {n.type === 'system' && <Info className="w-4 h-4 text-amber-500" />}
-                                    </div>
-                                    <div className="flex-1">
-                                      <p className={`text-xs ${!n.read ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-200'}`}>{n.title}</p>
-                                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{n.description}</p>
-                                      <span className="text-[9px] text-slate-400 block mt-1">{n.timestamp}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
-                </div>
+                {/* Notification Bell Component */}
+                <NotificationBell />
 
                 {/* Profile Avatar Dropdown */}
                 <div className="relative">
