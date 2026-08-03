@@ -21,44 +21,35 @@ export function useAdminSession() {
         return;
       }
 
-      // Query admin_members
-      console.log('Admin Auth Check -> Current user:', session.user);
-      console.log('Admin Auth Check -> Current user.id:', session.user.id);
-      
+      // Query admin_members using id = session.user.id (standardized primary key)
       const { data: member, error } = await supabase
         .from('admin_members')
-        .select('role, is_active')
-        .eq('user_id', session.user.id)
-        .single();
-
-      console.log('Admin Auth Check -> admin_members query result:', member);
-      console.log('Admin Auth Check -> error state:', error);
+        .select('id, email, role, is_active')
+        .eq('id', session.user.id)
+        .maybeSingle();
 
       if (isMounted) {
-        if (error || !member) {
+        if (error || !member || !member.is_active) {
           if (error) {
-            console.error('Admin Auth Check -> PostgREST Error:', error);
+            console.error('[AdminSession] Error querying admin_members:', error);
           }
           setAdminUser(null);
-          console.log('Admin Auth Check -> final role: null');
-          console.log('Admin Auth Check -> final isAdmin boolean: false');
         } else {
-          const adminData = {
-            ...member,
-            email: session.user.email,
-            id: member.id || session.user.id
-          } as AdminMember;
-          
-          if (!adminData.email) {
-            console.warn('[Admin Dashboard] Development Warning: Authenticated admin record is missing an email address.', adminData);
-          }
+          // Normalize legacy content_admin to moderator role for canonical checks
+          const normalizedRole = member.role === 'content_admin' ? 'moderator' : member.role;
+
+          const adminData: AdminMember = {
+            id: member.id,
+            email: member.email || session.user.email || '',
+            role: normalizedRole as any,
+            is_active: member.is_active,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
 
           setAdminUser(adminData);
-          console.log('Admin Auth Check -> final role:', member.role);
-          console.log('Admin Auth Check -> final isAdmin boolean:', member.is_active);
         }
         setIsAdminLoading(false);
-        console.log('Admin Auth Check -> loading state: false');
       }
     }
 
@@ -80,6 +71,7 @@ export function useAdminSession() {
 
   const hasPermission = (requiredRoles: string[]) => {
     if (!adminUser || !adminUser.is_active) return false;
+    if (adminUser.role === 'super_admin') return true;
     return requiredRoles.includes(adminUser.role) || requiredRoles.includes('any');
   };
 
@@ -87,7 +79,7 @@ export function useAdminSession() {
     adminUser,
     isAdminLoading,
     hasPermission,
-    requireStaff: () => hasPermission(['any']),
+    requireSupport: () => hasPermission(['support', 'moderator', 'admin', 'super_admin']),
     requireModerator: () => hasPermission(['moderator', 'admin', 'super_admin']),
     requireAdmin: () => hasPermission(['admin', 'super_admin']),
     requireSuperAdmin: () => hasPermission(['super_admin']),

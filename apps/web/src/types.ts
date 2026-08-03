@@ -372,3 +372,48 @@ export interface SubmitReviewParams {
   would_recommend?: boolean;
 }
 
+export interface AdminSecurityLog {
+  id: string;
+  event_type: string;
+  user_id?: string | null;
+  admin_id?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  details?: Record<string, any>;
+  created_at: string;
+}
+
+export interface PlatformFeatureFlag {
+  key: string;
+  description: string;
+  is_enabled: boolean;
+  metadata?: Record<string, any>;
+  updated_by?: string | null;
+  updated_at?: string;
+}
+
+export interface DashboardAnalyticsPayload {
+  total_users: number;
+  basic_users: number;
+  worker_users: number;
+  company_users: number;
+  active_users: number;
+  suspended_users: number;
+  new_users_last_7d: number;
+  total_jobs: number;
+  active_jobs: number;
+  closed_jobs: number;
+  total_applications: number;
+  active_hire_requests: number;
+  active_negotiations: number;
+  total_contracts: number;
+  active_contracts: number;
+  completed_contracts: number;
+  cancelled_contracts: number;
+  total_reviews: number;
+  platform_average_rating: number;
+  pending_review_reports: number;
+  unread_support_tickets: number;
+  notifications_last_24h: number;
+}
+

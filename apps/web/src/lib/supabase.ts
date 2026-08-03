@@ -2456,6 +2456,126 @@ export const dbService = {
     });
     if (error) throw new Error(error.message);
     return data;
+  },
+
+  // Admin Control Center Hardened RPCs
+  async adminSuspendUser(targetUserId: string, reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_suspend_user', {
+      p_target_user_id: targetUserId,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminReactivateUser(targetUserId: string, reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_reactivate_user', {
+      p_target_user_id: targetUserId,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminModerateWorkerProfile(workerId: string, action: 'hide' | 'restore', reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_moderate_worker_profile', {
+      p_worker_id: workerId,
+      p_action: action,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminModerateJob(jobId: string, action: 'close' | 'archive' | 'restore', reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_moderate_job', {
+      p_job_id: jobId,
+      p_action: action,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminResolveReviewReport(reportId: string, action: 'dismiss' | 'hide_review' | 'mark_actioned', reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_resolve_review_report', {
+      p_report_id: reportId,
+      p_action: action,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminHideReview(reviewId: string, reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_hide_review', {
+      p_review_id: reviewId,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminSendPlatformNotification(recipientId: string, title: string, message: string, targetUrl: string, reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_send_platform_notification', {
+      p_recipient_id: recipientId,
+      p_title: title,
+      p_message: message,
+      p_target_url: targetUrl,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminUpdatePlatformSetting(settingKey: string, settingValue: any, reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_update_platform_setting', {
+      p_setting_key: settingKey,
+      p_setting_value: settingValue,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminSetFeatureFlag(flagKey: string, isEnabled: boolean, reason: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_set_feature_flag', {
+      p_flag_key: flagKey,
+      p_is_enabled: isEnabled,
+      p_reason: reason
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminToggleMaintenanceMode(enabled: boolean, message?: string, reason?: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('admin_toggle_maintenance_mode', {
+      p_enabled: enabled,
+      p_message: message || null,
+      p_reason: reason || null
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async adminGetDashboardAnalytics(): Promise<any> {
+    if (!supabase) return null;
+    const { data, error } = await supabase.rpc('admin_get_dashboard_analytics');
+    if (error) {
+      console.error('admin_get_dashboard_analytics error:', error);
+      return null;
+    }
+    return data;
   }
 };
 
