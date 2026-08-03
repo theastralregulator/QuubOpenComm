@@ -307,3 +307,68 @@ export interface ApplicationWorkflowDetails {
   deal_proposals_history: DealProposal[];
 }
 
+export interface ContractReview {
+  id: string;
+  contract_id: string;
+  work_title?: string;
+  reviewer_id: string;
+  reviewer_name?: string;
+  reviewer_avatar_url?: string | null;
+  reviewee_id: string;
+  reviewer_role: 'client' | 'worker';
+  rating: number;
+  title?: string | null;
+  comment?: string | null;
+  communication_rating?: number | null;
+  work_quality_rating?: number | null;
+  professionalism_rating?: number | null;
+  punctuality_rating?: number | null;
+  would_recommend?: boolean;
+  is_public: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ProfileRatingSummary {
+  profile_id: string;
+  average_rating: number;
+  total_reviews: number;
+  completed_works: number;
+  recommendation_percentage: number;
+  communication_average: number;
+  work_quality_average: number;
+  professionalism_average: number;
+  punctuality_average: number;
+  badges: {
+    is_new: boolean;
+    has_5plus_works: boolean;
+    is_highly_rated: boolean;
+    is_top_recommended: boolean;
+    top_communication: boolean;
+  };
+}
+
+export interface ReviewEligibility {
+  can_review: boolean;
+  reason?: string;
+  has_reviewed?: boolean;
+  my_role?: 'client' | 'worker';
+  other_party_id?: string;
+  other_party_name?: string;
+  work_title?: string;
+  review?: ContractReview;
+  can_edit?: boolean;
+}
+
+export interface SubmitReviewParams {
+  contract_id: string;
+  rating: number;
+  title?: string;
+  comment?: string;
+  communication_rating?: number;
+  work_quality_rating?: number;
+  professionalism_rating?: number;
+  punctuality_rating?: number;
+  would_recommend?: boolean;
+}
+

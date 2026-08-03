@@ -17,6 +17,7 @@ import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
 import PublicBasicProfile from './PublicBasicProfile';
 import AvatarUploadMenu from './AvatarUploadMenu';
+import ProfileReviewsSection from './ProfileReviewsSection';
 
 interface ProfilePageProps {
   username: string;
@@ -1787,45 +1788,12 @@ export default function ProfilePage({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="space-y-4"
           >
-            <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-2">Member Reviews</h3>
-
-            {reviews.length > 0 ? (
-              <div className="space-y-3">
-                {reviews.map((rev) => (
-                  <div key={rev.id} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <UserAvatar
-                          avatarUrl={rev.reviewer?.avatar_url || ''}
-                          fullName={rev.reviewer?.full_name || 'Member'}
-                          size="sm"
-                        />
-                        <span className="font-bold text-xs text-slate-900 dark:text-white">{rev.reviewer?.full_name || 'Member'}</span>
-                      </div>
-                      <div className="flex text-amber-500 space-x-0.5">
-                        {[...Array(5)].map((_, i) => (
-                          <Star key={i} className={`w-3.5 h-3.5 ${i < (rev.rating || 5) ? 'fill-current' : 'text-slate-200'}`} />
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed italic">
-                      "{rev.comment || 'Great work experience.'}"
-                    </p>
-                    <span className="text-[10px] text-slate-400 font-mono block">
-                      {rev.created_at ? new Date(rev.created_at).toLocaleDateString() : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center text-xs text-slate-500">
-                <Star className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-                <p className="font-bold text-slate-700 dark:text-slate-300">No reviews yet.</p>
-                <p className="mt-1">Completed contracts and hiring milestones will display feedback here.</p>
-              </div>
-            )}
+            <ProfileReviewsSection
+              profileId={profile?.id || ''}
+              fullName={profile?.full_name || username}
+              triggerToast={triggerToast}
+            />
           </motion.div>
         )}
 

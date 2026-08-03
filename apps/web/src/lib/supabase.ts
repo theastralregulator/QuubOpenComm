@@ -2346,7 +2346,117 @@ export const dbService = {
   deleteNotification: notificationService.deleteNotification,
   getNotificationPreferences: notificationService.getPreferences,
   updateNotificationPreferences: notificationService.updatePreferences,
-  subscribeToNotifications: notificationService.subscribeToRealtime
+  subscribeToNotifications: notificationService.subscribeToRealtime,
+
+  // Ratings & Reviews Helpers
+  async getContractReviewEligibility(contractId: string): Promise<any> {
+    if (!supabase) return { can_review: false, reason: 'Database not initialized.' };
+    const { data, error } = await supabase.rpc('get_contract_review_eligibility', {
+      p_contract_id: contractId
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async submitContractReview(params: {
+    contract_id: string;
+    rating: number;
+    title?: string;
+    comment?: string;
+    communication_rating?: number;
+    work_quality_rating?: number;
+    professionalism_rating?: number;
+    punctuality_rating?: number;
+    would_recommend?: boolean;
+  }): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('submit_contract_review', {
+      p_contract_id: params.contract_id,
+      p_rating: params.rating,
+      p_title: params.title || null,
+      p_comment: params.comment || null,
+      p_communication_rating: params.communication_rating || null,
+      p_work_quality_rating: params.work_quality_rating || null,
+      p_professionalism_rating: params.professionalism_rating || null,
+      p_punctuality_rating: params.punctuality_rating || null,
+      p_would_recommend: params.would_recommend ?? true
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async updateMyContractReview(reviewId: string, params: {
+    rating: number;
+    title?: string;
+    comment?: string;
+    communication_rating?: number;
+    work_quality_rating?: number;
+    professionalism_rating?: number;
+    punctuality_rating?: number;
+    would_recommend?: boolean;
+  }): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('update_my_contract_review', {
+      p_review_id: reviewId,
+      p_rating: params.rating,
+      p_title: params.title || null,
+      p_comment: params.comment || null,
+      p_communication_rating: params.communication_rating || null,
+      p_work_quality_rating: params.work_quality_rating || null,
+      p_professionalism_rating: params.professionalism_rating || null,
+      p_punctuality_rating: params.punctuality_rating || null,
+      p_would_recommend: params.would_recommend ?? true
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async getReviewsForProfile(profileId: string, limit = 10, offset = 0): Promise<any[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase.rpc('get_reviews_for_profile', {
+      p_profile_id: profileId,
+      p_limit: limit,
+      p_offset: offset
+    });
+    if (error) {
+      console.error('get_reviews_for_profile error:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  async getProfileRatingSummary(profileId: string): Promise<any> {
+    if (!supabase) return null;
+    const { data, error } = await supabase.rpc('get_profile_rating_summary', {
+      p_profile_id: profileId
+    });
+    if (error) {
+      console.error('get_profile_rating_summary error:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async getMyPendingReviews(): Promise<any[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase.rpc('get_my_pending_reviews');
+    if (error) {
+      console.error('get_my_pending_reviews error:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  async reportContractReview(reviewId: string, reason: string, details?: string): Promise<any> {
+    if (!supabase) throw new Error('Database not initialized.');
+    const { data, error } = await supabase.rpc('report_contract_review', {
+      p_review_id: reviewId,
+      p_reason: reason,
+      p_details: details || null
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  }
 };
 
 export function formatWorkerRate(worker: any): string {

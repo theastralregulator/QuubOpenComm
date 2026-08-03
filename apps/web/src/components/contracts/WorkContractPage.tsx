@@ -4,12 +4,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck, FileText, ArrowLeft, Calendar, Clock, MapPin,
   CheckCircle2, MessageSquare, AlertCircle, Loader2, UserCheck, DollarSign,
-  XCircle, AlertTriangle, Check, RefreshCw
+  XCircle, AlertTriangle, Check, RefreshCw, Star
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { formatINR } from '../../lib/currency';
 import UserAvatar from '../common/UserAvatar';
 import WorkflowTimeline, { getWorkflowTimelineSteps } from '../common/WorkflowTimeline';
+import ContractReviewModal from './ContractReviewModal';
 
 interface WorkContractPageProps {
   triggerToast: (msg: string) => void;
@@ -33,6 +34,10 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
   >(null);
   const [modalReasonInput, setModalReasonInput] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Review State
+  const [reviewEligibility, setReviewEligibility] = useState<any | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   useEffect(() => {
     async function fetchContract() {
@@ -58,6 +63,16 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
           const { data: wp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.worker_id).maybeSingle();
           setClientProfile(cp);
           setWorkerProfile(wp);
+        }
+
+        // Fetch review eligibility if completed
+        if (data.status === 'completed') {
+          try {
+            const elig = await dbService.getContractReviewEligibility(data.id);
+            setReviewEligibility(elig);
+          } catch (e) {
+            console.warn('Could not load review eligibility:', e);
+          }
         }
       } catch (err: any) {
         console.error('Failed to load work contract:', err);
@@ -498,6 +513,80 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
           )}
         </div>
       </div>
+
+      {/* Rate Your Experience / Review Summary Card */}
+      {contract.status === 'completed' && reviewEligibility && (
+        <div className="bg-amber-500/5 dark:bg-amber-950/10 border border-amber-500/20 rounded-3xl p-5 space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider flex items-center space-x-1.5">
+              <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+              <span>{reviewEligibility.has_reviewed ? 'Your Submitted Review' : 'Rate Your Experience'}</span>
+            </span>
+            {reviewEligibility.has_reviewed && reviewEligibility.review && (
+              <div className="flex items-center space-x-1">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Star
+                    key={s}
+                    className={`w-3.5 h-3.5 ${
+                      s <= reviewEligibility.review.rating ? 'text-amber-400 fill-amber-400' : 'text-slate-300 dark:text-slate-700'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {reviewEligibility.has_reviewed && reviewEligibility.review ? (
+            <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+              {reviewEligibility.review.title && (
+                <h4 className="font-bold text-slate-900 dark:text-white">"{reviewEligibility.review.title}"</h4>
+              )}
+              {reviewEligibility.review.comment && (
+                <p className="text-slate-600 dark:text-slate-400">{reviewEligibility.review.comment}</p>
+              )}
+              <div className="flex justify-end pt-1">
+                {reviewEligibility.can_edit && (
+                  <button
+                    onClick={() => setShowReviewModal(true)}
+                    className="px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    Edit Review
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                Leave verified feedback for {reviewEligibility.other_party_name} on this completed contract.
+              </p>
+              <button
+                onClick={() => setShowReviewModal(true)}
+                className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl font-extrabold text-xs shadow-md cursor-pointer shrink-0"
+              >
+                Rate Experience
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contract Review Modal */}
+      {showReviewModal && reviewEligibility && (
+        <ContractReviewModal
+          contractId={contract.id}
+          myRole={reviewEligibility.my_role || (contract.client_id === currentUserId ? 'client' : 'worker')}
+          otherPartyName={reviewEligibility.other_party_name || 'User'}
+          workTitle={contract.work_title}
+          existingReview={reviewEligibility.review}
+          onClose={() => setShowReviewModal(false)}
+          onSuccess={async (msg) => {
+            triggerToast(msg);
+            const elig = await dbService.getContractReviewEligibility(contract.id);
+            setReviewEligibility(elig);
+          }}
+        />
+      )}
 
       {/* Confirmation Modals */}
       <AnimatePresence>

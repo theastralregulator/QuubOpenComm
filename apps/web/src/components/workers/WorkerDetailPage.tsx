@@ -15,6 +15,7 @@ import { formatINR } from '../../lib/currency';
 import { resolveReturnRoute, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
 import HireRequestForm from '../hiring/HireRequestForm';
+import ProfileReviewsSection from '../profile/ProfileReviewsSection';
 
 interface WorkerDetailPageProps {
   workers: Worker[];
@@ -739,57 +740,11 @@ export default function WorkerDetailPage({
 
         {/* REVIEWS TAB */}
         {activeTab === 'reviews' && (
-          <div className="space-y-4 text-left">
-            {reviews.length === 0 ? (
-              <div className="bg-slate-50/60 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-8 text-center space-y-3">
-                <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
-                  <Star className="w-6 h-6 fill-current" />
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">No reviews yet</h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
-                    This professional has not received any public client reviews yet.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {reviews.map((rev: any, idx: number) => (
-                  <div 
-                    key={rev.id || idx}
-                    className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-2 shadow-xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2.5">
-                        <UserAvatar 
-                          avatarUrl={rev.reviewer?.avatar_url || ''} 
-                          fullName={rev.reviewer?.full_name || 'Client'} 
-                          size="sm" 
-                        />
-                        <div>
-                          <span className="font-extrabold text-xs text-slate-900 dark:text-white block">
-                            {rev.reviewer?.full_name || 'Client'}
-                          </span>
-                          <span className="text-[10px] text-slate-400">Verified Client</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-1 text-amber-500 text-xs font-extrabold">
-                        <Star className="w-3.5 h-3.5 fill-current" />
-                        <span>{rev.rating || 5}.0</span>
-                      </div>
-                    </div>
-
-                    {rev.comment && (
-                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed pl-9">
-                        "{rev.comment}"
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <ProfileReviewsSection
+            profileId={worker.id}
+            fullName={worker.name}
+            triggerToast={triggerToast}
+          />
         )}
 
         {/* ABOUT TAB */}
