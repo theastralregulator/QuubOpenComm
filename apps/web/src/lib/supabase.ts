@@ -2322,6 +2322,31 @@ export const dbService = {
       })
       .eq('id', conversationId);
 
+    // Create deduplicated message notification for recipient
+    try {
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('creator_id, member_id')
+        .eq('id', conversationId)
+        .maybeSingle();
+
+      if (conv) {
+        const recipientId = conv.creator_id === user.id ? conv.member_id : conv.creator_id;
+        if (recipientId) {
+          await notificationService.createNotification({
+            recipient_id: recipientId,
+            type: 'message_received',
+            title: `Message from ${senderName}`,
+            message: trimmed.length > 60 ? trimmed.substring(0, 60) + '...' : trimmed,
+            target_url: `/messages?conversationId=${conversationId}`,
+            dedupe_key: `chat_msg:${conversationId}:${recipientId}`
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.warn('Message notification trigger error:', notifErr);
+    }
+
     return data;
   },
 

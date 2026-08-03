@@ -11,6 +11,7 @@ export interface NotificationItem {
   message: string;
   target_url: string;
   metadata?: Record<string, any>;
+  dedupe_key?: string | null;
   is_read: boolean;
   created_at: string;
   read_at?: string | null;
@@ -36,11 +37,12 @@ export interface CreateNotificationParams {
   target_url: string;
   actor_id?: string;
   metadata?: Record<string, any>;
+  dedupe_key?: string;
 }
 
 export const notificationService = {
   /**
-   * Centralized Helper to Create a Notification across all modules
+   * Centralized Helper to Create a Notification via SECURITY DEFINER RPC
    */
   async createNotification(params: CreateNotificationParams): Promise<string | null> {
     if (!supabase) return null;
@@ -53,7 +55,7 @@ export const notificationService = {
         return null;
       }
 
-      // Try RPC first
+      // Invoke authoritative SECURITY DEFINER create_notification RPC
       const { data, error } = await supabase.rpc('create_notification', {
         p_recipient_id: params.recipient_id,
         p_type: params.type,
@@ -61,35 +63,16 @@ export const notificationService = {
         p_message: params.message,
         p_target_url: params.target_url,
         p_actor_id: actorId || null,
-        p_metadata: params.metadata || {}
+        p_metadata: params.metadata || {},
+        p_dedupe_key: params.dedupe_key || null
       });
 
-      if (!error) {
-        return data;
-      }
-
-      // Fallback direct table insert if RPC unavailable
-      const { data: inserted, error: insertError } = await supabase
-        .from('notifications')
-        .insert({
-          recipient_id: params.recipient_id,
-          actor_id: actorId || null,
-          type: params.type,
-          title: params.title,
-          message: params.message,
-          target_url: params.target_url,
-          metadata: params.metadata || {},
-          is_read: false
-        })
-        .select('id')
-        .single();
-
-      if (insertError) {
-        console.warn('[NotificationService] Fallback insert failed:', insertError);
+      if (error) {
+        console.warn('[NotificationService] create_notification RPC warning:', error);
         return null;
       }
 
-      return inserted?.id || null;
+      return data || null;
     } catch (err) {
       console.error('[NotificationService] Error creating notification:', err);
       return null;
@@ -148,14 +131,14 @@ export const notificationService = {
         return data;
       }
 
-      // Fallback query
+      // Fallback read query (allowed by SELECT RLS policy)
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
       let query = supabase
         .from('notifications')
         .select(`
-          id, recipient_id, actor_id, type, title, message, target_url, metadata, is_read, created_at, read_at
+          id, recipient_id, actor_id, type, title, message, target_url, metadata, dedupe_key, is_read, created_at, read_at
         `)
         .eq('recipient_id', user.id)
         .order('created_at', { ascending: false })
@@ -323,13 +306,21 @@ export const notificationService = {
   },
 
   /**
-   * Subscribe to Supabase Realtime Notifications
+   * Subscribe to Supabase Realtime Notifications safely
    */
   subscribeToRealtime(userId: string, callback: (notification: NotificationItem) => void) {
     if (!supabase || !userId) return () => {};
 
+    const channelName = `user-notifications-${userId}`;
+
+    // Cleanup existing channel if open
+    const existing = supabase.getChannels?.()?.find((ch: any) => ch.name === channelName);
+    if (existing) {
+      supabase.removeChannel(existing);
+    }
+
     const channel = supabase
-      .channel(`user-notifications-${userId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {

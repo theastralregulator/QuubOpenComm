@@ -1,5 +1,5 @@
 -- Migration: 202608030005_centralized_notification_system.sql
--- Description: Centralized production-ready notification engine, preferences table, RLS, indexes, RPC helpers, and Realtime publication.
+-- Description: Centralized production-ready notification engine with strict security RLS, deduplication key, RPC helpers, workflow integrations, and Realtime publication.
 
 -- 1. Create notifications table
 CREATE TABLE IF NOT EXISTS public.notifications (
@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   message text NOT NULL,
   target_url text NOT NULL,
   metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+  dedupe_key text,
   is_read boolean DEFAULT false NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL,
   read_at timestamptz
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.notification_preferences (
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY;
 
--- 4. RLS Policies for notifications
+-- 4. Strict Security RLS Policies for notifications
 DROP POLICY IF EXISTS "Users can read own notifications" ON public.notifications;
 CREATE POLICY "Users can read own notifications"
   ON public.notifications FOR SELECT
@@ -53,11 +54,10 @@ CREATE POLICY "Users can delete own notifications"
   TO authenticated
   USING (recipient_id = auth.uid());
 
+-- Direct INSERT is DENIED to authenticated and anon users to prevent spoofing.
+-- Notifications MUST be created via SECURITY DEFINER create_notification() or DB workflow RPCs.
 DROP POLICY IF EXISTS "Authenticated users can insert notifications" ON public.notifications;
-CREATE POLICY "Authenticated users can insert notifications"
-  ON public.notifications FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
+REVOKE INSERT ON public.notifications FROM PUBLIC, anon, authenticated;
 
 -- 5. RLS Policies for notification_preferences
 DROP POLICY IF EXISTS "Users can read own notification preferences" ON public.notification_preferences;
@@ -79,15 +79,19 @@ CREATE POLICY "Users can update own notification preferences"
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
--- 6. Performance Indexes
+-- 6. Performance & Deduplication Indexes
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created 
   ON public.notifications(recipient_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_notifications_recipient_unread 
-  ON public.notifications(recipient_id, is_read) 
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_unread
+  ON public.notifications(recipient_id, is_read)
   WHERE is_read = false;
 
--- 7. RPC Helper: Create Notification (with preference check and self-notification suppression)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe
+  ON public.notifications(dedupe_key)
+  WHERE dedupe_key IS NOT NULL;
+
+-- 7. RPC Helper: Create Notification (SECURITY DEFINER, validated caller & preference check)
 CREATE OR REPLACE FUNCTION public.create_notification(
   p_recipient_id uuid,
   p_type text,
@@ -95,7 +99,8 @@ CREATE OR REPLACE FUNCTION public.create_notification(
   p_message text,
   p_target_url text,
   p_actor_id uuid DEFAULT NULL,
-  p_metadata jsonb DEFAULT '{}'::jsonb
+  p_metadata jsonb DEFAULT '{}'::jsonb,
+  p_dedupe_key text DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -106,9 +111,18 @@ DECLARE
   v_notification_id uuid;
   v_prefs record;
   v_category_enabled boolean := true;
+  v_caller_id uuid := auth.uid();
+  v_effective_actor uuid;
 BEGIN
+  -- Validate caller: if invoked by authenticated user, enforce actor_id = caller_id to prevent spoofing
+  IF v_caller_id IS NOT NULL THEN
+    v_effective_actor := v_caller_id;
+  ELSE
+    v_effective_actor := p_actor_id;
+  END IF;
+
   -- Do not notify self
-  IF p_actor_id IS NOT NULL AND p_actor_id = p_recipient_id THEN
+  IF v_effective_actor IS NOT NULL AND v_effective_actor = p_recipient_id THEN
     RETURN NULL;
   END IF;
 
@@ -137,25 +151,59 @@ BEGIN
     END IF;
   END IF;
 
-  INSERT INTO public.notifications (
-    recipient_id,
-    actor_id,
-    type,
-    title,
-    message,
-    target_url,
-    metadata
-  )
-  VALUES (
-    p_recipient_id,
-    p_actor_id,
-    p_type,
-    p_title,
-    p_message,
-    p_target_url,
-    COALESCE(p_metadata, '{}'::jsonb)
-  )
-  RETURNING id INTO v_notification_id;
+  -- Deduplicated Insert
+  IF p_dedupe_key IS NOT NULL AND TRIM(p_dedupe_key) <> '' THEN
+    INSERT INTO public.notifications (
+      recipient_id,
+      actor_id,
+      type,
+      title,
+      message,
+      target_url,
+      metadata,
+      dedupe_key,
+      is_read
+    )
+    VALUES (
+      p_recipient_id,
+      v_effective_actor,
+      p_type,
+      p_title,
+      p_message,
+      p_target_url,
+      COALESCE(p_metadata, '{}'::jsonb),
+      TRIM(p_dedupe_key),
+      false
+    )
+    ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO UPDATE SET
+      title = EXCLUDED.title,
+      message = EXCLUDED.message,
+      created_at = now(),
+      is_read = false
+    RETURNING id INTO v_notification_id;
+  ELSE
+    INSERT INTO public.notifications (
+      recipient_id,
+      actor_id,
+      type,
+      title,
+      message,
+      target_url,
+      metadata,
+      is_read
+    )
+    VALUES (
+      p_recipient_id,
+      v_effective_actor,
+      p_type,
+      p_title,
+      p_message,
+      p_target_url,
+      COALESCE(p_metadata, '{}'::jsonb),
+      false
+    )
+    RETURNING id INTO v_notification_id;
+  END IF;
 
   RETURN v_notification_id;
 END;
