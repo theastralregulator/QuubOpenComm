@@ -209,6 +209,10 @@ BEGIN
 END;
 $$;
 
+-- Revoke direct EXECUTE access from PUBLIC, anon, and authenticated roles.
+-- create_notification can ONLY be called by trusted database workflow RPCs / triggers.
+REVOKE EXECUTE ON FUNCTION public.create_notification FROM PUBLIC, anon, authenticated;
+
 -- 8. RPC Helper: Mark Single Notification as Read
 CREATE OR REPLACE FUNCTION public.mark_notification_read(p_notification_id uuid)
 RETURNS jsonb
