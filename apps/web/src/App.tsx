@@ -2313,14 +2313,48 @@ export default function App() {
     });
   };
 
-  // --- STAT CALCULATORS ---
-  const myPostsCount = activities.filter(a => a.type === 'post').length;
-  const myWorksCount = 2; // static in-progress
+  // --- REAL DASHBOARD STATS (loaded from DB on login) ---
+  const [dashMyPostsCount, setDashMyPostsCount] = React.useState(0);
+  const [dashMyWorksCount, setDashMyWorksCount] = React.useState(0);
+  const [dashSavedJobsCount, setDashSavedJobsCount] = React.useState(0);
+  const [dashSavedWorkersCount, setDashSavedWorkersCount] = React.useState(0);
+  const [dashUnreadMessagesCount, setDashUnreadMessagesCount] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!isLoggedIn || !userIdState) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [posts, savedJobs, savedWorkers, myWorks] = await Promise.all([
+          dbService.getMyJobPostsCount(userIdState).catch(() => 0),
+          dbService.getSavedJobsCount(userIdState).catch(() => 0),
+          dbService.getSavedWorkersCount(userIdState).catch(() => 0),
+          dbService.getMyConversations().then(cs => cs.length).catch(() => 0),
+        ]);
+        if (!cancelled) {
+          setDashMyPostsCount(posts);
+          setDashSavedJobsCount(savedJobs);
+          setDashSavedWorkersCount(savedWorkers);
+          // Use jobs applied count as proxy for "my works"
+          setDashMyWorksCount(myWorks);
+        }
+      } catch { /* silently ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isLoggedIn, userIdState]);
+
+  // Track unread messages count from real conversations
+  React.useEffect(() => {
+    if (!isLoggedIn) { setDashUnreadMessagesCount(0); return; }
+    let cancelled = false;
+    dbService.getMyConversations().then(cs => {
+      if (!cancelled) setDashUnreadMessagesCount(cs.reduce((sum, c) => sum + ((c as any).unreadCount || 0), 0));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isLoggedIn, userIdState]);
+
   const unreadMessagesCount = messages.filter(m => m.unread || m.role === 'assistant').length;
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
-  const savedJobsCount = jobs.filter(j => j.bookmarked).length;
-  const savedWorkersCount = workers.filter(w => (w as any).bookmarked).length;
-  const profileViewsCount = 482;
 
   if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
     return (
@@ -2560,21 +2594,22 @@ export default function App() {
                 onCreateProfile={() => requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true))}
                 onOpenMessages={() => requireAuth('Send Messages', () => navigate('/messages'))}
                 onOpenProfile={() => requireAuth('View Full Profile', () => navigate('/profile'))}
+                hasWorkerProfile={isLoggedIn && userType === 'worker'}
               />
 
               {isLoggedIn && (
                 <DashboardSummary 
-                  myPostsCount={myPostsCount}
-                  myWorksCount={myWorksCount}
-                  unreadMessagesCount={unreadMessagesCount}
-                  savedJobsCount={savedJobsCount}
-                  savedWorkersCount={savedWorkersCount}
-                  profileViewsCount={profileViewsCount}
+                  myPostsCount={dashMyPostsCount}
+                  myWorksCount={dashMyWorksCount}
+                  unreadMessagesCount={dashUnreadMessagesCount}
+                  savedJobsCount={dashSavedJobsCount}
+                  savedWorkersCount={dashSavedWorkersCount}
                   onAction={(view) => {
-                    if (view === 'saved-jobs') navigate('/profile/saved-jobs');
+                    if (view === 'my-posts') navigate('/profile/my-job-posts');
+                    else if (view === 'jobs-applied') navigate('/profile/jobs-applied');
+                    else if (view === 'saved-jobs') navigate('/profile/saved-jobs');
                     else if (view === 'saved-workers') navigate('/profile/saved-workers');
                     else if (view === 'messages') navigate('/messages');
-                    else if (view === 'profile') navigate('/profile');
                   }}
                 />
               )}
@@ -2588,6 +2623,7 @@ export default function App() {
                 onOpenMessage={handleOpenDirectMessage}
                 onViewJobs={() => navigate('/jobs')}
                 onViewWorkers={() => navigate('/workers')}
+                currentUserId={userIdState}
               />
             </motion.div>
           } />
@@ -3006,7 +3042,7 @@ export default function App() {
                         value={editedPendingEmail}
                         onChange={(e) => setEditedPendingEmail(e.target.value)}
                         className="w-full h-9 px-3 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-xs text-center font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                        placeholder="e.g. akhil.v@opencomm.io"
+                        placeholder="Enter your email address"
                       />
                       <div className="flex justify-center space-x-2">
                         <button
@@ -3067,7 +3103,7 @@ export default function App() {
                         type="text"
                         value={verificationCodeInput}
                         onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        placeholder="e.g. 123456"
+                        placeholder="6-digit code"
                         maxLength={6}
                         className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-mono font-bold tracking-widest text-center focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                       />
@@ -3159,7 +3195,7 @@ export default function App() {
                 <Link to="/contact" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Contact</Link>
               </div>
               <p className="text-sm font-medium text-slate-500 dark:text-zinc-500">
-                &copy; {new Date().getFullYear()} Quub Inc. All rights reserved.
+                &copy; {new Date().getFullYear()} OpenComm. All rights reserved.
               </p>
             </div>
           </div>
@@ -3307,7 +3343,7 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Title</label>
                     <input 
                       type="text" 
-                      placeholder="e.g. Senior Figma Designer"
+                      placeholder="Job title or role"
                       value={newJobTitle}
                       onChange={(e) => setNewJobTitle(e.target.value)}
                       className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3317,7 +3353,7 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Company / Household Name</label>
                     <input 
                       type="text" 
-                      placeholder="e.g. OpenComm Labs"
+                      placeholder="Company name"
                       value={newJobCompany}
                       onChange={(e) => setNewJobCompany(e.target.value)}
                       className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3330,7 +3366,7 @@ export default function App() {
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (₹)</label>
                     <input 
                       type="text" 
-                      placeholder="e.g. ₹850/hr or ₹45,000"
+                      placeholder="Salary range or rate"
                       value={newJobSalary}
                       onChange={(e) => setNewJobSalary(e.target.value)}
                       className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3390,7 +3426,7 @@ export default function App() {
                   <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Core Requirements (comma-separated)</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. Figma, Framer, NextJS"
+                    placeholder="Required skills, tools, or frameworks"
                     value={newJobReqs}
                     onChange={(e) => setNewJobReqs(e.target.value)}
                     className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3481,7 +3517,7 @@ export default function App() {
                     <input 
                       type="text" 
                       required
-                      placeholder="e.g. Akhil Varma"
+                      placeholder="Your full name"
                       value={newWorkerName}
                       onChange={(e) => setNewWorkerName(e.target.value)}
                       className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3492,7 +3528,7 @@ export default function App() {
                     <input 
                       type="text" 
                       required
-                      placeholder="e.g. Senior Carpenter / Lead JS Developer"
+                      placeholder="Professional title or role"
                       value={newWorkerTitle}
                       onChange={(e) => setNewWorkerTitle(e.target.value)}
                       className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3505,7 +3541,7 @@ export default function App() {
                   <input 
                     type="number" 
                     required
-                    placeholder="e.g. 75"
+                    placeholder="Hourly rate"
                     value={newWorkerRate}
                     onChange={(e) => setNewWorkerRate(Number(e.target.value))}
                     className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3527,7 +3563,7 @@ export default function App() {
                   <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Skills / Tools List (comma-separated)</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. Figma, React, Framer Motion, CSS"
+                    placeholder="Skills, tools, or technologies"
                     value={newWorkerSkills}
                     onChange={(e) => setNewWorkerSkills(e.target.value)}
                     className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
@@ -3821,7 +3857,7 @@ export default function App() {
                       value={signinUsername}
                       onChange={(e) => setSigninUsername(e.target.value)}
                       className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 font-semibold transition-all"
-                      placeholder="e.g. akhil.v@opencomm.io"
+                      placeholder="Your email address"
                     />
                   </div>
 
@@ -3983,7 +4019,7 @@ export default function App() {
                             value={signupForm.name}
                             onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
                             className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                            placeholder="e.g. Rahul Sharma"
+                            placeholder="Your full name"
                           />
                         </div>
 
@@ -3998,7 +4034,7 @@ export default function App() {
                             value={signupForm.email}
                             onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
                             className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
-                            placeholder="e.g. rahul.sharma@example.com"
+                            placeholder="Your email address"
                           />
                         </div>
 
@@ -4026,7 +4062,7 @@ export default function App() {
                               value={signupForm.phone}
                               onChange={(e) => setSignupForm({...signupForm, phone: e.target.value.replace(/[^\d]/g, '')})}
                               className="flex-1 h-11 px-3.5 bg-transparent text-slate-950 dark:text-white text-xs font-semibold focus:outline-none placeholder-slate-400"
-                              placeholder="Phone number e.g. 9876543210"
+                              placeholder="Phone number"
                             />
                           </div>
 
@@ -4046,7 +4082,7 @@ export default function App() {
                               type="text"
                               value={telegramUsername}
                               onChange={(e) => setTelegramUsername(e.target.value)}
-                              placeholder="Telegram username e.g. @rahul_dev (optional)"
+                              placeholder="Telegram username (optional)"
                               className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-850 bg-slate-50 dark:bg-zinc-950/60 text-slate-900 dark:text-white text-[11px] font-mono placeholder-slate-400 focus:outline-none"
                             />
                           </div>
@@ -4347,7 +4383,7 @@ export default function App() {
                             autoFocus
                             value={verificationCodeInput}
                             onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                            placeholder="e.g. 123456"
+                            placeholder="6-digit code"
                             className="w-full h-12 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-sm font-mono font-bold tracking-widest text-center focus:outline-none focus:border-indigo-500"
                           />
                         </div>

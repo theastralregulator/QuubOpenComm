@@ -329,22 +329,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       className="w-full max-w-[1200px] mx-auto min-h-0 overflow-hidden flex flex-col p-0 md:p-4 text-left"
       style={{ height: 'calc(100dvh - 120px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      {/* Page Header */}
-      <div className="flex items-center justify-between mb-3 px-2">
-        <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-          <MessageSquare className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-          <span>Messages</span>
-        </h1>
-        <button
-          onClick={() => setIsSearchOpen(prev => !prev)}
-          className={`p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
-            isSearchOpen ? 'bg-slate-200 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400' : ''
-          }`}
-          title={isSearchOpen ? "Close Search" : "Search Messages"}
-        >
-          {isSearchOpen ? <X className="w-5 h-5" /> : <Search className="w-5 h-5" />}
-        </button>
-      </div>
 
       {/* Main Container Card */}
       <div className="flex-1 bg-white dark:bg-[#0B0F19] md:border border-slate-200 dark:border-slate-800 md:rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative h-full">
@@ -357,13 +341,19 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           {/* Inbox List Header */}
           <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800/80 flex flex-col gap-2 shrink-0 bg-slate-50/70 dark:bg-[#080C14]">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                Conversations
-              </span>
-              <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                {filteredGroups.length}
-              </span>
-            </div>
+            <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              Inbox
+            </span>
+            <button
+              onClick={() => setIsSearchOpen(prev => !prev)}
+              className={`p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
+                isSearchOpen ? 'bg-slate-200 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400' : ''
+              }`}
+              title={isSearchOpen ? 'Close Search' : 'Search conversations'}
+            >
+              {isSearchOpen ? <X className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
+            </button>
+          </div>
 
             {/* Compact Animated Search Field */}
             <AnimatePresence>

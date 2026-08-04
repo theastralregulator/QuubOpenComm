@@ -81,7 +81,7 @@ export default function NotificationSettingsPage() {
               Notification Preferences
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Manage how and when you receive notifications on Quub/OpenComm.
+              Manage how and when you receive notifications on OpenComm.
             </p>
           </div>
         </div>

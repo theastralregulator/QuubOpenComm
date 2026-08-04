@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { 
-  FileText, Briefcase, MessageSquare, Eye, Bookmark, Users, ArrowRight 
+  FileText, Briefcase, MessageSquare, Bookmark, Users, ArrowRight 
 } from 'lucide-react';
 
 interface DashboardSummaryProps {
@@ -10,7 +10,6 @@ interface DashboardSummaryProps {
   unreadMessagesCount: number;
   savedJobsCount: number;
   savedWorkersCount: number;
-  profileViewsCount: number;
   onAction: (targetView: string) => void;
 }
 
@@ -20,7 +19,6 @@ export default function DashboardSummary({
   unreadMessagesCount,
   savedJobsCount,
   savedWorkersCount,
-  profileViewsCount,
   onAction,
 }: DashboardSummaryProps) {
   const items = [
@@ -28,27 +26,27 @@ export default function DashboardSummary({
       id: 'posts',
       label: 'My Posts',
       count: myPostsCount,
-      status: `${myPostsCount} active posts`,
+      status: myPostsCount === 1 ? '1 active post' : `${myPostsCount} active posts`,
       icon: FileText,
       iconColor: 'text-blue-600 dark:text-blue-400',
       color: 'bg-blue-50/50 border-blue-100/40 dark:bg-blue-950/15 dark:border-blue-900/20',
-      action: () => onAction('profile'), // Goes to Activity/Profile
+      action: () => onAction('my-posts'),
     },
     {
       id: 'works',
-      label: 'My Works',
+      label: 'Jobs Applied',
       count: myWorksCount,
-      status: `${myWorksCount} in progress`,
+      status: myWorksCount === 1 ? '1 application' : `${myWorksCount} applications`,
       icon: Briefcase,
       iconColor: 'text-amber-600 dark:text-amber-400',
       color: 'bg-amber-50/50 border-amber-100/40 dark:bg-amber-950/15 dark:border-amber-900/20',
-      action: () => onAction('profile'),
+      action: () => onAction('jobs-applied'),
     },
     {
       id: 'messages',
       label: 'Messages',
       count: unreadMessagesCount,
-      status: `${unreadMessagesCount} unread threads`,
+      status: unreadMessagesCount === 1 ? '1 unread message' : `${unreadMessagesCount} unread`,
       icon: MessageSquare,
       iconColor: 'text-emerald-600 dark:text-emerald-400',
       color: 'bg-emerald-50/50 border-emerald-100/40 dark:bg-emerald-950/15 dark:border-emerald-900/20',
@@ -58,7 +56,7 @@ export default function DashboardSummary({
       id: 'saved-jobs',
       label: 'Saved Jobs',
       count: savedJobsCount,
-      status: `${savedJobsCount} saved listings`,
+      status: savedJobsCount === 1 ? '1 saved listing' : `${savedJobsCount} saved listings`,
       icon: Bookmark,
       iconColor: 'text-indigo-600 dark:text-indigo-400',
       color: 'bg-indigo-50/50 border-indigo-100/40 dark:bg-indigo-950/15 dark:border-indigo-900/20',
@@ -68,21 +66,11 @@ export default function DashboardSummary({
       id: 'saved-workers',
       label: 'Saved Workers',
       count: savedWorkersCount,
-      status: `${savedWorkersCount} professionals`,
+      status: savedWorkersCount === 1 ? '1 professional' : `${savedWorkersCount} professionals`,
       icon: Users,
       iconColor: 'text-purple-600 dark:text-purple-400',
       color: 'bg-purple-50/50 border-purple-100/40 dark:bg-purple-950/15 dark:border-purple-900/20',
       action: () => onAction('saved-workers'),
-    },
-    {
-      id: 'views',
-      label: 'Profile Views',
-      count: profileViewsCount,
-      status: '+12% this week',
-      icon: Eye,
-      iconColor: 'text-rose-600 dark:text-rose-400',
-      color: 'bg-rose-50/50 border-rose-100/40 dark:bg-rose-950/15 dark:border-rose-900/20',
-      action: () => onAction('profile'),
     },
   ];
 
@@ -92,8 +80,8 @@ export default function DashboardSummary({
         DASHBOARD OVERVIEW
       </h3>
       
-      {/* 2 columns on mobile, 2 columns on tablet, 3 columns on desktop */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+      {/* 2 columns on mobile, 3 on tablet+, 5 on wide desktop */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 sm:gap-4">
         {items.map((item) => {
           const IconComp = item.icon;
           return (
@@ -117,7 +105,7 @@ export default function DashboardSummary({
 
               {/* Middle Row: Prominent Count & Label */}
               <div className="mt-1">
-                <span className="block text-2xl sm:text-3.5xl font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-tight leading-none">
+                <span className="block text-2xl sm:text-3xl font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tracking-tight leading-none">
                   {item.count}
                 </span>
                 <span className="block text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC] mt-2">
