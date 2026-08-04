@@ -4,15 +4,22 @@ import { Bell, Check, ExternalLink, MessageSquare, Briefcase, FileText, CheckCir
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
 import { supabase } from '../../lib/supabase';
-import UserAvatar from '../common/UserAvatar';
+import { formatBadgeCount, hasVisibleBadge } from '../../lib/badgeUtils';
+import { getNotificationCategory } from '../../lib/notificationCategories';
 
 interface NotificationBellProps {
   currentUserId?: string | null;
+  unreadCount?: number;
+  onNotificationStateChange?: () => void;
 }
 
-export default function NotificationBell({ currentUserId }: NotificationBellProps) {
+export default function NotificationBell({
+  currentUserId,
+  unreadCount,
+  onNotificationStateChange,
+}: NotificationBellProps) {
   const navigate = useNavigate();
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [localUnreadCount, setLocalUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,16 +46,16 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
 
     fetchInitialData();
 
-    // Subscribe to Realtime notifications
-    const unsubscribe = notificationService.subscribeToRealtime(userId, (newNotif) => {
-      setNotifications((prev) => [newNotif, ...prev.slice(0, 4)]);
-      setUnreadCount((prev) => prev + 1);
-    });
+    const unsubscribe = unreadCount === undefined
+      ? notificationService.subscribeToRealtime(userId, () => {
+          fetchInitialData();
+        })
+      : () => {};
 
     return () => {
       unsubscribe();
     };
-  }, [userId]);
+  }, [userId, unreadCount]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -65,10 +72,10 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
     setLoading(true);
     try {
       const [count, items] = await Promise.all([
-        notificationService.getUnreadCount(),
+        notificationService.getUnreadCount(userId),
         notificationService.getMyNotifications({ limit: 5 })
       ]);
-      setUnreadCount(count);
+      setLocalUnreadCount(count);
       setNotifications(items);
     } catch (err) {
       console.error('Error fetching bell data:', err);
@@ -87,10 +94,11 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
   const handleNotificationClick = async (notif: NotificationItem) => {
     if (!notif.is_read) {
       await notificationService.markRead(notif.id);
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      setLocalUnreadCount((prev) => Math.max(0, prev - 1));
       setNotifications((prev) =>
         prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n))
       );
+      onNotificationStateChange?.();
     }
     setIsOpen(false);
     if (notif.target_url) {
@@ -101,19 +109,24 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
   const handleMarkAllRead = async (e: React.MouseEvent) => {
     e.stopPropagation();
     await notificationService.markAllRead();
-    setUnreadCount(0);
+    setLocalUnreadCount(0);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    onNotificationStateChange?.();
   };
 
   const getCategoryIcon = (type: string) => {
-    if (type.startsWith('hire_')) return <Briefcase className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />;
-    if (type.startsWith('application_')) return <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />;
-    if (type.startsWith('contract_')) return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />;
-    if (type.startsWith('message_')) return <MessageSquare className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />;
+    const category = getNotificationCategory(type);
+    if (category === 'hire') return <Briefcase className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />;
+    if (category === 'application') return <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />;
+    if (category === 'contract' || category === 'review') return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />;
+    if (category === 'message') return <MessageSquare className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />;
     return <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />;
   };
 
-  if (!currentUserId) return null;
+  if (!userId) return null;
+
+  const displayedUnreadCount = unreadCount ?? localUnreadCount;
+  const displayedUnreadLabel = formatBadgeCount(displayedUnreadCount);
 
   return (
     <div className="relative inline-block" ref={dropdownRef}>
@@ -122,12 +135,12 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
         type="button"
         onClick={handleToggle}
         className="relative p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-all cursor-pointer shadow-2xs"
-        aria-label="Notifications"
+        aria-label={hasVisibleBadge(displayedUnreadCount) ? `Notifications, ${displayedUnreadLabel} unread` : 'Notifications'}
       >
         <Bell className="w-4 h-4" />
-        {unreadCount > 0 && (
+        {hasVisibleBadge(displayedUnreadCount) && (
           <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-600 text-white font-extrabold text-[10px] animate-pulse ring-2 ring-white dark:ring-[#0B0F19]">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {displayedUnreadLabel}
           </span>
         )}
       </button>
@@ -147,13 +160,13 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
               <div className="flex items-center space-x-2">
                 <Bell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Notifications</h3>
-                {unreadCount > 0 && (
+                {hasVisibleBadge(displayedUnreadCount) && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
-                    {unreadCount} new
+                    {displayedUnreadLabel} new
                   </span>
                 )}
               </div>
-              {unreadCount > 0 && (
+              {hasVisibleBadge(displayedUnreadCount) && (
                 <button
                   type="button"
                   onClick={handleMarkAllRead}

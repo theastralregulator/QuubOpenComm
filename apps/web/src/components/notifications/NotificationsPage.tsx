@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
 import { supabase } from '../../lib/supabase';
+import { getNotificationCategory } from '../../lib/notificationCategories';
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
@@ -24,8 +25,19 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     if (!currentUserId) return;
-    const unsubscribe = notificationService.subscribeToRealtime(currentUserId, (newNotif) => {
-      setNotifications((prev) => [newNotif, ...prev]);
+    const unsubscribe = notificationService.subscribeToRealtime(currentUserId, (notification, eventType) => {
+      setNotifications((prev) => {
+        if (eventType === 'UPDATE') {
+          return prev.map((item) => (item.id === notification.id ? notification : item));
+        }
+        if (eventType === 'DELETE') {
+          return prev.filter((item) => item.id !== notification.id);
+        }
+        if (prev.some((item) => item.id === notification.id)) {
+          return prev;
+        }
+        return [notification, ...prev];
+      });
     });
     return () => unsubscribe();
   }, [currentUserId]);
@@ -78,10 +90,7 @@ export default function NotificationsPage() {
 
   const filteredNotifications = notifications.filter((item) => {
     if (activeTab === 'unread' && item.is_read) return false;
-    if (activeTab === 'hire' && !item.type.startsWith('hire_')) return false;
-    if (activeTab === 'application' && !item.type.startsWith('application_')) return false;
-    if (activeTab === 'contract' && !item.type.startsWith('contract_')) return false;
-    if (activeTab === 'message' && !item.type.startsWith('message_')) return false;
+    if (activeTab !== 'all' && activeTab !== 'unread' && getNotificationCategory(item.type) !== activeTab) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -135,10 +144,11 @@ export default function NotificationsPage() {
   const unreadTotal = notifications.filter((n) => !n.is_read).length;
 
   const getCategoryIcon = (type: string) => {
-    if (type.startsWith('hire_')) return <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400" />;
-    if (type.startsWith('application_')) return <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />;
-    if (type.startsWith('contract_')) return <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />;
-    if (type.startsWith('message_')) return <MessageSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />;
+    const category = getNotificationCategory(type);
+    if (category === 'hire') return <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400" />;
+    if (category === 'application') return <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />;
+    if (category === 'contract' || category === 'review') return <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />;
+    if (category === 'message') return <MessageSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />;
     return <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />;
   };
 

@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { WORKFLOW_NOTIFICATION_COUNT_FILTER } from './notificationCategories';
+import { dispatchNotificationBadgeRefresh } from './notificationEvents';
 
 export interface NotificationItem {
   id: string;
@@ -40,53 +42,31 @@ export interface CreateNotificationParams {
   dedupe_key?: string;
 }
 
+export type NotificationRealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE';
+
 export const notificationService = {
   /**
-   * Centralized Helper to Create a Notification via SECURITY DEFINER RPC
+   * Client-side notification creation is intentionally disabled. The
+   * create_notification RPC is revoked from browser roles; workflow/admin
+   * database RPCs are the trusted notification creation path.
    */
   async createNotification(params: CreateNotificationParams): Promise<string | null> {
-    if (!supabase) return null;
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const actorId = params.actor_id || user?.id;
-
-      // Do not notify self
-      if (actorId && actorId === params.recipient_id) {
-        return null;
-      }
-
-      // Invoke authoritative SECURITY DEFINER create_notification RPC
-      const { data, error } = await supabase.rpc('create_notification', {
-        p_recipient_id: params.recipient_id,
-        p_type: params.type,
-        p_title: params.title,
-        p_message: params.message,
-        p_target_url: params.target_url,
-        p_actor_id: actorId || null,
-        p_metadata: params.metadata || {},
-        p_dedupe_key: params.dedupe_key || null
-      });
-
-      if (error) {
-        console.warn('[NotificationService] create_notification RPC warning:', error);
-        return null;
-      }
-
-      return data || null;
-    } catch (err) {
-      console.error('[NotificationService] Error creating notification:', err);
-      return null;
-    }
+    console.warn('[NotificationService] Ignoring client createNotification request for revoked RPC:', params.type);
+    return null;
   },
 
   /**
    * Get Unread Notification Count
    */
-  async getUnreadCount(): Promise<number> {
+  async getUnreadCount(userId?: string | null): Promise<number> {
     if (!supabase) return 0;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return 0;
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        currentUserId = user?.id || null;
+      }
+      if (!currentUserId) return 0;
 
       const { data, error } = await supabase.rpc('get_unread_notification_count');
       if (!error && typeof data === 'number') {
@@ -96,13 +76,46 @@ export const notificationService = {
       const { count, error: countError } = await supabase
         .from('notifications')
         .select('id', { count: 'exact', head: true })
-        .eq('recipient_id', user.id)
+        .eq('recipient_id', currentUserId)
         .eq('is_read', false);
 
       if (countError) return 0;
       return count || 0;
     } catch (err) {
       console.error('[NotificationService] Error fetching unread count:', err);
+      return 0;
+    }
+  },
+
+  /**
+   * Get unread workflow notification count for the Profile badge.
+   * Message notifications are intentionally excluded.
+   */
+  async getUnreadWorkflowCount(userId?: string | null): Promise<number> {
+    if (!supabase) return 0;
+    try {
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        currentUserId = user?.id || null;
+      }
+      if (!currentUserId) return 0;
+
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_id', currentUserId)
+        .eq('is_read', false)
+        .or(WORKFLOW_NOTIFICATION_COUNT_FILTER);
+
+      if (error) {
+        console.error('[NotificationService] Error fetching workflow unread count:', error);
+        return 0;
+      }
+
+      return count || 0;
+    } catch (err) {
+      console.error('[NotificationService] Error fetching workflow unread count:', err);
       return 0;
     }
   },
@@ -180,6 +193,7 @@ export const notificationService = {
         if (updateError) throw updateError;
       }
 
+      dispatchNotificationBadgeRefresh();
       return true;
     } catch (err) {
       console.error('[NotificationService] Error marking notification read:', err);
@@ -204,6 +218,7 @@ export const notificationService = {
             .eq('is_read', false);
         }
       }
+      dispatchNotificationBadgeRefresh();
       return true;
     } catch (err) {
       console.error('[NotificationService] Error marking all read:', err);
@@ -228,6 +243,7 @@ export const notificationService = {
           .eq('id', notificationId);
       }
 
+      dispatchNotificationBadgeRefresh();
       return true;
     } catch (err) {
       console.error('[NotificationService] Error deleting notification:', err);
@@ -308,7 +324,10 @@ export const notificationService = {
   /**
    * Subscribe to Supabase Realtime Notifications safely
    */
-  subscribeToRealtime(userId: string, callback: (notification: NotificationItem) => void) {
+  subscribeToRealtime(
+    userId: string,
+    callback: (notification: NotificationItem, eventType: NotificationRealtimeEvent) => void
+  ) {
     if (!supabase || !userId) return () => {};
 
     const channelName = `user-notifications-${userId}`;
@@ -324,14 +343,16 @@ export const notificationService = {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'notifications',
           filter: `recipient_id=eq.${userId}`
         },
         (payload: any) => {
-          if (payload.new) {
-            callback(payload.new as NotificationItem);
+          const eventType = (payload.eventType || 'INSERT') as NotificationRealtimeEvent;
+          const row = (eventType === 'DELETE' ? payload.old : payload.new) as NotificationItem | undefined;
+          if (row) {
+            callback(row, eventType);
           }
         }
       )

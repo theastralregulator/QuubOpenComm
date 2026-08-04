@@ -90,6 +90,8 @@ import AdminNotifications from './components/admin/AdminNotifications';
 import AdminFeatureFlags from './components/admin/AdminFeatureFlags';
 import AdminSecurityLogs from './components/admin/AdminSecurityLogs';
 import AdminSystemHealth from './components/admin/AdminSystemHealth';
+import { useUnreadMessages } from './hooks/useUnreadMessages';
+import { useNotificationBadges } from './hooks/useNotificationBadges';
 
 export default function App() {
   // --- CORE SYSTEM STATES ---
@@ -2330,7 +2332,15 @@ export default function App() {
   const [dashMyWorksCount, setDashMyWorksCount] = React.useState(0);
   const [dashSavedJobsCount, setDashSavedJobsCount] = React.useState(0);
   const [dashSavedWorkersCount, setDashSavedWorkersCount] = React.useState(0);
-  const [dashUnreadMessagesCount, setDashUnreadMessagesCount] = React.useState(0);
+  const {
+    unreadMessagesCount,
+    refreshUnreadMessagesCount,
+  } = useUnreadMessages({ isLoggedIn, userId: userIdState });
+  const {
+    totalUnreadNotificationsCount: unreadNotificationsCount,
+    workflowUnreadNotificationsCount,
+    refreshNotificationBadges,
+  } = useNotificationBadges({ isLoggedIn, userId: userIdState });
 
   React.useEffect(() => {
     if (!isLoggedIn || !userIdState) return;
@@ -2353,19 +2363,6 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [isLoggedIn, userIdState]);
-
-  // Track unread messages count from real conversations
-  React.useEffect(() => {
-    if (!isLoggedIn) { setDashUnreadMessagesCount(0); return; }
-    let cancelled = false;
-    dbService.getMyConversations().then(cs => {
-      if (!cancelled) setDashUnreadMessagesCount(cs.reduce((sum, c) => sum + ((c as any).unreadCount || 0), 0));
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [isLoggedIn, userIdState]);
-
-  const unreadMessagesCount = messages.filter(m => m.unread || m.role === 'assistant').length;
-  const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
     return (
@@ -2528,6 +2525,9 @@ export default function App() {
           setThemeMode={handleSetTheme}
           unreadMessagesCount={unreadMessagesCount}
           unreadNotificationsCount={unreadNotificationsCount}
+          unreadWorkflowNotificationsCount={workflowUnreadNotificationsCount}
+          currentUserId={userIdState}
+          onNotificationStateChange={refreshNotificationBadges}
           username={username}
           setUsername={setUsername}
           userPhoto={userPhoto}
@@ -2613,7 +2613,7 @@ export default function App() {
                 <DashboardSummary 
                   myPostsCount={dashMyPostsCount}
                   myWorksCount={dashMyWorksCount}
-                  unreadMessagesCount={dashUnreadMessagesCount}
+                  unreadMessagesCount={unreadMessagesCount}
                   savedJobsCount={dashSavedJobsCount}
                   savedWorkersCount={dashSavedWorkersCount}
                   onAction={(view) => {
@@ -2770,6 +2770,7 @@ export default function App() {
               >
                 <MessagesPage 
                   triggerToast={triggerToast}
+                  onUnreadMessagesChanged={refreshUnreadMessagesCount}
                 />
               </motion.div>
             </ProtectedRoute>
@@ -2785,6 +2786,7 @@ export default function App() {
               >
                 <MessagesPage 
                   triggerToast={triggerToast}
+                  onUnreadMessagesChanged={refreshUnreadMessagesCount}
                 />
               </motion.div>
             </ProtectedRoute>

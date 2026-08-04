@@ -11,6 +11,7 @@ import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
 import OpenCommLogo from '../common/OpenCommLogo';
 import NotificationBell from '../notifications/NotificationBell';
+import { formatBadgeCount, hasVisibleBadge } from '../../lib/badgeUtils';
 
 export interface NavbarProps {
   currentView: string;
@@ -19,6 +20,7 @@ export interface NavbarProps {
   setThemeMode?: (mode: 'light' | 'dark') => void;
   unreadMessagesCount: number;
   unreadNotificationsCount: number;
+  unreadWorkflowNotificationsCount?: number;
   notifications: Notification[];
   setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
   username: string;
@@ -29,6 +31,8 @@ export interface NavbarProps {
   userType: 'normal' | 'worker' | 'company';
   onOpenAuth: (tab: 'signin' | 'signup') => void;
   onLogout: () => void;
+  currentUserId?: string | null;
+  onNotificationStateChange?: () => void;
   isEmailVerified?: boolean;
   onVerifyEmail?: () => void;
 }
@@ -40,6 +44,7 @@ export default function Navbar({
   setThemeMode,
   unreadMessagesCount,
   unreadNotificationsCount,
+  unreadWorkflowNotificationsCount = 0,
   notifications,
   setNotifications,
   username,
@@ -50,6 +55,8 @@ export default function Navbar({
   userType,
   onOpenAuth,
   onLogout,
+  currentUserId,
+  onNotificationStateChange,
   isEmailVerified = true,
   onVerifyEmail,
 }: NavbarProps) {
@@ -67,8 +74,8 @@ export default function Navbar({
     { id: 'workers', label: 'Workers', icon: Users, to: '/workers' },
     ...(isLoggedIn ? [] : [{ id: 'about', label: 'About', icon: Info, to: '/about' }]),
     ...(isLoggedIn ? [
-      { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, to: '/messages' },
-      { id: 'profile', label: 'Profile', icon: User, to: '/profile' },
+      { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, badgeLabel: 'unread messages', to: '/messages' },
+      { id: 'profile', label: 'Profile', icon: User, badgeCount: unreadWorkflowNotificationsCount, badgeLabel: 'unread workflow notifications', to: '/profile' },
     ] : [])
   ];
 
@@ -148,6 +155,7 @@ export default function Navbar({
                   }}
                   className={`relative px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-300 flex items-center space-x-2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${!isActive ? 'hover:bg-slate-100 dark:hover:bg-slate-800/50' : ''}`}
                   id={`nav-${item.id}`}
+                  aria-label={hasVisibleBadge(item.badgeCount || 0) ? `${item.label}, ${formatBadgeCount(item.badgeCount || 0)} ${item.badgeLabel}` : item.label}
                 >
                   {isActive && (
                     <motion.div
@@ -160,9 +168,9 @@ export default function Navbar({
                   <span className={`z-10 transition-colors duration-300 ${isActive ? 'text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'}`}>
                     {item.label}
                   </span>
-                  {item.badgeCount && item.badgeCount > 0 ? (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#080B18]">
-                      {item.badgeCount}
+                  {hasVisibleBadge(item.badgeCount || 0) ? (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#080B18]" aria-hidden="true">
+                      {formatBadgeCount(item.badgeCount || 0)}
                     </span>
                   ) : null}
                 </Link>
@@ -191,7 +199,11 @@ export default function Navbar({
             ) : (
               <>
                 {/* Notification Bell Component */}
-                <NotificationBell />
+                <NotificationBell
+                  currentUserId={currentUserId}
+                  unreadCount={unreadNotificationsCount}
+                  onNotificationStateChange={onNotificationStateChange}
+                />
 
                 {/* Profile Avatar Dropdown */}
                 <div className="relative">
@@ -467,6 +479,7 @@ export default function Navbar({
                 className="relative flex flex-col items-center justify-center flex-1 h-full py-1 text-slate-500 dark:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-h-[48px]"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 id={`mobile-nav-${item.id}`}
+                aria-label={hasVisibleBadge(item.badgeCount || 0) ? `${item.label}, ${formatBadgeCount(item.badgeCount || 0)} ${item.badgeLabel}` : item.label}
               >
                 {isActive && (
                   <motion.span
@@ -479,9 +492,9 @@ export default function Navbar({
                 <span className={`text-[10px] font-medium transition-colors duration-200 leading-none ${isActive ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
                   {item.label}
                 </span>
-                {item.badgeCount && item.badgeCount > 0 ? (
-                  <span className="absolute top-2 right-1/4 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-[#0B0F19]">
-                    {item.badgeCount}
+                {hasVisibleBadge(item.badgeCount || 0) ? (
+                  <span className="absolute top-2 right-[22%] flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-[#0B0F19]" aria-hidden="true">
+                    {formatBadgeCount(item.badgeCount || 0)}
                   </span>
                 ) : null}
               </Link>

@@ -5,6 +5,7 @@ import { normalizeJobType } from './jobType';
 import { UserSettings } from '../types';
 import { clearProfileCache } from './profileService';
 import { notificationService } from './notificationService';
+import { messageUnreadService } from './messageUnreadService';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
@@ -1842,45 +1843,22 @@ export const dbService = {
 
   // Notifications
   async getNotificationsFromDb(userId: string): Promise<any[]> {
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-        if (!error && data) return data;
-      } catch (err) {
-        console.error('getNotificationsFromDb Supabase error:', err);
-      }
-    }
-    return [];
+    if (!supabase || !userId) return [];
+    return notificationService.getMyNotifications({ limit: 100 });
   },
 
   async createNotificationInDb(userId: string, type: 'application' | 'message' | 'hire' | 'system', title: string, description: string): Promise<any> {
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('notifications').insert({
-          user_id: userId,
-          type,
-          title,
-          description,
-          read: false
-        }).select().single();
-        if (!error && data) return data;
-      } catch (err) {
-        console.error('createNotificationInDb Supabase error:', err);
-      }
-    }
-    return null;
+    return notificationService.createNotification({
+      recipient_id: userId,
+      type,
+      title,
+      message: description,
+      target_url: '/profile/notifications',
+    });
   },
 
   async markNotificationReadInDb(notifId: string): Promise<boolean> {
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('notifications').update({ read: true }).eq('id', notifId);
-        return !error;
-      } catch (err) {
-        console.error('markNotificationReadInDb Supabase error:', err);
-      }
-    }
-    return true;
+    return notificationService.markRead(notifId);
   },
 
   // Reviews
@@ -2258,14 +2236,49 @@ export const dbService = {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return [];
 
-    const { data: convRows, error: convError } = await supabase
+    const { data: directConvRows, error: directConvError } = await supabase
       .from('conversations')
       .select('*')
       .or(`creator_id.eq.${user.id},member_id.eq.${user.id}`)
       .order('last_message_time', { ascending: false, nullsFirst: false });
 
-    if (convError || !convRows || convRows.length === 0) {
-      if (convError) console.error('getMyConversations error:', convError);
+    if (directConvError) {
+      console.error('getMyConversations direct conversations error:', directConvError);
+    }
+
+    const { data: memberRows, error: memberError } = await supabase
+      .from('conversation_members')
+      .select('conversation_id')
+      .eq('user_id', user.id);
+
+    if (memberError) {
+      console.error('getMyConversations conversation_members error:', memberError);
+    }
+
+    let memberConvRows: any[] = [];
+    const memberConvIds = (memberRows || []).map((row: any) => row.conversation_id).filter(Boolean);
+    if (memberConvIds.length > 0) {
+      const { data: rows, error: memberConvError } = await supabase
+        .from('conversations')
+        .select('*')
+        .in('id', memberConvIds);
+
+      if (memberConvError) {
+        console.error('getMyConversations member conversation rows error:', memberConvError);
+      } else {
+        memberConvRows = rows || [];
+      }
+    }
+
+    const convRows = Array.from(
+      new Map([...(directConvRows || []), ...memberConvRows].map((row: any) => [row.id, row])).values()
+    ).sort((a: any, b: any) => {
+      const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+      const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    if (!convRows || convRows.length === 0) {
       return [];
     }
 
@@ -2325,20 +2338,7 @@ export const dbService = {
       }
     }
 
-    let unreadCountMap: Record<string, number> = {};
-    if (convIds.length > 0) {
-      const { data: unreadRows } = await supabase
-        .from('messages')
-        .select('conversation_id')
-        .in('conversation_id', convIds)
-        .neq('sender_id', user.id)
-        .eq('unread', true);
-      if (unreadRows) {
-        unreadRows.forEach((m: any) => {
-          unreadCountMap[m.conversation_id] = (unreadCountMap[m.conversation_id] || 0) + 1;
-        });
-      }
-    }
+    const unreadCountMap = await messageUnreadService.getUnreadCountsByConversation(convIds, user.id);
 
     const mergedConversations = convRows.map((c: any) => {
       const otherId = c.creator_id === user.id ? c.member_id : c.creator_id;
@@ -2452,15 +2452,7 @@ export const dbService = {
   },
 
   async markConversationRead(conversationId: string): Promise<boolean> {
-    if (!supabase) return false;
-    const { error } = await supabase.rpc('mark_conversation_read', {
-      p_conversation_id: conversationId
-    });
-    if (error) {
-      console.error('mark_conversation_read error:', error);
-      return false;
-    }
-    return true;
+    return messageUnreadService.markConversationRead(conversationId);
   },
 
   // Centralized Notification Helpers

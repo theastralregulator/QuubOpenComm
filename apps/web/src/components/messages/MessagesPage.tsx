@@ -29,9 +29,10 @@ type PendingMessage = {
 
 interface MessagesPageProps {
   triggerToast: (msg: string) => void;
+  onUnreadMessagesChanged?: () => void;
 }
 
-export default function MessagesPage({ triggerToast }: MessagesPageProps) {
+export default function MessagesPage({ triggerToast, onUnreadMessagesChanged }: MessagesPageProps) {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
 
@@ -133,7 +134,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         if (isMounted) {
           setMessages(msgs);
           // Mark conversation as read if active
-          await dbService.markConversationRead(conversationId!);
+          const markedRead = await dbService.markConversationRead(conversationId!);
+          if (markedRead) onUnreadMessagesChanged?.();
           // Refresh conversation list to update unread badge counts
           const updatedConvs = await dbService.getMyConversations();
           if (isMounted) handleSetConversations(updatedConvs);
@@ -191,7 +193,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
             // Mark read if sent by recipient
             if (currentUserId && newMsg.sender_id !== currentUserId) {
-              await dbService.markConversationRead(conversationId);
+              const markedRead = await dbService.markConversationRead(conversationId);
+              if (markedRead) onUnreadMessagesChanged?.();
             }
 
             // Refresh conversations preview
