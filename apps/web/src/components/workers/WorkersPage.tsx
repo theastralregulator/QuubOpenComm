@@ -609,6 +609,7 @@ export default function WorkersPage({
                     showHireButton={true}
                     showMessageButton={isLoggedIn && loggedInId !== worker.id}
                     isMessaging={submittingId === worker.id}
+                    currentUserId={loggedInId}
                   />
                 );
               })}

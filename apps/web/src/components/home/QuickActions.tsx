@@ -60,8 +60,8 @@ export default function QuickActions({
   // Worker-profile conditional action
   const workerAction = hasWorkerProfile
     ? {
-        title: 'Worker Profile',
-        subtitle: 'Manage your listing',
+        title: 'Manage Worker Profile',
+        subtitle: 'Update your listing',
         icon: UserCheck,
         colorClass: 'text-[#C026D3] dark:text-[#E879F9]',
         tintClass: 'bg-pink-500/5 hover:bg-pink-500/10 dark:bg-pink-500/5 dark:hover:bg-pink-500/10',
@@ -70,8 +70,8 @@ export default function QuickActions({
         action: onOpenProfile,
       }
     : {
-        title: 'Create Profile',
-        subtitle: 'Join professional network',
+        title: 'Become a Worker',
+        subtitle: 'Join worker network',
         icon: UserCheck,
         colorClass: 'text-[#C026D3] dark:text-[#E879F9]',
         tintClass: 'bg-pink-500/5 hover:bg-pink-500/10 dark:bg-pink-500/5 dark:hover:bg-pink-500/10',

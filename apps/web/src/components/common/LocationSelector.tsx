@@ -257,65 +257,81 @@ export default function LocationSelector({ value = {}, onChange, className = '' 
     : [];
 
   return (
-    <div className={`space-y-4 text-xs text-slate-800 dark:text-slate-200 ${className}`}>
-      {/* Geolocation Button */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl">
-        <div className="flex items-center space-x-2">
-          <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
-          <div className="text-left">
-            <p className="font-bold text-[11px] text-slate-900 dark:text-white">Smart Geo-Location</p>
-            <p className="text-[10px] text-slate-400">Detect automatic values or use custom entries.</p>
+    <div className={`space-y-3 text-xs text-slate-800 dark:text-slate-200 ${className}`}>
+      {/* Geolocation Section */}
+      <div className="p-3.5 bg-slate-50 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
+            <span className="font-bold text-xs text-slate-900 dark:text-white">Your Location</span>
           </div>
+          <button
+            type="button"
+            disabled={detecting}
+            onClick={handleDetectLocation}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white font-bold rounded-xl text-xs transition-all cursor-pointer shadow-xs"
+          >
+            {detecting ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Locating...</span>
+              </>
+            ) : (
+              <>
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Use my current location</span>
+              </>
+            )}
+          </button>
         </div>
-        <button
-          type="button"
-          disabled={detecting}
-          onClick={handleDetectLocation}
-          className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white font-bold rounded-xl text-[10px] transition-all cursor-pointer shadow-xs"
-        >
-          {detecting ? (
-            <>
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>Detecting location...</span>
-            </>
-          ) : (
-            <>
-              <MapPin className="w-3.5 h-3.5" />
-              <span>Use my current location</span>
-            </>
-          )}
-        </button>
-      </div>
 
-      {geoError && (
-        <div className="flex items-center space-x-1.5 p-2.5 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-[10px] font-semibold text-left">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>{geoError}. Please select your location manually.</span>
-        </div>
-      )}
+        {/* Selected location summary when geocoded or set */}
+        {(manualCity || manualState || manualCountry || selectedCity || selectedCountry) && !isManual && (
+          <div className="flex items-center justify-between p-2.5 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/40 rounded-xl text-xs">
+            <div className="flex items-center space-x-2 font-semibold text-indigo-950 dark:text-indigo-200">
+              <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span className="truncate">
+                {[
+                  selectedCity?.name || manualCity,
+                  selectedDistrict?.name || manualDistrict,
+                  selectedState?.name || manualState,
+                  selectedCountry?.name || manualCountry
+                ].filter(Boolean).join(', ')}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsManual(true)}
+              className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 ml-2"
+            >
+              Change
+            </button>
+          </div>
+        )}
 
-      {/* Manual toggle links */}
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            setIsManual(!isManual);
-            if (!isManual) {
-              // Copy current dropdown selects into manual state
-              setManualCountry(selectedCountry?.name || '');
-              setManualCountryCode(selectedCountry?.id || '');
-              setManualState(selectedState?.name || '');
-              setManualStateCode(selectedState?.id || '');
-              setManualDistrict(selectedDistrict?.name || '');
-              setManualCity(selectedCity?.name || '');
-              setManualLat(selectedCity?.lat);
-              setManualLng(selectedCity?.lng);
-            }
-          }}
-          className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
-        >
-          {isManual ? "" : "Can't find location? Type custom name"}
-        </button>
+        {/* Friendly Error Banner */}
+        {geoError && (
+          <div className="flex items-center space-x-2 p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-medium text-left">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>Could not detect location automatically. Please enter your location manually below.</span>
+          </div>
+        )}
+
+        {/* Secondary Action: Select location manually */}
+        {!isManual && (
+          <div className="pt-1 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIsManual(true);
+                setGeoError(null);
+              }}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-bold transition-all cursor-pointer flex items-center space-x-1"
+            >
+              <span>Select location manually</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {isManual ? (

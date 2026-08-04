@@ -1399,12 +1399,14 @@ export default function App() {
 
     const isWorker = listInWorkerDirectory;
 
+    // Validate Profile Picture or Avatar is required for all accounts
+    if (!workerForm.avatarUrl && !selectedAvatar && !croppedFile) {
+      setAuthError("Please upload a profile photo or select a valid avatar to continue.");
+      return;
+    }
+
     // Validate Section 2 if Worker Account is selected
     if (isWorker) {
-      if (!workerForm.avatarUrl && !croppedFile) {
-        setAuthError("Please add a profile photo for your worker profile.");
-        return;
-      }
       if (!workerForm.city) {
         setAuthError("Please select a base location for your worker profile.");
         return;
@@ -2267,6 +2269,10 @@ export default function App() {
 
   const triggerHireModal = (worker: Worker, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (userIdState && worker.id === userIdState) {
+      triggerToast("You cannot hire yourself.");
+      return;
+    }
     requireEmailVerification("Send Hiring Offer", () => {
       setShowHireModal(worker);
       setHireOfferRate(worker.hourlyRate);
@@ -2277,6 +2283,12 @@ export default function App() {
   const handleHireWorkerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!showHireModal) return;
+
+    if (userIdState && showHireModal.id === userIdState) {
+      triggerToast("You cannot hire yourself.");
+      setShowHireModal(null);
+      return;
+    }
 
     const newAct: Activity = {
       id: `act-${Date.now()}`,
@@ -2325,18 +2337,17 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const [posts, savedJobs, savedWorkers, myWorks] = await Promise.all([
+        const [posts, savedJobs, savedWorkers, myWorksRes] = await Promise.all([
           dbService.getMyJobPostsCount(userIdState).catch(() => 0),
           dbService.getSavedJobsCount(userIdState).catch(() => 0),
           dbService.getSavedWorkersCount(userIdState).catch(() => 0),
-          dbService.getMyConversations().then(cs => cs.length).catch(() => 0),
+          dbService.getMyJobApplications(userIdState).catch(() => ({ data: [], error: null })),
         ]);
         if (!cancelled) {
           setDashMyPostsCount(posts);
           setDashSavedJobsCount(savedJobs);
           setDashSavedWorkersCount(savedWorkers);
-          // Use jobs applied count as proxy for "my works"
-          setDashMyWorksCount(myWorks);
+          setDashMyWorksCount(myWorksRes?.data?.length || 0);
         }
       } catch { /* silently ignore */ }
     })();
@@ -2479,6 +2490,7 @@ export default function App() {
 
   const isAdminRoute = path.startsWith('/admin');
   const isJobDetailRoute = path.startsWith('/jobs/') && path !== '/jobs';
+  const isIndividualChatRoute = path.startsWith('/messages/') && path !== '/messages';
   console.log('DEBUG: Rendering page. Path:', path, 'isAdminRoute:', isAdminRoute);
 
   return (
@@ -3179,27 +3191,9 @@ export default function App() {
         </Routes>
       </main>
 
-      {/* FOOTER NAVIGATION */}
-      {!isAdminRoute && !isJobDetailRoute && (
-        <footer className="mt-auto bg-[#F8FAFC] dark:bg-[#0B1020] border-t border-slate-200/60 dark:border-[#273449] py-8">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-              <div className="flex items-center space-x-2 opacity-80 hover:opacity-100 transition-opacity">
-                <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                <span className="font-bold text-slate-800 dark:text-zinc-200">OpenComm</span>
-              </div>
-              <div className="flex items-center space-x-6 text-sm font-medium">
-                <Link to="/about" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">About Us</Link>
-                <Link to="/terms" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Terms</Link>
-                <Link to="/privacy" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Privacy</Link>
-                <Link to="/contact" className="text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Contact</Link>
-              </div>
-              <p className="text-sm font-medium text-slate-500 dark:text-zinc-500">
-                &copy; {new Date().getFullYear()} OpenComm. All rights reserved.
-              </p>
-            </div>
-          </div>
-        </footer>
+      {/* SITE-WIDE FOOTER NAVIGATION */}
+      {!isAdminRoute && !isJobDetailRoute && !isIndividualChatRoute && (
+        <Footer navigate={navigate} />
       )}
 
       {/* ====================================================
@@ -4019,7 +4013,7 @@ export default function App() {
                             value={signupForm.name}
                             onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
                             className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                            placeholder="Your full name"
+                            placeholder="Rahul Sharma"
                           />
                         </div>
 
@@ -4034,7 +4028,7 @@ export default function App() {
                             value={signupForm.email}
                             onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
                             className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
-                            placeholder="Your email address"
+                            placeholder="rahul.sharma@example.com"
                           />
                         </div>
 
@@ -4048,11 +4042,11 @@ export default function App() {
                             <select
                               value={phoneCountryCode}
                               onChange={(e) => setPhoneCountryCode(e.target.value)}
-                              className="h-11 px-2.5 bg-slate-100 dark:bg-zinc-900 text-slate-900 dark:text-white font-mono text-xs font-bold border-r border-slate-200 dark:border-zinc-800 outline-none cursor-pointer"
+                              className="h-11 px-2.5 bg-slate-100 dark:bg-zinc-900 text-slate-900 dark:text-white font-mono text-xs font-bold border-r border-slate-200 dark:border-zinc-800 outline-none cursor-pointer shrink-0"
                             >
                               {COUNTRY_CODES.map(c => (
                                 <option key={c.code} value={c.dialCode}>
-                                  {c.flag} {c.dialCode} ({c.code})
+                                  {c.dialCode}
                                 </option>
                               ))}
                             </select>
@@ -4062,7 +4056,7 @@ export default function App() {
                               value={signupForm.phone}
                               onChange={(e) => setSignupForm({...signupForm, phone: e.target.value.replace(/[^\d]/g, '')})}
                               className="flex-1 h-11 px-3.5 bg-transparent text-slate-950 dark:text-white text-xs font-semibold focus:outline-none placeholder-slate-400"
-                              placeholder="Phone number"
+                              placeholder="9876543210"
                             />
                           </div>
 
@@ -4082,7 +4076,7 @@ export default function App() {
                               type="text"
                               value={telegramUsername}
                               onChange={(e) => setTelegramUsername(e.target.value)}
-                              placeholder="Telegram username (optional)"
+                              placeholder="Telegram username"
                               className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-850 bg-slate-50 dark:bg-zinc-950/60 text-slate-900 dark:text-white text-[11px] font-mono placeholder-slate-400 focus:outline-none"
                             />
                           </div>
@@ -4171,11 +4165,11 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Profile Picture / Avatar Selector (Optional) */}
+                        {/* Profile Picture / Avatar Selector (Required) */}
                         <div className="space-y-2 pt-1">
                           <div className="flex justify-between items-center">
                             <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                              Profile Picture or Avatar <span className="text-slate-400 font-normal">(optional)</span>
+                              Profile Picture or Avatar <span className="text-rose-500">*</span>
                             </label>
                           </div>
 
@@ -4199,27 +4193,12 @@ export default function App() {
                                 setShowAvatarGalleryModal(true);
                               }}
                               className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                avatarTab === 'preset'
+                                avatarTab === 'preset' || avatarTab === 'skip'
                                   ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
                                   : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
                               }`}
                             >
                               Choose Avatar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAvatarTab('skip');
-                                setSelectedAvatar(DEFAULT_AVATAR_URL);
-                                setCroppedFile(null);
-                              }}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                avatarTab === 'skip'
-                                  ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                                  : 'text-slate-400 dark:text-zinc-500 hover:text-slate-700'
-                              }`}
-                            >
-                              Skip for now
                             </button>
                           </div>
 
@@ -4250,7 +4229,7 @@ export default function App() {
                               </div>
                               <div className="space-y-0.5 text-left flex-1">
                                 <span className="text-[11px] font-bold text-slate-900 dark:text-white block leading-tight">
-                                  {avatarTab === 'skip' ? 'Default Avatar Assigned' : selectedAvatar ? 'Preset Avatar Selected' : 'Choose Preset Avatar'}
+                                  {selectedAvatar ? 'Preset Avatar Selected' : 'Choose Preset Avatar'}
                                 </span>
                                 <p className="text-[9px] text-slate-500 dark:text-zinc-400 font-medium">
                                   Select from 50+ diverse professional avatars

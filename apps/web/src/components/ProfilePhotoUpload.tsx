@@ -401,9 +401,16 @@ export const ProfilePhotoUpload: React.FC<ProfilePhotoUploadProps> = ({
                 />
               )}
 
-              {/* Custom Circular Overlay Mask */}
+              {/* Custom Square Crop Overlay Mask (1:1 Aspect Ratio) */}
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-48 h-48 rounded-full border-2 border-white border-dashed shadow-[0_0_0_9999px_rgba(15,23,42,0.65)]" />
+                <div className="w-48 h-48 rounded-2xl border-2 border-white shadow-[0_0_0_9999px_rgba(15,23,42,0.65)] relative">
+                  {/* Subtle inner grid lines for alignment */}
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none border border-white/20">
+                    <div className="border-r border-white/10" />
+                    <div className="border-r border-white/10" />
+                    <div />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -439,7 +446,7 @@ export const ProfilePhotoUpload: React.FC<ProfilePhotoUploadProps> = ({
                 </button>
               </div>
               <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium text-center">
-                Drag photo to reposition inside the circular boundary area.
+                Drag photo to reposition inside the 1:1 square crop area.
               </p>
             </div>
 

@@ -426,7 +426,8 @@ export default function Navbar({
       </header>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
-      {!(location.pathname.startsWith('/jobs/') && location.pathname !== '/jobs') && (
+      {!(location.pathname.startsWith('/jobs/') && location.pathname !== '/jobs') &&
+       !(location.pathname.startsWith('/messages/') && location.pathname !== '/messages') && (
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-[calc(16px+env(safe-area-inset-bottom))] pointer-events-none">
         <nav className="flex items-center justify-around h-16 px-2 bg-white/95 dark:bg-[#0B0F19]/95 backdrop-blur-xl border border-slate-200/60 dark:border-slate-800/80 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] pointer-events-auto">
           {navItems.map((item) => {

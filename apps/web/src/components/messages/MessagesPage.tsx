@@ -326,12 +326,16 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   return (
     <div 
-      className="w-full max-w-[1200px] mx-auto min-h-0 overflow-hidden flex flex-col p-0 md:p-4 text-left"
-      style={{ height: 'calc(100dvh - 120px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      className={`w-full max-w-[1200px] mx-auto flex flex-col text-left ${
+        conversationId 
+          ? 'fixed inset-0 z-40 bg-white dark:bg-[#0B0F19] md:relative md:z-auto md:h-[calc(100dvh-120px)] md:p-4' 
+          : 'h-[calc(100dvh-120px)] p-0 md:p-4'
+      }`}
+      style={{ paddingBottom: conversationId ? 'env(safe-area-inset-bottom)' : undefined }}
     >
 
       {/* Main Container Card */}
-      <div className="flex-1 bg-white dark:bg-[#0B0F19] md:border border-slate-200 dark:border-slate-800 md:rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative h-full">
+      <div className="flex-1 bg-white dark:bg-[#0B0F19] md:border border-slate-200 dark:border-slate-800 md:rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative h-full min-h-0">
         
         {/* ================= LEFT PANE: INBOX LIST ================= */}
         <div className={`w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 dark:border-slate-800/80 flex flex-col min-h-0 overflow-hidden shrink-0 bg-slate-50/50 dark:bg-[#080C14] ${
@@ -341,8 +345,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           {/* Inbox List Header */}
           <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800/80 flex flex-col gap-2 shrink-0 bg-slate-50/70 dark:bg-[#080C14]">
             <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-              Inbox
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              Messages
             </span>
             <button
               onClick={() => setIsSearchOpen(prev => !prev)}
@@ -473,13 +477,11 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       
                       {isMulti ? (
                         <p className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 truncate mb-1">
-                          {group.conversations.length} conversations
+                          {group.conversations.map(c => c.otherParticipantTitle || (c.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')).join(' • ')}
                         </p>
                       ) : (
-                        <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate mb-1">
-                          {group.conversations[0].conversationType === 'worker_direct' 
-                            ? `Direct Worker Enquiry${group.conversations[0].otherParticipantTitle ? ` · ${group.conversations[0].otherParticipantTitle}` : ''}` 
-                            : `Job Application${group.conversations[0].otherParticipantTitle && group.conversations[0].otherParticipantTitle !== 'Job Opportunity' ? ` · ${group.conversations[0].otherParticipantTitle}` : ''}`}
+                        <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate mb-1">
+                          {group.conversations[0].otherParticipantTitle || (group.conversations[0].conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                         </p>
                       )}
                       
@@ -501,18 +503,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         </div>
 
         {/* ================= RIGHT PANE: CHAT THREAD ================= */}
-        <div className={`flex-1 flex flex-col bg-white dark:bg-[#0B0F19] ${
+        <div className={`flex-1 flex flex-col h-full min-h-0 bg-white dark:bg-[#0B0F19] overflow-hidden ${
           !conversationId ? 'hidden md:flex' : 'flex'
         }`}>
           
           {conversationId && activeConv ? (
             <>
-              {/* Thread Header */}
-              <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-md sticky top-0 z-10">
+              {/* Thread Header - Fixed at Top */}
+              <div className="px-3.5 py-3 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-white dark:bg-[#0B0F19] shrink-0 z-10">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     onClick={() => navigate('/messages')}
-                    className="md:hidden p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    className="md:hidden p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     title="Back to inbox"
                   >
                     <ArrowLeft className="w-4 h-4" />
@@ -524,19 +526,11 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     className="shrink-0"
                   />
                   <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate leading-tight">
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate leading-tight">
                       {activeConv.otherParticipantName}
                     </h3>
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5">
-                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
-                        {activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application'}
-                      </span>
-                      {activeConv.otherParticipantTitle && (
-                        <>
-                          <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
-                          <span>{activeConv.otherParticipantTitle}</span>
-                        </>
-                      )}
+                    <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate">
+                      {activeConv.otherParticipantTitle || (activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                     </p>
                   </div>
                 </div>
@@ -544,17 +538,19 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
               {/* Work Contract Banner */}
               {activeConv?.workContractId && (
-                <WorkContractBanner contractId={activeConv.workContractId} />
+                <div className="shrink-0">
+                  <WorkContractBanner contractId={activeConv.workContractId} />
+                </div>
               )}
 
               {/* Safety Banner */}
-              <div className="px-4 py-2 bg-slate-50 dark:bg-[#0E1320] border-b border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-center gap-1.5">
+              <div className="px-4 py-1.5 bg-slate-50 dark:bg-[#0E1320] border-b border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-center gap-1.5 shrink-0">
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span>Keep communication professional and never share sensitive payment details.</span>
               </div>
 
-              {/* Messages Thread Content */}
-              <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30">
+              {/* Messages Thread Content - Only this section scrolls */}
+              <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30 touch-pan-y overscroll-contain">
                 {loadingMessages ? (
                   <div className="p-8 space-y-4 animate-pulse">
                     {[1, 2, 3].map((i) => (
@@ -597,11 +593,11 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           <div
                             title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
                             aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                            className={`p-3.5 rounded-[18px] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
+                            className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
                               isMe
                                 ? isRead
-                                  ? 'bg-blue-600 text-white rounded-br-xs shadow-sm'
-                                  : 'bg-slate-500 text-white rounded-br-xs shadow-sm'
+                                  ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                  : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
                                 : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
                             }`}
                           >
@@ -625,7 +621,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" title="Failed to send" />
                         )}
                         <div
-                          className={`p-3.5 rounded-[18px] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left bg-slate-500 text-white rounded-br-xs shadow-sm transition-opacity duration-300 ${
+                          className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left bg-slate-600 text-white rounded-br-xs shadow-xs transition-opacity duration-300 ${
                             pMsg.status === 'sending' ? 'opacity-70' : ''
                           }`}
                         >
@@ -646,31 +642,33 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Composer */}
-              <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0 safe-area-bottom">
-                <div className="flex items-end gap-2 bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl p-2 focus-within:border-blue-500 transition-colors">
+              {/* Redesigned Compact Composer - Fixed at Bottom */}
+              <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
+                <div className="flex items-center gap-2 bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-full px-3 py-1.5 focus-within:border-blue-500 transition-colors">
                   <textarea
                     ref={textareaRef}
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     maxLength={4000}
-                    placeholder="Write a message... (Press Enter to send, Shift+Enter for new line)"
-                    className="flex-1 max-h-[120px] min-h-[48px] bg-transparent text-slate-900 dark:text-white text-sm font-medium focus:outline-none resize-none px-2 py-3"
+                    rows={1}
+                    placeholder="Type a message..."
+                    className="flex-1 max-h-[100px] min-h-[36px] bg-transparent text-slate-900 dark:text-white text-xs sm:text-sm font-medium focus:outline-none resize-none px-1 py-2 leading-snug"
                   />
                   <button
                     type="submit"
                     disabled={!chatInput.trim() || isSending}
-                    className={`h-12 w-12 rounded-xl text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 mb-0.5 ${
+                    className={`h-9 w-9 rounded-full text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 ${
                       !chatInput.trim() || isSending
                         ? 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500'
-                        : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-sm'
+                        : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-xs active:scale-95'
                     }`}
+                    title="Send Message"
                   >
                     {isSending ? (
-                      <RefreshCw className="w-5 h-5 animate-spin" />
+                      <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Send className="w-5 h-5 ml-0.5" />
+                      <Send className="w-4 h-4 ml-0.5" />
                     )}
                   </button>
                 </div>
@@ -697,7 +695,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
               onClick={() => setSelectedParticipantGroup(null)}
             />
             <motion.div
@@ -707,7 +705,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="relative w-full max-w-md bg-white dark:bg-[#0B0F19] rounded-[32px] md:rounded-[24px] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
             >
-              <div className="p-5 md:p-6 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="p-4 md:p-5 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
                 <div className="flex items-center gap-3">
                   <UserAvatar
                     avatarUrl={selectedParticipantGroup.participantAvatar}
@@ -740,24 +738,25 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           setSelectedParticipantGroup(null);
                           navigate(`/messages/${conv.id}`);
                         }}
-                        className="w-full text-left p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group flex flex-col gap-1"
+                        className="w-full text-left p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group flex flex-col gap-1 border border-slate-100 dark:border-slate-800/60"
                       >
                         <div className="flex items-center justify-between w-full">
-                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">
-                            {conv.conversationType === 'worker_direct' 
-                              ? `Direct Worker Enquiry${conv.otherParticipantTitle ? ` · ${conv.otherParticipantTitle}` : ''}` 
-                              : `Job Application${conv.otherParticipantTitle && conv.otherParticipantTitle !== 'Job Opportunity' ? ` · ${conv.otherParticipantTitle}` : ''}`}
+                          <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                            {conv.otherParticipantTitle || (conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                           </span>
                           <span className={`text-[10px] ${isUnread ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-semibold text-slate-400'}`}>
                             {conv.lastMessageTime}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between w-full">
-                          <span className={`text-sm truncate pr-4 ${isUnread ? 'font-bold text-slate-800 dark:text-slate-200' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                          {conv.conversationType === 'worker_direct' ? 'Direct Hire Enquiry' : 'Job Application'}
+                        </span>
+                        <div className="flex items-center justify-between w-full pt-0.5">
+                          <span className={`text-xs truncate pr-4 ${isUnread ? 'font-bold text-slate-800 dark:text-slate-200' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
                             {conv.lastMessageText === 'No messages yet' ? 'Start the conversation' : conv.lastMessageText}
                           </span>
                           {isUnread && (
-                            <span className="shrink-0 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-extrabold shadow-sm">
+                            <span className="shrink-0 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-extrabold shadow-xs">
                               {conv.unreadCount}
                             </span>
                           )}

@@ -33,6 +33,7 @@ export interface WorkerCardProps {
   showMessageButton?: boolean;
   isMessaging?: boolean;
   className?: string;
+  currentUserId?: string | null;
 }
 
 export default function WorkerCard({
@@ -61,7 +62,9 @@ export default function WorkerCard({
   showMessageButton = true,
   isMessaging = false,
   className = '',
+  currentUserId,
 }: WorkerCardProps) {
+  const isSelf = Boolean(currentUserId && id === currentUserId);
   const isAvailableNow = availableNow !== undefined ? availableNow : (availability === 'Available Now');
   const availText = availability || (isAvailableNow ? 'Available Now' : 'Part-time');
   const availColor = isAvailableNow ? 'bg-emerald-500' : 'bg-amber-500';
@@ -151,20 +154,22 @@ export default function WorkerCard({
               )}
             </div>
 
-            {/* Bookmark Button */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSave(id, e);
-              }}
-              className={`p-1.5 rounded-full transition-all duration-200 hover:scale-110 cursor-pointer ${
-                saved 
-                  ? 'bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400' 
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800/50 dark:hover:bg-slate-800'
-              }`}
-            >
-              <Bookmark className={`w-4 h-4 ${saved ? 'fill-current' : ''}`} />
-            </button>
+            {/* Bookmark Button (Hidden for self) */}
+            {!isSelf && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSave(id, e);
+                }}
+                className={`p-1.5 rounded-full transition-all duration-200 hover:scale-110 cursor-pointer ${
+                  saved 
+                    ? 'bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400' 
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800/50 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Bookmark className={`w-4 h-4 ${saved ? 'fill-current' : ''}`} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -220,15 +225,15 @@ export default function WorkerCard({
         </div>
       </div>
 
-      {/* Actions: View Profile & Message */}
+      {/* Actions: View Profile & Message / Manage */}
       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#273449]/30 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onViewProfile}
-          className="h-11 sm:h-9 rounded-xl border border-slate-200 dark:border-[#273449] hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-bold text-[#475569] dark:text-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"
+          className={`h-11 sm:h-9 rounded-xl border border-slate-200 dark:border-[#273449] hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-bold text-[#475569] dark:text-slate-200 transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102 ${isSelf ? 'col-span-2' : ''}`}
         >
-          <span>View Profile</span>
+          <span>{isSelf ? 'Manage Worker Profile' : 'View Profile'}</span>
         </button>
-        {showMessageButton && (
+        {!isSelf && showMessageButton && (
           <button
             onClick={onMessage}
             disabled={isMessaging}
@@ -238,7 +243,7 @@ export default function WorkerCard({
             <span>{isMessaging ? 'Loading...' : 'Message'}</span>
           </button>
         )}
-        {showHireButton && onHire && !showMessageButton && (
+        {!isSelf && showHireButton && onHire && !showMessageButton && (
           <button
             onClick={onHire}
             className="h-11 sm:h-9 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"

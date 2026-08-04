@@ -360,18 +360,20 @@ export default function WorkerDetailPage({
             )}
           </div>
 
-          {/* Bookmark / Save Profile */}
-          <button
-            onClick={(e) => toggleWorkerBookmark(worker.id, e)}
-            className={`p-2.5 rounded-xl border transition-all cursor-pointer shadow-xs ${
-              worker.saved 
-                ? 'border-purple-200 bg-purple-50 text-purple-600 dark:border-purple-900/50 dark:bg-purple-950/40 dark:text-purple-400' 
-                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-            }`}
-            title={worker.saved ? 'Saved' : 'Save Profile'}
-          >
-            <Bookmark className={`w-4 h-4 ${worker.saved ? 'fill-current' : ''}`} />
-          </button>
+          {/* Bookmark / Save Profile (Disabled for self profile) */}
+          {!isOwnProfile && (
+            <button
+              onClick={(e) => toggleWorkerBookmark(worker.id, e)}
+              className={`p-2.5 rounded-xl border transition-all cursor-pointer shadow-xs ${
+                worker.saved 
+                  ? 'border-purple-200 bg-purple-50 text-purple-600 dark:border-purple-900/50 dark:bg-purple-950/40 dark:text-purple-400' 
+                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              }`}
+              title={worker.saved ? 'Saved' : 'Save Profile'}
+            >
+              <Bookmark className={`w-4 h-4 ${worker.saved ? 'fill-current' : ''}`} />
+            </button>
+          )}
         </div>
       </div>
 
