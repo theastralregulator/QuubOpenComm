@@ -155,9 +155,21 @@ const NAV_ITEMS: { id: ActiveSection; label: string; icon: React.ElementType }[]
   { id: 'security',      label: 'Security',              icon: ShieldCheck },
 ];
 
+const NAV_DESCRIPTIONS: Record<ActiveSection, string> = {
+  account:       'Name, username, email, account type',
+  visibility:    'Profile visibility, online status, location',
+  privacy:       'Messages, hire requests, search indexing',
+  appearance:    'System, light, or dark theme',
+  notifications: 'In-app, email, and notification types',
+  support:       'Submit a ticket or view ticket history',
+  security:      'Email, auth provider, sign out',
+};
+
 export default function SettingsPage() {
   const navigate = useNavigate();
   const [active, setActive] = useState<ActiveSection>('account');
+  // Mobile-only: null = show list, string = show detail
+  const [mobileSection, setMobileSection] = useState<ActiveSection | null>(null);
 
   // ── Data ──────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<LocalProfile | null>(null);
@@ -722,15 +734,46 @@ export default function SettingsPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#080B18] pb-24 md:pb-10">
-      {/* Header */}
-      <div className="sticky top-0 z-30 bg-white/80 dark:bg-[#080B18]/80 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+  // ── Mobile: detail view ───────────────────────────────────────────
+  const renderMobileDetail = (section: ActiveSection) => {
+    const item = NAV_ITEMS.find(n => n.id === section)!;
+    const Icon = item.icon;
+    return (
+      <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-[#080B18] pb-28">
+        {/* Mobile detail header */}
+        <div className="sticky top-0 z-30 bg-white/90 dark:bg-[#080B18]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40">
+          <div className="h-14 flex items-center gap-3 px-4">
+            <button
+              type="button"
+              onClick={() => setMobileSection(null)}
+              className="p-2 -ml-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              aria-label="Back to settings list"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <Icon className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA]" />
+              <h1 className="text-base font-bold text-slate-900 dark:text-white">{item.label}</h1>
+            </div>
+          </div>
+        </div>
+        <div className="px-4 py-5 w-full max-w-full min-w-0">
+          {renderSection()}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Mobile: list view ─────────────────────────────────────────────
+  const renderMobileList = () => (
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-[#080B18] pb-28">
+      {/* Mobile list header */}
+      <div className="sticky top-0 z-30 bg-white/90 dark:bg-[#080B18]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40">
+        <div className="h-14 flex items-center gap-3 px-4">
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+            className="p-2 -ml-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
             aria-label="Go back"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -739,56 +782,101 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 md:py-8">
-        <div className="flex gap-6">
-          {/* Sidebar Nav – desktop */}
-          <aside className="hidden md:block w-56 shrink-0">
-            <nav className="sticky top-24 space-y-0.5">
-              {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActive(id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer text-left ${
-                    active === id
-                      ? 'bg-gradient-to-r from-[#2563EB]/10 to-[#7C3AED]/10 text-[#2563EB] dark:text-[#60A5FA] font-semibold'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  {label}
-                </button>
-              ))}
-            </nav>
-          </aside>
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-7 h-7 animate-spin text-[#2563EB]" />
+        </div>
+      ) : (
+        <div className="py-3">
+          {NAV_ITEMS.map(({ id, label, icon: Icon }, idx) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => { setActive(id); setMobileSection(id); }}
+              className={`w-full flex items-center gap-4 px-5 py-4 bg-white dark:bg-[#111827] active:bg-slate-50 dark:active:bg-[#0d1524] transition-colors cursor-pointer text-left
+                ${ idx < NAV_ITEMS.length - 1 ? 'border-b border-slate-100 dark:border-[#1e2d45]' : '' }
+                ${ idx === 0 ? 'rounded-t-2xl' : '' }
+                ${ idx === NAV_ITEMS.length - 1 ? 'rounded-b-2xl' : '' }
+              `}
+            >
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB]/15 to-[#7C3AED]/15 flex items-center justify-center shrink-0">
+                <Icon className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">{label}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  {NAV_DESCRIPTIONS[id]}
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-600 shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
-          {/* Mobile pill nav */}
-          <div className="md:hidden w-full mb-4">
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActive(id)}
-                  className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
-                    active === id
-                      ? 'bg-gradient-to-r from-[#2563EB] to-[#7C3AED] text-white border-transparent'
-                      : 'bg-white dark:bg-[#111827] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#273449]'
-                  }`}
-                >
-                  <Icon className="w-3 h-3" />
-                  {label}
-                </button>
-              ))}
-            </div>
+  return (
+    <>
+      {/* ── MOBILE layout (< md) ───────────────────────────────────── */}
+      <div className="md:hidden w-full max-w-full min-w-0 overflow-x-hidden">
+        {mobileSection === null
+          ? renderMobileList()
+          : renderMobileDetail(mobileSection)
+        }
+      </div>
+
+      {/* ── DESKTOP layout (md+) ──────────────────────────────────── */}
+      <div className="hidden md:block min-h-screen bg-slate-50 dark:bg-[#080B18] pb-10">
+        {/* Header */}
+        <div className="sticky top-0 z-30 bg-white/80 dark:bg-[#080B18]/80 backdrop-blur-md border-b border-slate-200 dark:border-[#273449]/40">
+          <div className="max-w-5xl mx-auto px-6 h-14 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              aria-label="Go back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h1 className="text-base font-bold text-slate-900 dark:text-white">Settings</h1>
           </div>
+        </div>
 
-          {/* Content */}
-          <main className="flex-1 min-w-0">
-            {renderSection()}
-          </main>
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          <div className="flex gap-6">
+            {/* Sidebar nav */}
+            <aside className="w-56 shrink-0">
+              <nav className="sticky top-24 space-y-0.5">
+                {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setActive(id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer text-left ${
+                      active === id
+                        ? 'bg-gradient-to-r from-[#2563EB]/10 to-[#7C3AED]/10 text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            </aside>
+
+            {/* Content */}
+            <main className="flex-1 min-w-0">
+              {loading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="w-7 h-7 animate-spin text-[#2563EB]" />
+                </div>
+              ) : renderSection()}
+            </main>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
