@@ -1,13 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Compass, Home, Briefcase, Users, MessageSquare, User, 
-  Sun, Moon, Monitor, Bell, Settings, X, RefreshCcw, 
-  CheckCircle2, Info, Star, ChevronRight, Bookmark, Heart, LogOut
+  Home, Briefcase, Users, MessageSquare, User,
+  Sun, Moon, Settings, X, RefreshCcw,
+  Info, Star, ChevronRight, Bookmark, Heart, LogOut
 } from 'lucide-react';
-import { Notification } from '../../types';
-import { analytics } from '../../lib/analytics';
 import UserAvatar from '../common/UserAvatar';
 import OpenCommLogo from '../common/OpenCommLogo';
 import NotificationBell from '../notifications/NotificationBell';
@@ -19,10 +17,8 @@ export interface NavbarProps {
   themeMode?: 'light' | 'dark';
   setThemeMode?: (mode: 'light' | 'dark') => void;
   unreadMessagesCount: number;
-  unreadNotificationsCount: number;
-  unreadWorkflowNotificationsCount?: number;
-  notifications: Notification[];
-  setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
+  unreadWorkflowCount: number;
+  currentUserId?: string | null;
   username: string;
   setUsername: (name: string) => void;
   userPhoto: string;
@@ -43,10 +39,8 @@ export default function Navbar({
   themeMode = 'light',
   setThemeMode,
   unreadMessagesCount,
-  unreadNotificationsCount,
-  unreadWorkflowNotificationsCount = 0,
-  notifications,
-  setNotifications,
+  unreadWorkflowCount,
+  currentUserId,
   username,
   setUsername,
   userPhoto,
@@ -62,7 +56,6 @@ export default function Navbar({
 }: NavbarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
@@ -74,8 +67,8 @@ export default function Navbar({
     { id: 'workers', label: 'Workers', icon: Users, to: '/workers' },
     ...(isLoggedIn ? [] : [{ id: 'about', label: 'About', icon: Info, to: '/about' }]),
     ...(isLoggedIn ? [
-      { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, badgeLabel: 'unread messages', to: '/messages' },
-      { id: 'profile', label: 'Profile', icon: User, badgeCount: unreadWorkflowNotificationsCount, badgeLabel: 'unread workflow notifications', to: '/profile' },
+      { id: 'messages', label: 'Messages', icon: MessageSquare, badgeCount: unreadMessagesCount, to: '/messages' },
+      { id: 'profile', label: 'Profile', icon: User, badgeCount: unreadWorkflowCount, to: '/profile' },
     ] : [])
   ];
 
@@ -99,7 +92,6 @@ export default function Navbar({
     } else if (targetPath) {
       navigate(targetPath);
     }
-    setShowNotifications(false);
     setShowProfileMenu(false);
     setShowSettingsMenu(false);
     setShowThemeMenu(false);
@@ -148,7 +140,6 @@ export default function Navbar({
                       e.preventDefault();
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }
-                    setShowNotifications(false);
                     setShowProfileMenu(false);
                     setShowSettingsMenu(false);
                     setShowThemeMenu(false);
@@ -168,9 +159,9 @@ export default function Navbar({
                   <span className={`z-10 transition-colors duration-300 ${isActive ? 'text-white' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'}`}>
                     {item.label}
                   </span>
-                  {hasVisibleBadge(item.badgeCount || 0) ? (
-                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#080B18]" aria-hidden="true">
-                      {formatBadgeCount(item.badgeCount || 0)}
+                  {item.badgeCount && item.badgeCount > 0 ? (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#080B18]">
+                      {item.badgeCount > 99 ? '99+' : item.badgeCount}
                     </span>
                   ) : null}
                 </Link>
@@ -199,18 +190,13 @@ export default function Navbar({
             ) : (
               <>
                 {/* Notification Bell Component */}
-                <NotificationBell
-                  currentUserId={currentUserId}
-                  unreadCount={unreadNotificationsCount}
-                  onNotificationStateChange={onNotificationStateChange}
-                />
+                <NotificationBell currentUserId={currentUserId} />
 
                 {/* Profile Avatar Dropdown */}
                 <div className="relative">
                   <button 
                     onClick={() => {
                       setShowProfileMenu(!showProfileMenu);
-                      setShowNotifications(false);
                       setShowSettingsSub(false); // Reset settings expansion on open
                     }}
                     className="relative w-8 h-8 md:w-9 md:h-9 rounded-full border border-slate-200 dark:border-slate-800 hover:scale-105 transition-all cursor-pointer shrink-0"
@@ -471,7 +457,6 @@ export default function Navbar({
                     e.preventDefault();
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }
-                  setShowNotifications(false);
                   setShowProfileMenu(false);
                   setShowSettingsMenu(false);
                   setShowThemeMenu(false);
@@ -492,9 +477,9 @@ export default function Navbar({
                 <span className={`text-[10px] font-medium transition-colors duration-200 leading-none ${isActive ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
                   {item.label}
                 </span>
-                {hasVisibleBadge(item.badgeCount || 0) ? (
-                  <span className="absolute top-2 right-[22%] flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-[#0B0F19]" aria-hidden="true">
-                    {formatBadgeCount(item.badgeCount || 0)}
+                {item.badgeCount && item.badgeCount > 0 ? (
+                  <span className="absolute top-2 right-1/4 flex h-3.5 min-w-3.5 px-0.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-[#0B0F19]">
+                    {item.badgeCount > 99 ? '99+' : item.badgeCount}
                   </span>
                 ) : null}
               </Link>

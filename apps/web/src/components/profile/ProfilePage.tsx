@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile, formatWorkerRate } from '../../lib/supabase';
+import { unreadService } from '../../lib/unreadService';
 import { getPublicProfileById, clearProfileCache } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
@@ -348,20 +349,18 @@ export default function ProfilePage({
   };
 
   useEffect(() => {
-    let channel: any;
+    let unsubscribe = () => {};
+    let cancelled = false;
     const setupSubscriptions = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
-      channel = supabase
-        .channel(`profile-job-applications-${user.id}`)
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'job_applications',
-          filter: `applicant_id=eq.${user.id}`
-        }, () => refreshJobsAppliedCount())
-        .subscribe();
+      unsubscribe = unreadService.subscribeWorkflowEvents(user.id, (event) => {
+        const application = event.new.applicant_id ? event.new : event.old;
+        if (event.table === 'job_applications' && application.applicant_id === user.id) {
+          void refreshJobsAppliedCount();
+        }
+      });
     };
 
     const handleFocusOrVisible = () => {
@@ -381,7 +380,8 @@ export default function ProfilePage({
       window.removeEventListener('focus', handleFocusOrVisible);
       document.removeEventListener('visibilitychange', handleFocusOrVisible);
       window.removeEventListener('opencomm:job-application-changed', refreshJobsAppliedCount);
-      if (channel) supabase.removeChannel(channel);
+      cancelled = true;
+      unsubscribe();
     };
   }, []);
 

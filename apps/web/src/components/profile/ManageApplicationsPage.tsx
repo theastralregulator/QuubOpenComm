@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Check, X, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
+import { unreadService } from '../../lib/unreadService';
 import { getPublicProfilesByIds } from '../../lib/profileService';
 import { smartBack, FALLBACK_ROUTES, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 
@@ -57,20 +58,22 @@ export default function ManageApplicationsPage({ handleStartConversation }: Mana
 
     if (!jobId) return;
 
-    // Realtime subscription for application updates
-    const channel = supabase.channel(`public:job_applications:job_id=${jobId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'job_applications',
-        filter: `job_id=eq.${jobId}`
-      }, () => {
-        fetchApplications();
-      })
-      .subscribe();
+    let cancelled = false;
+    let unsubscribe = () => {};
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user || cancelled) return;
+      unsubscribe = unreadService.subscribeWorkflowEvents(user.id, (event) => {
+        const application = event.new.job_id ? event.new : event.old;
+        if (event.table === 'job_applications' && application.job_id === jobId) {
+          void fetchApplications();
+        }
+      });
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      unsubscribe();
     };
   }, [jobId]);
 

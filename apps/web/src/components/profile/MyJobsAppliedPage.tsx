@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Briefcase, MapPin, IndianRupee, Calendar, Clock, CheckCircle2, AlertCircle, MessageSquare, XCircle, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase, dbService } from '../../lib/supabase';
+import { unreadService } from '../../lib/unreadService';
 import { formatSalaryRange } from '../../lib/currency';
 import { getJobDateRangeInfo, formatDateDDMMYYYY } from '../../lib/deadline';
 import { formatJobType } from '../../lib/jobType';
@@ -170,21 +171,19 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
   };
 
   useEffect(() => {
-    let channel: any;
+    let unsubscribe = () => {};
+    let cancelled = false;
 
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
-      channel = supabase
-        .channel(`job-applications-${user.id}`)
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'job_applications',
-          filter: `applicant_id=eq.${user.id}`
-        }, fetchApplications)
-        .subscribe();
+      unsubscribe = unreadService.subscribeWorkflowEvents(user.id, (event) => {
+        const application = event.new.applicant_id ? event.new : event.old;
+        if (event.table === 'job_applications' && application.applicant_id === user.id) {
+          void fetchApplications();
+        }
+      });
     };
 
     setup();
@@ -200,7 +199,8 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
     return () => {
       window.removeEventListener('focus', handleFocusOrVisible);
       document.removeEventListener('visibilitychange', handleFocusOrVisible);
-      if (channel) supabase.removeChannel(channel);
+      cancelled = true;
+      unsubscribe();
     };
   }, []);
 

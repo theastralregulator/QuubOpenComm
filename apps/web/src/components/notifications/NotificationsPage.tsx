@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
+import { unreadService, useUnreadCounts } from '../../lib/unreadService';
 import { supabase } from '../../lib/supabase';
 import { getNotificationCategory } from '../../lib/notificationCategories';
 
@@ -18,6 +19,7 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'hire' | 'application' | 'contract' | 'message'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const { notificationCount } = useUnreadCounts(currentUserId);
 
   useEffect(() => {
     fetchData();
@@ -25,18 +27,16 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     if (!currentUserId) return;
-    const unsubscribe = notificationService.subscribeToRealtime(currentUserId, (notification, eventType) => {
+    const unsubscribe = unreadService.subscribeNotificationEvents(currentUserId, (newNotif, event) => {
       setNotifications((prev) => {
-        if (eventType === 'UPDATE') {
-          return prev.map((item) => (item.id === notification.id ? notification : item));
+        if (event.eventType === 'DELETE') {
+          return prev.filter((notification) => notification.id !== newNotif.id);
         }
-        if (eventType === 'DELETE') {
-          return prev.filter((item) => item.id !== notification.id);
+        if (event.eventType === 'UPDATE') {
+          return prev.map((notification) => notification.id === newNotif.id ? { ...notification, ...newNotif } : notification);
         }
-        if (prev.some((item) => item.id === notification.id)) {
-          return prev;
-        }
-        return [notification, ...prev];
+        if (prev.some((notification) => notification.id === newNotif.id)) return prev;
+        return [newNotif, ...prev];
       });
     });
     return () => unsubscribe();
@@ -66,17 +66,20 @@ export default function NotificationsPage() {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
     );
+    await unreadService.refresh(currentUserId);
   };
 
   const handleMarkAllRead = async () => {
     await notificationService.markAllRead();
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    await unreadService.refresh(currentUserId);
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     await notificationService.deleteNotification(id);
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    await unreadService.refresh(currentUserId);
   };
 
   const handleNotificationClick = async (notif: NotificationItem) => {
@@ -141,7 +144,7 @@ export default function NotificationsPage() {
   };
 
   const groupedList = groupNotificationsByTime(filteredNotifications);
-  const unreadTotal = notifications.filter((n) => !n.is_read).length;
+  const unreadTotal = notificationCount;
 
   const getCategoryIcon = (type: string) => {
     const category = getNotificationCategory(type);

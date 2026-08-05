@@ -6,7 +6,7 @@ import {
   ChevronRight, ChevronLeft, ChevronDown, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
   Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
 } from 'lucide-react';
-import { Job, Worker, Category, Activity, Notification, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
+import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
 import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL } from './lib/supabase';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
@@ -14,7 +14,6 @@ import {
   INITIAL_CATEGORIES, 
   INITIAL_JOBS, 
   INITIAL_WORKERS, 
-  INITIAL_NOTIFICATIONS, 
   INITIAL_MESSAGES, 
   INITIAL_ACTIVITIES,
   INITIAL_CONVERSATIONS,
@@ -55,6 +54,7 @@ import LocationSelector from './components/common/LocationSelector';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
 import { PRESET_AVATARS, DEFAULT_AVATAR_URL } from './data/presetAvatars';
 import { resolveProfileImage } from './lib/avatarResolver';
+import { useUnreadCounts } from './lib/unreadService';
 import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE } from './data/countryCodes';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
@@ -111,7 +111,6 @@ export default function App() {
     }
   }, [isJobsLoaded]);
   const [workers, setWorkers] = useState<Worker[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
   
@@ -1101,7 +1100,6 @@ export default function App() {
   const handleResetData = () => {
     setJobs(INITIAL_JOBS);
     setWorkers(INITIAL_WORKERS);
-    setNotifications(INITIAL_NOTIFICATIONS);
     setActivities(INITIAL_ACTIVITIES);
     setMessages(INITIAL_MESSAGES);
     setConversations(INITIAL_CONVERSATIONS);
@@ -1324,16 +1322,6 @@ export default function App() {
       timestamp: 'Just now'
     };
     setActivities(prev => [newAct, ...prev]);
-
-    const newNotif: Notification = {
-      id: `notif-login-${Date.now()}`,
-      type: 'system',
-      title: 'Session Started Successfully',
-      description: `Welcome back to the OpenComm secure workspace, ${uName}!`,
-      timestamp: 'Just now',
-      read: false
-    };
-    setNotifications(prev => [newNotif, ...prev]);
 
     triggerToast(`Welcome back, ${uName}!`);
     setShowAuthModal(null);
@@ -2105,17 +2093,6 @@ export default function App() {
           };
           setActivities(prevAct => [newAct, ...prevAct]);
 
-          // Add notification
-          const newNotif: Notification = {
-            id: `notif-${Date.now()}`,
-            type: 'application',
-            title: 'Application Sent Successfully',
-            description: `Your application for "${j.title}" with bid ${bid} is now Pending.`,
-            timestamp: 'Just now',
-            read: false
-          };
-          setNotifications(prevNotif => [newNotif, ...prevNotif]);
-
           triggerToast(`Successfully applied to "${j.title}"!`);
           return { ...j, applied: true };
         }
@@ -2302,16 +2279,6 @@ export default function App() {
     };
     setActivities(prev => [newAct, ...prev]);
 
-    const newNotif: Notification = {
-      id: `notif-${Date.now()}`,
-      type: 'hire',
-      title: `Contract Offer Transmitted`,
-      description: `Your custom offer of $${hireOfferRate}/hr has been submitted to ${showHireModal.name}.`,
-      timestamp: 'Just now',
-      read: false
-    };
-    setNotifications(prev => [newNotif, ...prev]);
-
     triggerToast(`Hiring contract offer transmitted securely to ${showHireModal.name}!`);
     setShowHireModal(null);
     setHireProjectTitle('');
@@ -2332,15 +2299,6 @@ export default function App() {
   const [dashMyWorksCount, setDashMyWorksCount] = React.useState(0);
   const [dashSavedJobsCount, setDashSavedJobsCount] = React.useState(0);
   const [dashSavedWorkersCount, setDashSavedWorkersCount] = React.useState(0);
-  const {
-    unreadMessagesCount,
-    refreshUnreadMessagesCount,
-  } = useUnreadMessages({ isLoggedIn, userId: userIdState });
-  const {
-    totalUnreadNotificationsCount: unreadNotificationsCount,
-    workflowUnreadNotificationsCount,
-    refreshNotificationBadges,
-  } = useNotificationBadges({ isLoggedIn, userId: userIdState });
 
   React.useEffect(() => {
     if (!isLoggedIn || !userIdState) return;
@@ -2363,6 +2321,10 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [isLoggedIn, userIdState]);
+
+  const unreadCounts = useUnreadCounts(isLoggedIn ? userIdState : null);
+  const unreadMessagesCount = unreadCounts.messageCount;
+  const unreadWorkflowCount = unreadCounts.workflowCount;
 
   if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
     return (
@@ -2523,16 +2485,12 @@ export default function App() {
           setCurrentView={setCurrentView}
           themeMode={theme}
           setThemeMode={handleSetTheme}
-          unreadMessagesCount={unreadMessagesCount}
-          unreadNotificationsCount={unreadNotificationsCount}
-          unreadWorkflowNotificationsCount={workflowUnreadNotificationsCount}
           currentUserId={userIdState}
-          onNotificationStateChange={refreshNotificationBadges}
+          unreadMessagesCount={unreadMessagesCount}
+          unreadWorkflowCount={unreadWorkflowCount}
           username={username}
           setUsername={setUsername}
           userPhoto={userPhoto}
-          notifications={notifications}
-          setNotifications={setNotifications}
           onResetData={handleResetData}
           isLoggedIn={isLoggedIn}
           userType={userType}

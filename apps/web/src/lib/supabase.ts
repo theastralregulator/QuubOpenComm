@@ -1841,26 +1841,6 @@ export const dbService = {
     return null;
   },
 
-  // Notifications
-  async getNotificationsFromDb(userId: string): Promise<any[]> {
-    if (!supabase || !userId) return [];
-    return notificationService.getMyNotifications({ limit: 100 });
-  },
-
-  async createNotificationInDb(userId: string, type: 'application' | 'message' | 'hire' | 'system', title: string, description: string): Promise<any> {
-    return notificationService.createNotification({
-      recipient_id: userId,
-      type,
-      title,
-      message: description,
-      target_url: '/profile/notifications',
-    });
-  },
-
-  async markNotificationReadInDb(notifId: string): Promise<boolean> {
-    return notificationService.markRead(notifId);
-  },
-
   // Reviews
   async getReviewsFromDb(userId: string): Promise<any[]> {
     if (supabase) {
@@ -2713,4 +2693,3 @@ export function formatWorkerRate(worker: any): string {
 
   return 'Not added';
 }
-

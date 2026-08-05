@@ -6,6 +6,7 @@ import {
   RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
+import { unreadService } from '../../lib/unreadService';
 import { ConversationViewModel, DbMessage } from '../../types';
 import UserAvatar from '../common/UserAvatar';
 import WorkContractBanner from '../contracts/WorkContractBanner';
@@ -134,8 +135,8 @@ export default function MessagesPage({ triggerToast, onUnreadMessagesChanged }: 
         if (isMounted) {
           setMessages(msgs);
           // Mark conversation as read if active
-          const markedRead = await dbService.markConversationRead(conversationId!);
-          if (markedRead) onUnreadMessagesChanged?.();
+          await dbService.markConversationRead(conversationId!);
+          await unreadService.refresh(currentUserId);
           // Refresh conversation list to update unread badge counts
           const updatedConvs = await dbService.getMyConversations();
           if (isMounted) handleSetConversations(updatedConvs);
@@ -155,72 +156,51 @@ export default function MessagesPage({ triggerToast, onUnreadMessagesChanged }: 
     };
   }, [conversationId]);
 
-  // 3. Real-time Subscriptions for messages and conversations
+  // 3. Shared real-time subscriptions for messages and conversations
   useEffect(() => {
-    if (!supabase) return;
+    if (!currentUserId) return;
+    let isMounted = true;
 
-    // Realtime channel for inbox conversation updates
-    const convsChannel = supabase
-      .channel('public:conversations:realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'conversations' },
-        async () => {
-          const updatedConvs = await dbService.getMyConversations();
-          handleSetConversations(updatedConvs);
-        }
-      )
-      .subscribe();
+    const refreshConversations = async () => {
+      const updatedConvs = await dbService.getMyConversations();
+      if (isMounted) handleSetConversations(updatedConvs);
+    };
 
-    let messagesChannel: any = null;
-    if (conversationId) {
-      messagesChannel = supabase
-        .channel(`public:messages:conv=${conversationId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${conversationId}`
-          },
-          async (payload: any) => {
-            const newMsg = payload.new as DbMessage;
+    const unsubscribeConversations = unreadService.subscribeConversationEvents(
+      currentUserId,
+      () => { void refreshConversations(); }
+    );
+
+    const unsubscribeMessages = unreadService.subscribeMessageEvents(
+      currentUserId,
+      async (event) => {
+        const message = event.new as DbMessage;
+        if (conversationId && message.conversation_id === conversationId) {
+          if (event.eventType === 'INSERT') {
             setMessages((prev) => {
-              if (prev.some((m) => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
+              if (prev.some((item) => item.id === message.id)) return prev;
+              return [...prev, message];
             });
 
-            // Mark read if sent by recipient
-            if (currentUserId && newMsg.sender_id !== currentUserId) {
-              const markedRead = await dbService.markConversationRead(conversationId);
-              if (markedRead) onUnreadMessagesChanged?.();
+            if (message.sender_id !== currentUserId) {
+              await dbService.markConversationRead(conversationId);
+              await unreadService.refresh(currentUserId);
             }
+          } else if (event.eventType === 'UPDATE') {
+            setMessages((prev) => prev.map((item) => item.id === message.id ? message : item));
+          } else if (event.eventType === 'DELETE') {
+            setMessages((prev) => prev.filter((item) => item.id !== message.id));
+          }
+        }
 
-            // Refresh conversations preview
-            const updatedConvs = await dbService.getMyConversations();
-            handleSetConversations(updatedConvs);
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${conversationId}`
-          },
-          (payload: any) => {
-            const updatedMsg = payload.new as DbMessage;
-            setMessages((prev) => prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m)));
-          }
-        )
-        .subscribe();
-    }
+        await refreshConversations();
+      }
+    );
 
     return () => {
-      if (convsChannel) supabase.removeChannel(convsChannel);
-      if (messagesChannel) supabase.removeChannel(messagesChannel);
+      isMounted = false;
+      unsubscribeConversations();
+      unsubscribeMessages();
     };
   }, [conversationId, currentUserId]);
 

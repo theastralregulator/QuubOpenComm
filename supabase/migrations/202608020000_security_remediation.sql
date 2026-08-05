@@ -571,10 +571,10 @@ BEGIN
   END IF;
 
   UPDATE public.messages
-  SET is_read = true
+  SET unread = false
   WHERE conversation_id = p_conversation_id
     AND sender_id != v_user_id
-    AND is_read = false;
+    AND unread = true;
 END;
 $$;
 

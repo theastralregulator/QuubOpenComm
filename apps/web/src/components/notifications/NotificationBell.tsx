@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Check, ExternalLink, MessageSquare, Briefcase, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
-import { supabase } from '../../lib/supabase';
-import { formatBadgeCount, hasVisibleBadge } from '../../lib/badgeUtils';
-import { getNotificationCategory } from '../../lib/notificationCategories';
+import { unreadService, useUnreadCounts } from '../../lib/unreadService';
 
 interface NotificationBellProps {
   currentUserId?: string | null;
@@ -19,43 +17,49 @@ export default function NotificationBell({
   onNotificationStateChange,
 }: NotificationBellProps) {
   const navigate = useNavigate();
-  const [localUnreadCount, setLocalUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const [userId, setUserId] = useState<string | null>(currentUserId || null);
+  const { notificationCount: unreadCount } = useUnreadCounts(currentUserId || null);
 
-  useEffect(() => {
-    async function initUser() {
-      if (currentUserId) {
-        setUserId(currentUserId);
-        return;
-      }
-      if (supabase) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) setUserId(user.id);
-      }
+  const fetchInitialData = useCallback(async () => {
+    if (!currentUserId) return;
+    setLoading(true);
+    try {
+      const items = await notificationService.getMyNotifications({ limit: 5 });
+      setNotifications(items);
+      await unreadService.refresh(currentUserId);
+    } catch (err) {
+      console.error('Error fetching bell data:', err);
+    } finally {
+      setLoading(false);
     }
-    initUser();
   }, [currentUserId]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!currentUserId) return;
 
     fetchInitialData();
 
-    const unsubscribe = unreadCount === undefined
-      ? notificationService.subscribeToRealtime(userId, () => {
-          fetchInitialData();
-        })
-      : () => {};
+    const unsubscribe = unreadService.subscribeNotificationEvents(currentUserId, (newNotif, event) => {
+      setNotifications((prev) => {
+        if (event.eventType === 'DELETE') {
+          return prev.filter((notification) => notification.id !== newNotif.id);
+        }
+        if (event.eventType === 'UPDATE') {
+          return prev.map((notification) => notification.id === newNotif.id ? { ...notification, ...newNotif } : notification);
+        }
+        if (prev.some((notification) => notification.id === newNotif.id)) return prev;
+        return [newNotif, ...prev].slice(0, 5);
+      });
+    });
 
     return () => {
       unsubscribe();
     };
-  }, [userId, unreadCount]);
+  }, [currentUserId, fetchInitialData]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -68,22 +72,6 @@ export default function NotificationBell({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const fetchInitialData = async () => {
-    setLoading(true);
-    try {
-      const [count, items] = await Promise.all([
-        notificationService.getUnreadCount(userId),
-        notificationService.getMyNotifications({ limit: 5 })
-      ]);
-      setLocalUnreadCount(count);
-      setNotifications(items);
-    } catch (err) {
-      console.error('Error fetching bell data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleToggle = () => {
     if (!isOpen) {
       fetchInitialData();
@@ -94,11 +82,10 @@ export default function NotificationBell({
   const handleNotificationClick = async (notif: NotificationItem) => {
     if (!notif.is_read) {
       await notificationService.markRead(notif.id);
-      setLocalUnreadCount((prev) => Math.max(0, prev - 1));
       setNotifications((prev) =>
         prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n))
       );
-      onNotificationStateChange?.();
+      await unreadService.refresh(currentUserId);
     }
     setIsOpen(false);
     if (notif.target_url) {
@@ -109,9 +96,8 @@ export default function NotificationBell({
   const handleMarkAllRead = async (e: React.MouseEvent) => {
     e.stopPropagation();
     await notificationService.markAllRead();
-    setLocalUnreadCount(0);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    onNotificationStateChange?.();
+    await unreadService.refresh(currentUserId);
   };
 
   const getCategoryIcon = (type: string) => {

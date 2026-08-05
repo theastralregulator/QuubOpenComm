@@ -1,6 +1,5 @@
 import { supabase } from './supabase';
-import { WORKFLOW_NOTIFICATION_COUNT_FILTER } from './notificationCategories';
-import { dispatchNotificationBadgeRefresh } from './notificationEvents';
+import { unreadService } from './unreadService';
 
 export interface NotificationItem {
   id: string;
@@ -61,26 +60,10 @@ export const notificationService = {
   async getUnreadCount(userId?: string | null): Promise<number> {
     if (!supabase) return 0;
     try {
-      let currentUserId = userId;
-      if (!currentUserId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        currentUserId = user?.id || null;
-      }
-      if (!currentUserId) return 0;
-
-      const { data, error } = await supabase.rpc('get_unread_notification_count');
-      if (!error && typeof data === 'number') {
-        return data;
-      }
-
-      const { count, error: countError } = await supabase
-        .from('notifications')
-        .select('id', { count: 'exact', head: true })
-        .eq('recipient_id', currentUserId)
-        .eq('is_read', false);
-
-      if (countError) return 0;
-      return count || 0;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return 0;
+      await unreadService.refresh(user.id);
+      return unreadService.getSnapshot(user.id).notificationCount;
     } catch (err) {
       console.error('[NotificationService] Error fetching unread count:', err);
       return 0;
@@ -324,42 +307,7 @@ export const notificationService = {
   /**
    * Subscribe to Supabase Realtime Notifications safely
    */
-  subscribeToRealtime(
-    userId: string,
-    callback: (notification: NotificationItem, eventType: NotificationRealtimeEvent) => void
-  ) {
-    if (!supabase || !userId) return () => {};
-
-    const channelName = `user-notifications-${userId}`;
-
-    // Cleanup existing channel if open
-    const existing = supabase.getChannels?.()?.find((ch: any) => ch.name === channelName);
-    if (existing) {
-      supabase.removeChannel(existing);
-    }
-
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `recipient_id=eq.${userId}`
-        },
-        (payload: any) => {
-          const eventType = (payload.eventType || 'INSERT') as NotificationRealtimeEvent;
-          const row = (eventType === 'DELETE' ? payload.old : payload.new) as NotificationItem | undefined;
-          if (row) {
-            callback(row, eventType);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+  subscribeToRealtime(userId: string, callback: (notification: NotificationItem) => void) {
+    return unreadService.subscribeNotificationEvents(userId, callback);
   }
 };

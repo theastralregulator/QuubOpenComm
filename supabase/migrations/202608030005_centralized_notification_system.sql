@@ -17,6 +17,76 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   read_at timestamptz
 );
 
+-- Reconcile the legacy notifications table created by the first schema
+-- migrations. CREATE TABLE IF NOT EXISTS does not alter an existing table,
+-- so add and backfill the canonical columns before policies and RPCs refer to
+-- them. Legacy columns remain nullable for backwards compatibility.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS recipient_id uuid,
+  ADD COLUMN IF NOT EXISTS actor_id uuid,
+  ADD COLUMN IF NOT EXISTS message text,
+  ADD COLUMN IF NOT EXISTS target_url text DEFAULT '/profile/notifications',
+  ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS dedupe_key text,
+  ADD COLUMN IF NOT EXISTS is_read boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS read_at timestamptz;
+
+ALTER TABLE public.notifications
+  DROP CONSTRAINT IF EXISTS notifications_type_check;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'notifications' AND column_name = 'user_id'
+  ) THEN
+    EXECUTE 'ALTER TABLE public.notifications ALTER COLUMN user_id DROP NOT NULL';
+    EXECUTE 'UPDATE public.notifications SET recipient_id = user_id WHERE recipient_id IS NULL';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'notifications' AND column_name = 'description'
+  ) THEN
+    EXECUTE 'ALTER TABLE public.notifications ALTER COLUMN description DROP NOT NULL';
+    EXECUTE $sql$UPDATE public.notifications
+      SET message = COALESCE(message, description, title, 'OpenComm notification')
+      WHERE message IS NULL$sql$;
+  ELSE
+    EXECUTE $sql$UPDATE public.notifications
+      SET message = COALESCE(message, title, 'OpenComm notification')
+      WHERE message IS NULL$sql$;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'notifications' AND column_name = 'read'
+  ) THEN
+    EXECUTE 'ALTER TABLE public.notifications ALTER COLUMN read DROP NOT NULL';
+    EXECUTE 'UPDATE public.notifications SET is_read = COALESCE(read, false) WHERE is_read IS NULL';
+  END IF;
+END $$;
+
+ALTER TABLE public.notifications
+  ALTER COLUMN recipient_id SET NOT NULL,
+  ALTER COLUMN message SET NOT NULL,
+  ALTER COLUMN target_url SET DEFAULT '/profile/notifications',
+  ALTER COLUMN metadata SET DEFAULT '{}'::jsonb,
+  ALTER COLUMN is_read SET DEFAULT false;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.notifications'::regclass
+      AND conname = 'notifications_recipient_id_fkey'
+  ) THEN
+    ALTER TABLE public.notifications
+      ADD CONSTRAINT notifications_recipient_id_fkey
+      FOREIGN KEY (recipient_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
 -- 2. Create notification_preferences table
 CREATE TABLE IF NOT EXISTS public.notification_preferences (
   user_id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
