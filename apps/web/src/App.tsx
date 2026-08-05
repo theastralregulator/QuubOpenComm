@@ -90,8 +90,6 @@ import AdminNotifications from './components/admin/AdminNotifications';
 import AdminFeatureFlags from './components/admin/AdminFeatureFlags';
 import AdminSecurityLogs from './components/admin/AdminSecurityLogs';
 import AdminSystemHealth from './components/admin/AdminSystemHealth';
-import { useUnreadMessages } from './hooks/useUnreadMessages';
-import { useNotificationBadges } from './hooks/useNotificationBadges';
 
 export default function App() {
   // --- CORE SYSTEM STATES ---
@@ -2726,10 +2724,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.25 }}
               >
-                <MessagesPage 
-                  triggerToast={triggerToast}
-                  onUnreadMessagesChanged={refreshUnreadMessagesCount}
-                />
+                <MessagesPage triggerToast={triggerToast} />
               </motion.div>
             </ProtectedRoute>
           } />
@@ -2742,10 +2737,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.25 }}
               >
-                <MessagesPage 
-                  triggerToast={triggerToast}
-                  onUnreadMessagesChanged={refreshUnreadMessagesCount}
-                />
+                <MessagesPage triggerToast={triggerToast} />
               </motion.div>
             </ProtectedRoute>
           } />

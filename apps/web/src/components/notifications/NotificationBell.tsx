@@ -4,25 +4,19 @@ import { Bell, Check, ExternalLink, MessageSquare, Briefcase, FileText, CheckCir
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
 import { unreadService, useUnreadCounts } from '../../lib/unreadService';
-
+import { getNotificationCategory } from '../../lib/notificationCategories';
 interface NotificationBellProps {
   currentUserId?: string | null;
-  unreadCount?: number;
-  onNotificationStateChange?: () => void;
 }
 
-export default function NotificationBell({
-  currentUserId,
-  unreadCount,
-  onNotificationStateChange,
-}: NotificationBellProps) {
+export default function NotificationBell({ currentUserId }: NotificationBellProps) {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { notificationCount: unreadCount } = useUnreadCounts(currentUserId || null);
+  const { notificationCount } = useUnreadCounts(currentUserId || null);
 
   const fetchInitialData = useCallback(async () => {
     if (!currentUserId) return;
@@ -109,10 +103,9 @@ export default function NotificationBell({
     return <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />;
   };
 
-  if (!userId) return null;
+  if (!currentUserId) return null;
 
-  const displayedUnreadCount = unreadCount ?? localUnreadCount;
-  const displayedUnreadLabel = formatBadgeCount(displayedUnreadCount);
+  const badgeLabel = notificationCount > 99 ? '99+' : String(notificationCount);
 
   return (
     <div className="relative inline-block" ref={dropdownRef}>
@@ -121,12 +114,12 @@ export default function NotificationBell({
         type="button"
         onClick={handleToggle}
         className="relative p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-all cursor-pointer shadow-2xs"
-        aria-label={hasVisibleBadge(displayedUnreadCount) ? `Notifications, ${displayedUnreadLabel} unread` : 'Notifications'}
+        aria-label={notificationCount > 0 ? `Notifications, ${badgeLabel} unread` : 'Notifications'}
       >
         <Bell className="w-4 h-4" />
-        {hasVisibleBadge(displayedUnreadCount) && (
+        {notificationCount > 0 && (
           <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-600 text-white font-extrabold text-[10px] animate-pulse ring-2 ring-white dark:ring-[#0B0F19]">
-            {displayedUnreadLabel}
+            {badgeLabel}
           </span>
         )}
       </button>
@@ -146,13 +139,13 @@ export default function NotificationBell({
               <div className="flex items-center space-x-2">
                 <Bell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Notifications</h3>
-                {hasVisibleBadge(displayedUnreadCount) && (
+                {notificationCount > 0 && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
-                    {displayedUnreadLabel} new
+                    {badgeLabel} new
                   </span>
                 )}
               </div>
-              {hasVisibleBadge(displayedUnreadCount) && (
+              {notificationCount > 0 && (
                 <button
                   type="button"
                   onClick={handleMarkAllRead}

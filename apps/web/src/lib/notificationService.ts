@@ -42,6 +42,10 @@ export interface CreateNotificationParams {
 }
 
 export type NotificationRealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE';
+async function refreshCurrentUserUnreadState(): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) await unreadService.refresh(user.id);
+}
 
 export const notificationService = {
   /**
@@ -61,44 +65,12 @@ export const notificationService = {
     if (!supabase) return 0;
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return 0;
-      await unreadService.refresh(user.id);
-      return unreadService.getSnapshot(user.id).notificationCount;
+      const currentUserId = userId || user?.id;
+      if (!currentUserId) return 0;
+      await unreadService.refresh(currentUserId);
+      return unreadService.getSnapshot(currentUserId).notificationCount;
     } catch (err) {
       console.error('[NotificationService] Error fetching unread count:', err);
-      return 0;
-    }
-  },
-
-  /**
-   * Get unread workflow notification count for the Profile badge.
-   * Message notifications are intentionally excluded.
-   */
-  async getUnreadWorkflowCount(userId?: string | null): Promise<number> {
-    if (!supabase) return 0;
-    try {
-      let currentUserId = userId;
-      if (!currentUserId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        currentUserId = user?.id || null;
-      }
-      if (!currentUserId) return 0;
-
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('id', { count: 'exact', head: true })
-        .eq('recipient_id', currentUserId)
-        .eq('is_read', false)
-        .or(WORKFLOW_NOTIFICATION_COUNT_FILTER);
-
-      if (error) {
-        console.error('[NotificationService] Error fetching workflow unread count:', error);
-        return 0;
-      }
-
-      return count || 0;
-    } catch (err) {
-      console.error('[NotificationService] Error fetching workflow unread count:', err);
       return 0;
     }
   },
@@ -176,7 +148,7 @@ export const notificationService = {
         if (updateError) throw updateError;
       }
 
-      dispatchNotificationBadgeRefresh();
+      await refreshCurrentUserUnreadState();
       return true;
     } catch (err) {
       console.error('[NotificationService] Error marking notification read:', err);
@@ -201,7 +173,7 @@ export const notificationService = {
             .eq('is_read', false);
         }
       }
-      dispatchNotificationBadgeRefresh();
+      await refreshCurrentUserUnreadState();
       return true;
     } catch (err) {
       console.error('[NotificationService] Error marking all read:', err);
@@ -226,7 +198,7 @@ export const notificationService = {
           .eq('id', notificationId);
       }
 
-      dispatchNotificationBadgeRefresh();
+      await refreshCurrentUserUnreadState();
       return true;
     } catch (err) {
       console.error('[NotificationService] Error deleting notification:', err);

@@ -30,10 +30,9 @@ type PendingMessage = {
 
 interface MessagesPageProps {
   triggerToast: (msg: string) => void;
-  onUnreadMessagesChanged?: () => void;
 }
 
-export default function MessagesPage({ triggerToast, onUnreadMessagesChanged }: MessagesPageProps) {
+export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
 

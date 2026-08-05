@@ -9,7 +9,6 @@ import {
 import UserAvatar from '../common/UserAvatar';
 import OpenCommLogo from '../common/OpenCommLogo';
 import NotificationBell from '../notifications/NotificationBell';
-import { formatBadgeCount, hasVisibleBadge } from '../../lib/badgeUtils';
 
 export interface NavbarProps {
   currentView: string;
@@ -27,8 +26,6 @@ export interface NavbarProps {
   userType: 'normal' | 'worker' | 'company';
   onOpenAuth: (tab: 'signin' | 'signup') => void;
   onLogout: () => void;
-  currentUserId?: string | null;
-  onNotificationStateChange?: () => void;
   isEmailVerified?: boolean;
   onVerifyEmail?: () => void;
 }
@@ -49,8 +46,6 @@ export default function Navbar({
   userType,
   onOpenAuth,
   onLogout,
-  currentUserId,
-  onNotificationStateChange,
   isEmailVerified = true,
   onVerifyEmail,
 }: NavbarProps) {
@@ -146,7 +141,7 @@ export default function Navbar({
                   }}
                   className={`relative px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-300 flex items-center space-x-2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${!isActive ? 'hover:bg-slate-100 dark:hover:bg-slate-800/50' : ''}`}
                   id={`nav-${item.id}`}
-                  aria-label={hasVisibleBadge(item.badgeCount || 0) ? `${item.label}, ${formatBadgeCount(item.badgeCount || 0)} ${item.badgeLabel}` : item.label}
+                  aria-label={item.badgeCount && item.badgeCount > 0 ? `${item.label}, ${item.badgeCount > 99 ? '99+' : item.badgeCount} unread` : item.label}
                 >
                   {isActive && (
                     <motion.div
@@ -464,7 +459,7 @@ export default function Navbar({
                 className="relative flex flex-col items-center justify-center flex-1 h-full py-1 text-slate-500 dark:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-h-[48px]"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 id={`mobile-nav-${item.id}`}
-                aria-label={hasVisibleBadge(item.badgeCount || 0) ? `${item.label}, ${formatBadgeCount(item.badgeCount || 0)} ${item.badgeLabel}` : item.label}
+                aria-label={item.badgeCount && item.badgeCount > 0 ? `${item.label}, ${item.badgeCount > 99 ? '99+' : item.badgeCount} unread` : item.label}
               >
                 {isActive && (
                   <motion.span

@@ -5,7 +5,6 @@ import { normalizeJobType } from './jobType';
 import { UserSettings } from '../types';
 import { clearProfileCache } from './profileService';
 import { notificationService } from './notificationService';
-import { messageUnreadService } from './messageUnreadService';
 
 // Retrieve public environment variables
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '';
@@ -2318,7 +2317,21 @@ export const dbService = {
       }
     }
 
-    const unreadCountMap = await messageUnreadService.getUnreadCountsByConversation(convIds, user.id);
+    const unreadCountMap: Record<string, number> = {};
+    if (convIds.length > 0) {
+      const { data: unreadRows, error: unreadError } = await supabase
+        .from('messages')
+        .select('conversation_id')
+        .in('conversation_id', convIds)
+        .neq('sender_id', user.id)
+        .eq('unread', true);
+      if (unreadError) {
+        console.error('getMyConversations unread messages error:', unreadError);
+      }
+      (unreadRows || []).forEach((row: any) => {
+        unreadCountMap[row.conversation_id] = (unreadCountMap[row.conversation_id] || 0) + 1;
+      });
+    }
 
     const mergedConversations = convRows.map((c: any) => {
       const otherId = c.creator_id === user.id ? c.member_id : c.creator_id;
@@ -2432,7 +2445,15 @@ export const dbService = {
   },
 
   async markConversationRead(conversationId: string): Promise<boolean> {
-    return messageUnreadService.markConversationRead(conversationId);
+    if (!supabase) return false;
+    const { error } = await supabase.rpc('mark_conversation_read', {
+      p_conversation_id: conversationId
+    });
+    if (error) {
+      console.error('markConversationRead error:', error);
+      return false;
+    }
+    return true;
   },
 
   // Centralized Notification Helpers
