@@ -2448,7 +2448,7 @@ export default function App() {
   const isAdminRoute = path.startsWith('/admin');
   const isJobDetailRoute = path.startsWith('/jobs/') && path !== '/jobs';
   const isIndividualChatRoute = path.startsWith('/messages/') && path !== '/messages';
-  console.log('DEBUG: Rendering page. Path:', path, 'isAdminRoute:', isAdminRoute);
+
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] font-sans transition-colors duration-300 relative overflow-x-hidden pb-24 md:pb-8 ${

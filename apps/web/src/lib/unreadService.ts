@@ -158,7 +158,8 @@ async function getFallbackCounts(userId: string): Promise<UnreadCounts> {
     type === 'work_completed' ||
     type === 'completion_confirmed' ||
     type === 'review_available' ||
-    type === 'review_required';
+    type === 'review_required' ||
+    type === 'review_received';
 
   const notificationCount = unreadNotifications?.length || 0;
   const workflowCount = (unreadNotifications || []).filter((notification: any) => workflowTypes(notification.type)).length;

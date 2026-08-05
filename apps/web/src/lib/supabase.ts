@@ -2368,14 +2368,6 @@ export const dbService = {
       new Map(mergedConversations.map((item: any) => [item.id, item])).values()
     ) as ConversationViewModel[];
 
-    console.log('[Messages Inbox Verification]', {
-      currentUserId: user.id,
-      participantIds: otherParticipantIds,
-      participantProfiles: Array.from(profileMap.values()),
-      workerProfiles: Array.from(professionMap.entries()),
-      mergedConversations: uniqueConversations
-    });
-
     return uniqueConversations;
   },
 
