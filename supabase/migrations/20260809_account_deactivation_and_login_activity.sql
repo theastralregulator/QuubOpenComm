@@ -19,7 +19,65 @@ ALTER TABLE public.profiles
 
 
 -- =========================================================================
--- 2. SERVER-SIDE ACCOUNT DEACTIVATION ELIGIBILITY CHECK RPC
+-- 2. PROFILE DIRECTORY SYNC TRIGGER FUNCTION ASSURANCE
+-- =========================================================================
+
+CREATE OR REPLACE FUNCTION public.sync_profile_directory()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF (TG_OP = 'DELETE') THEN
+    DELETE FROM public.profile_directory WHERE id = OLD.id;
+    RETURN OLD;
+  END IF;
+
+  IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+    IF NEW.account_status = 'active' THEN
+      INSERT INTO public.profile_directory (
+        id, username, full_name, avatar_url, banner_url, bio,
+        city, state, country, preferred_language, profile_type,
+        onboarding_completed, created_at
+      )
+      VALUES (
+        NEW.id, NEW.username, NEW.full_name, NEW.avatar_url, NEW.banner_url, NEW.bio,
+        NEW.city, NEW.state, NEW.country, NEW.preferred_language, NEW.profile_type,
+        NEW.onboarding_completed, NEW.created_at
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        username = EXCLUDED.username,
+        full_name = EXCLUDED.full_name,
+        avatar_url = EXCLUDED.avatar_url,
+        banner_url = EXCLUDED.banner_url,
+        bio = EXCLUDED.bio,
+        city = EXCLUDED.city,
+        state = EXCLUDED.state,
+        country = EXCLUDED.country,
+        preferred_language = EXCLUDED.preferred_language,
+        profile_type = EXCLUDED.profile_type,
+        onboarding_completed = EXCLUDED.onboarding_completed;
+    ELSE
+      -- Remove profile from directory if account_status is not active (e.g. deactivated, suspended, under_review)
+      DELETE FROM public.profile_directory WHERE id = NEW.id;
+    END IF;
+    RETURN NEW;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.sync_profile_directory() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_sync_profile_directory ON public.profiles;
+CREATE TRIGGER trg_sync_profile_directory
+  AFTER INSERT OR UPDATE OR DELETE ON public.profiles
+  FOR EACH ROW EXECUTE PROCEDURE public.sync_profile_directory();
+
+
+-- =========================================================================
+-- 3. SERVER-SIDE ACCOUNT DEACTIVATION ELIGIBILITY CHECK RPC
 -- =========================================================================
 
 CREATE OR REPLACE FUNCTION public.get_account_deactivation_status()
@@ -101,7 +159,7 @@ GRANT EXECUTE ON FUNCTION public.get_account_deactivation_status() TO authentica
 
 
 -- =========================================================================
--- 3. ATOMIC DEACTIVATION RPC
+-- 4. ATOMIC DEACTIVATION RPC
 -- =========================================================================
 
 CREATE OR REPLACE FUNCTION public.deactivate_my_account()
@@ -131,15 +189,18 @@ BEGIN
     RAISE EXCEPTION 'Account deactivation blocked by unresolved work commitments: %', v_eligibility->'blockers';
   END IF;
 
-  -- Archive user's active job posts
+  -- Archive user's active job posts (setting both is_active = false and status = 'archived')
   UPDATE public.jobs
-  SET is_active = false, updated_at = now()
-  WHERE posted_by = v_user_id AND is_active = true;
+  SET is_active = false,
+      status = 'archived',
+      updated_at = now()
+  WHERE posted_by = v_user_id AND (is_active = true OR status = 'active');
 
   -- Hide worker profile listing
   UPDATE public.worker_profiles
-  SET is_visible = false, listing_enabled = false, updated_at = now()
-  WHERE id = v_user_id OR user_id = v_user_id;
+  SET is_visible = false,
+      updated_at = now()
+  WHERE id = v_user_id;
 
   -- Update profile account status to deactivated
   UPDATE public.profiles
@@ -161,7 +222,7 @@ GRANT EXECUTE ON FUNCTION public.deactivate_my_account() TO authenticated;
 
 
 -- =========================================================================
--- 4. ACCOUNT REACTIVATION RPC
+-- 5. ACCOUNT REACTIVATION RPC
 -- =========================================================================
 
 CREATE OR REPLACE FUNCTION public.reactivate_my_account()
@@ -194,7 +255,7 @@ BEGIN
   WHERE id = v_user_id;
 
   -- sync_profile_directory trigger automatically re-adds profile to public directory
-  -- Note: Archived jobs and hidden worker profile listings remain archived/hidden until explicitly restored by the user.
+  -- Note: Archived jobs and hidden worker profiles remain archived/hidden until explicitly restored by the user.
 
   RETURN jsonb_build_object(
     'success', true,
@@ -207,7 +268,7 @@ GRANT EXECUTE ON FUNCTION public.reactivate_my_account() TO authenticated;
 
 
 -- =========================================================================
--- 5. USER LOGIN ACTIVITY TABLE & RPC
+-- 6. USER LOGIN ACTIVITY TABLE & RPC
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS public.user_login_activity (
