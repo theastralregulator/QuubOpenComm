@@ -1,5 +1,5 @@
 -- Migration: 20260809_account_deactivation_and_login_activity.sql
--- Description: Add Safe Account Deactivation and User Login Activity features
+-- Description: Add Safe Account Deactivation, User Login Activity, and Server-Side Write Protection Guards
 
 -- =========================================================================
 -- 1. ACCOUNT DEACTIVATION SCHEMA & STATUS CONSTRAINTS
@@ -400,3 +400,99 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.record_login_activity TO authenticated;
+
+
+-- =========================================================================
+-- 7. SERVER-SIDE DEACTIVATED USER WRITE PROTECTION GUARDS
+-- =========================================================================
+
+-- Canonical database helper: returns true ONLY when auth.uid() is active in public.profiles
+CREATE OR REPLACE FUNCTION public.is_current_user_active()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN false;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid()
+      AND account_status = 'active'
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.is_current_user_active() TO authenticated;
+
+
+-- Guard 1: Prevent non-active users from posting new jobs
+DROP POLICY IF EXISTS "Active users can insert jobs" ON public.jobs;
+CREATE POLICY "Active users can insert jobs"
+  ON public.jobs
+  FOR INSERT
+  WITH CHECK (auth.uid() = posted_by AND public.is_current_user_active());
+
+
+-- Guard 2: Prevent non-active users from submitting job applications
+DROP POLICY IF EXISTS "Active users can insert job applications" ON public.job_applications;
+CREATE POLICY "Active users can insert job applications"
+  ON public.job_applications
+  FOR INSERT
+  WITH CHECK (auth.uid() = applicant_id AND public.is_current_user_active());
+
+
+-- Guard 3: Prevent non-active users from sending new hire requests
+DROP POLICY IF EXISTS "Active users can insert hiring requests" ON public.hiring_requests;
+CREATE POLICY "Active users can insert hiring requests"
+  ON public.hiring_requests
+  FOR INSERT
+  WITH CHECK (auth.uid() = client_id AND public.is_current_user_active());
+
+
+-- Guard 4: Prevent non-active users from creating deal proposals
+DROP POLICY IF EXISTS "Active users can insert deal proposals" ON public.deal_proposals;
+CREATE POLICY "Active users can insert deal proposals"
+  ON public.deal_proposals
+  FOR INSERT
+  WITH CHECK (auth.uid() = proposed_by AND public.is_current_user_active());
+
+
+-- Guard 5: Prevent non-active users from creating normal direct messages
+DROP POLICY IF EXISTS "Active users can insert messages" ON public.messages;
+CREATE POLICY "Active users can insert messages"
+  ON public.messages
+  FOR INSERT
+  WITH CHECK (auth.uid() = sender_id AND public.is_current_user_active());
+
+
+-- Guard 6: Prevent non-active users from creating negotiation messages
+DROP POLICY IF EXISTS "Active users can insert negotiation messages" ON public.negotiation_messages;
+CREATE POLICY "Active users can insert negotiation messages"
+  ON public.negotiation_messages
+  FOR INSERT
+  WITH CHECK (auth.uid() = sender_id AND public.is_current_user_active());
+
+
+-- Guard 7: Prevent non-active users from making worker profile publicly visible
+CREATE OR REPLACE FUNCTION public.check_worker_profile_visibility()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF (NEW.is_visible = true) AND NOT public.is_current_user_active() THEN
+    RAISE EXCEPTION 'Deactivated or non-active accounts cannot make worker profiles publicly visible.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_check_worker_profile_visibility ON public.worker_profiles;
+CREATE TRIGGER trg_check_worker_profile_visibility
+  BEFORE INSERT OR UPDATE ON public.worker_profiles
+  FOR EACH ROW EXECUTE PROCEDURE public.check_worker_profile_visibility();
