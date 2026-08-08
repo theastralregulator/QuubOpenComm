@@ -1,7 +1,8 @@
 -- Migration: 20260809_job_capacity_saved_items_and_auto_close.sql
 -- Description: Add job capacity fields (workers_needed, filled_positions, closed_at, archive_after),
 -- contract-based capacity auto-close trigger, applicant closure notifications with canonical schema,
--- hard race-condition exception guards, existing job capacity backfill, and 5-day pg_cron auto-archival.
+-- hard capacity race-condition exception guards, TG_OP DELETE safety, permanent closed status preservation,
+-- existing job capacity backfill, and 5-day pg_cron auto-archival.
 
 -- =========================================================================
 -- 1. ADD JOB CAPACITY & LIFECYCLE COLUMNS TO PUBLIC.JOBS
@@ -60,12 +61,23 @@ DECLARE
   v_job_status text;
   v_applicant_record RECORD;
   v_target_app_id uuid;
+  v_trigger_worker_id uuid;
 BEGIN
-  v_target_app_id := COALESCE(NEW.job_application_id, OLD.job_application_id);
+  IF TG_OP = 'DELETE' THEN
+    v_target_app_id := OLD.job_application_id;
+    v_trigger_worker_id := OLD.worker_id;
+  ELSE
+    v_target_app_id := NEW.job_application_id;
+    v_trigger_worker_id := NEW.worker_id;
+  END IF;
 
   -- Only process contracts linked to a job application
   IF v_target_app_id IS NULL THEN
-    RETURN COALESCE(NEW, OLD);
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    ELSE
+      RETURN NEW;
+    END IF;
   END IF;
 
   -- Determine job_id & posted_by from job_applications
@@ -76,7 +88,11 @@ BEGIN
   WHERE ja.id = v_target_app_id;
 
   IF v_job_id IS NULL THEN
-    RETURN COALESCE(NEW, OLD);
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    ELSE
+      RETURN NEW;
+    END IF;
   END IF;
 
   -- Lock job row FOR UPDATE to prevent concurrent race conditions
@@ -87,7 +103,11 @@ BEGIN
   FOR UPDATE;
 
   IF NOT FOUND THEN
-    RETURN COALESCE(NEW, OLD);
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    ELSE
+      RETURN NEW;
+    END IF;
   END IF;
 
   -- Calculate exact current filled positions count for this job from non-cancelled contracts
@@ -119,7 +139,7 @@ BEGIN
       SELECT ja.id AS app_id, ja.applicant_id
       FROM public.job_applications ja
       WHERE ja.job_id = v_job_id
-        AND ja.applicant_id != COALESCE(NEW.worker_id, OLD.worker_id)
+        AND ja.applicant_id != v_trigger_worker_id
         AND ja.status IN ('pending', 'under_review', 'shortlisted', 'negotiating', 'proposal_pending', 'changes_requested')
         AND NOT EXISTS (
           SELECT 1 FROM public.work_contracts wc2
@@ -162,25 +182,18 @@ BEGIN
 
   ELSE
     -- Job has open positions remaining (v_filled_count < v_workers_needed)
-    -- If job was previously closed due to capacity (and not manually archived), reopen it safely
-    IF v_job_status = 'closed' THEN
-      UPDATE public.jobs
-      SET filled_positions = v_filled_count,
-          status = 'active',
-          is_active = true,
-          closed_at = NULL,
-          archive_after = NULL,
-          updated_at = now()
-      WHERE id = v_job_id;
-    ELSE
-      UPDATE public.jobs
-      SET filled_positions = v_filled_count,
-          updated_at = now()
-      WHERE id = v_job_id;
-    END IF;
+    -- Recalculate filled_positions for historical accuracy, but NEVER automatically reopen a job once closed
+    UPDATE public.jobs
+    SET filled_positions = v_filled_count,
+        updated_at = now()
+    WHERE id = v_job_id;
   END IF;
 
-  RETURN COALESCE(NEW, OLD);
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
 $$;
 
