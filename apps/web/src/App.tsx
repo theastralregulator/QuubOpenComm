@@ -892,6 +892,8 @@ export default function App() {
     }
     const user = session.user;
     const userId = user.id;
+    setUserIdState(userId);
+    setIsLoggedIn(true);
     const userEmail = user.email || '';
     
     // Attempt to retrieve profile from DB or Emulator
@@ -927,7 +929,6 @@ export default function App() {
       await dbService.updateProfile(userId, { email_verified_for_actions: true });
     }
 
-    setIsLoggedIn(true);
     setUsername(profile.full_name || userEmail.split('@')[0]);
     setUserPhoto(resolveProfileImage(profile));
     setUserType(profile.profile_type as any || 'normal');
@@ -1271,7 +1272,8 @@ export default function App() {
     }
   };
 
-  const handleLoginSuccess = (uName: string, uType: 'normal' | 'worker' | 'company') => {
+  const handleLoginSuccess = (uName: string, uType: 'normal' | 'worker' | 'company', mockUserId: string = 'mock-user-id') => {
+    setUserIdState(mockUserId);
     setIsLoggedIn(true);
     setUserType(uType);
     setUsername(uName);
