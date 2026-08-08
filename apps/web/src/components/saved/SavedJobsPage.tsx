@@ -2,11 +2,12 @@ import React from 'react';
 import { Bookmark, Inbox } from 'lucide-react';
 import { Job } from '../../types';
 import JobCard from '../cards/JobCard';
+import SharedApplicationModal from '../jobs/SharedApplicationModal';
 
 interface SavedJobsPageProps {
   jobs: Job[];
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
-  handleApplyJob: (id: string, e: React.MouseEvent) => void;
+  handleApplyJob: (id: string, bidOrEvent?: any, note?: string) => void;
   onExplore: () => void;
 }
 
@@ -16,6 +17,7 @@ export default function SavedJobsPage({
   handleApplyJob,
   onExplore,
 }: SavedJobsPageProps) {
+  const [applyingJob, setApplyingJob] = React.useState<Job | null>(null);
   const savedList = jobs.filter(j => j.bookmarked);
 
   return (
@@ -67,10 +69,24 @@ export default function SavedJobsPage({
               applied={job.applied}
               onSave={toggleBookmark}
               onViewDetails={onExplore}
-              onApply={(id, e) => handleApplyJob(id, e)}
+              onApply={(id, e) => { e.stopPropagation(); setApplyingJob(job); }}
             />
           ))}
         </div>
+      )}
+
+      {applyingJob && (
+        <SharedApplicationModal
+          isOpen={true}
+          onClose={() => setApplyingJob(null)}
+          jobId={applyingJob.id}
+          applicantId="user" // This is a mock ID for logged in user in this context, or pass it via props. Since this page uses generic handleApplyJob, we just need it to trigger.
+          jobSalary={applyingJob.salary}
+          onSuccess={(appId) => {
+            handleApplyJob(applyingJob.id, applyingJob.salary, 'Applied via Saved Jobs');
+            setApplyingJob(null);
+          }}
+        />
       )}
     </div>
   );

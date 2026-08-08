@@ -6,13 +6,14 @@ import {
 import { Job, Worker } from '../../types';
 import JobCard from '../cards/JobCard';
 import WorkerCard from '../cards/WorkerCard';
+import SharedApplicationModal from '../jobs/SharedApplicationModal';
 
 interface RecommendedForYouProps {
   jobs: Job[];
   workers: Worker[];
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
   toggleWorkerBookmark: (id: string, e: React.MouseEvent) => void;
-  handleApplyJob: (id: string, e: React.MouseEvent) => void;
+  handleApplyJob: (id: string, bidOrEvent?: any, note?: string) => void;
   onOpenMessage: (name: string) => void;
   onViewJobs: () => void;
   onViewWorkers: () => void;
@@ -32,6 +33,7 @@ export default function RecommendedForYou({
   currentUserId,
 }: RecommendedForYouProps) {
   const [activeTab, setActiveTab] = useState<'jobs' | 'workers'>('jobs');
+  const [applyingJob, setApplyingJob] = useState<Job | null>(null);
 
   // Up to 6 jobs: exclude own posts, already applied, withdrawn, closed/archived/expired
   const recommendedJobs = jobs
@@ -129,7 +131,7 @@ export default function RecommendedForYou({
                       applicationDeadline={job.applicationDeadline}
                       onSave={toggleBookmark}
                       onViewDetails={onViewJobs}
-                      onApply={(id, e) => handleApplyJob(id, e)}
+                      onApply={(id, e) => { e.stopPropagation(); setApplyingJob(job); }}
                     />
                   </div>
                 ))}
@@ -178,6 +180,20 @@ export default function RecommendedForYou({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {applyingJob && currentUserId && (
+        <SharedApplicationModal
+          isOpen={true}
+          onClose={() => setApplyingJob(null)}
+          jobId={applyingJob.id}
+          applicantId={currentUserId}
+          jobSalary={applyingJob.salary}
+          onSuccess={(appId) => {
+            handleApplyJob(applyingJob.id, applyingJob.salary, 'Applied via Recommendations');
+            setApplyingJob(null);
+          }}
+        />
+      )}
     </div>
   );
 }

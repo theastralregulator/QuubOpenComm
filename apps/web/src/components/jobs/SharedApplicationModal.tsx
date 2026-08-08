@@ -1,0 +1,169 @@
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Send, X, RefreshCw } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+
+export interface SharedApplicationModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  jobId: string;
+  applicantId: string;
+  jobSalary?: string;
+  onSuccess: (applicationId: string) => void;
+  triggerToast?: (msg: string) => void;
+}
+
+export default function SharedApplicationModal({
+  isOpen,
+  onClose,
+  jobId,
+  applicantId,
+  jobSalary,
+  onSuccess,
+  triggerToast
+}: SharedApplicationModalProps) {
+  const [bidRate, setBidRate] = useState(jobSalary || '');
+  const [coverLetter, setCoverLetter] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleApplySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!jobId || !bidRate.trim() || !coverLetter.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      if (supabase && applicantId) {
+        const { data: newApp, error: appError } = await supabase
+          .from('job_applications')
+          .insert({
+            job_id: jobId,
+            applicant_id: applicantId,
+            proposed_rate: bidRate.trim(),
+            cover_letter: coverLetter.trim(),
+            status: 'pending',
+          })
+          .select()
+          .single();
+
+        if (appError) {
+          if (appError.code === '23505') {
+            if (triggerToast) triggerToast('You have already applied for this job opportunity.');
+            // Even if already applied, we consider it "successful" in terms of closing the modal and updating UI
+            onSuccess('existing'); 
+          } else {
+            console.error('Application submission error:', appError);
+            if (triggerToast) triggerToast(`Failed to submit application: ${appError.message}`);
+          }
+          setIsSubmitting(false);
+          onClose();
+          return;
+        }
+
+        if (newApp) {
+          onSuccess(newApp.id);
+        }
+      } else {
+         // Local fallback
+         onSuccess('local-app-id');
+      }
+
+      if (triggerToast) triggerToast('Application submitted successfully!');
+      onClose();
+    } catch (err: any) {
+      console.error('Application submission exception:', err);
+      if (triggerToast) triggerToast(err.message || 'An unexpected error occurred while submitting.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={(e) => e.stopPropagation()}>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            onClick={onClose}
+          />
+          <motion.form
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 100 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            onSubmit={handleApplySubmit}
+            className="relative w-full max-w-lg bg-white dark:bg-[#0F172A] rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 shadow-2xl space-y-4 border border-[#ECEEF5] dark:border-slate-800 z-10 text-left"
+          >
+            <div className="flex items-center justify-between border-b border-[#ECEEF5] dark:border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Send className="w-5 h-5 text-[#6C4DFF]" />
+                <h3 className="text-base font-bold text-[#111827] dark:text-white">Submit Proposal</h3>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-left">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#111827] dark:text-slate-200">
+                  Proposed Rate / Budget
+                </label>
+                <input 
+                  type="text" 
+                  required
+                  value={bidRate}
+                  onChange={(e) => setBidRate(e.target.value)}
+                  className="w-full h-11 px-3.5 rounded-xl border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] text-[#111827] dark:text-white text-sm font-semibold focus:outline-none focus:border-[#6C4DFF]"
+                  placeholder="e.g. ₹45,000"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#111827] dark:text-slate-200">
+                  Proposal / Cover Note
+                </label>
+                <textarea 
+                  rows={4}
+                  required
+                  value={coverLetter}
+                  onChange={(e) => setCoverLetter(e.target.value)}
+                  className="w-full p-3.5 rounded-xl border border-[#ECEEF5] dark:border-slate-800 bg-[#F7F8FE] dark:bg-[#111827] text-[#111827] dark:text-white text-sm font-medium focus:outline-none focus:border-[#6C4DFF]"
+                  placeholder="Briefly explain your experience..."
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 h-11 rounded-xl border border-[#ECEEF5] dark:border-slate-800 text-xs font-bold text-[#6B7280] dark:text-slate-300 hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex-1 h-11 rounded-xl bg-gradient-to-r from-[#6C4DFF] to-[#4F46E5] text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md hover:opacity-95 transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>{isSubmitting ? 'Applying...' : 'Submit Application'}</span>
+              </button>
+            </div>
+          </motion.form>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}

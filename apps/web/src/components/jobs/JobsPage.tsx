@@ -9,6 +9,7 @@ import { Job } from '../../types';
 import JobCard from '../cards/JobCard';
 import { getDeadlineInfo } from '../../lib/deadline';
 import { supabase } from '../../lib/supabase';
+import SharedApplicationModal from './SharedApplicationModal';
 
 interface JobsPageProps {
   jobs: Job[];
@@ -176,7 +177,7 @@ export default function JobsPage({
 
   const categoriesList = ['All', 'Developer', 'Designer', 'Electrician', 'Carpenter', 'Driver', 'Chef', 'Teacher', 'Photographer', 'Mechanic', 'Cleaner'];
 
-  const [submittingJobId, setSubmittingJobId] = useState<string | null>(null);
+  const [applyingJob, setApplyingJob] = useState<Job | null>(null);
 
   const handleApplyClick = async (job: Job, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -205,59 +206,19 @@ export default function JobsPage({
       return;
     }
 
-    // Direct submit application from card
-    setSubmittingJobId(job.id);
-    try {
-      if (supabase && currentUserId) {
-        const { data: newApp, error: insertErr } = await supabase
-          .from('job_applications')
-          .insert({
-            job_id: job.id,
-            applicant_id: currentUserId,
-            proposed_rate: job.salary || 'As per listing',
-            cover_letter: 'Hi! I am interested in this job opportunity and would love to collaborate on this project.',
-            status: 'pending',
-          })
-          .select()
-          .single();
+    // Open the application modal instead of directly submitting
+    setApplyingJob(job);
+  };
 
-        if (insertErr) {
-          if (insertErr.code === '23505') {
-            triggerToast("You have already applied for this job.");
-            setApplicationsMap(prev => {
-              const next = new Map(prev);
-              next.set(job.id, { id: 'existing', status: 'pending' });
-              return next;
-            });
-          } else {
-            console.error('[Direct Apply] Error submitting application:', insertErr);
-            triggerToast(`Unable to submit your application: ${insertErr.message}`);
-          }
-          setSubmittingJobId(null);
-          return;
-        }
-
-        if (newApp) {
-          triggerToast("Application submitted successfully!");
-          setApplicationsMap(prev => {
-            const next = new Map(prev);
-            next.set(job.id, { id: newApp.id, status: 'pending' });
-            return next;
-          });
-        }
-      } else {
-        triggerToast("Application submitted successfully!");
-        setApplicationsMap(prev => {
-          const next = new Map(prev);
-          next.set(job.id, { id: 'local-app', status: 'pending' });
-          return next;
-        });
-      }
-    } catch (err: any) {
-      console.error('[Direct Apply] Exception:', err);
-      triggerToast(err.message || "Unable to submit application. Please try again.");
-    } finally {
-      setSubmittingJobId(null);
+  const handleModalSuccess = (appId: string) => {
+    if (applyingJob) {
+      triggerToast("Application submitted successfully!");
+      setApplicationsMap(prev => {
+        const next = new Map(prev);
+        next.set(applyingJob.id, { id: appId, status: 'pending' });
+        return next;
+      });
+      setApplyingJob(null);
     }
   };
 
@@ -465,13 +426,13 @@ export default function JobsPage({
                       applied={isApplied}
                       applicationStatus={appStatus}
                       isOwner={isOwner}
-                      isActive={job.is_active !== undefined ? job.is_active : true}
-                      isSubmitting={submittingJobId === job.id}
+                      isActive={job.is_active !== false}
+                      isSubmitting={false}
                       applicationDeadline={job.applicationDeadline}
-                      onSave={toggleBookmark}
+                      onSave={(id, e) => toggleBookmark(id, e)}
                       onViewDetails={() => navigate(`/jobs/${job.id}`)}
                       onApply={(id, e) => handleApplyClick(job, e)}
-                      onManageJob={() => navigate('/profile/my-jobs')}
+                      onManageJob={() => navigate(`/profile/my-jobs`)}
                     />
                   );
                 })}
@@ -566,6 +527,17 @@ export default function JobsPage({
 
       </div>
 
+      {applyingJob && currentUserId && (
+        <SharedApplicationModal
+          isOpen={true}
+          onClose={() => setApplyingJob(null)}
+          jobId={applyingJob.id}
+          applicantId={currentUserId}
+          jobSalary={applyingJob.salary}
+          onSuccess={handleModalSuccess}
+          triggerToast={triggerToast}
+        />
+      )}
     </div>
   );
 }
