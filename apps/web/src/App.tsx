@@ -97,11 +97,25 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isJobsLoaded, setIsJobsLoaded] = useState(false);
 
+  // Authenticated user's saved IDs refs to prevent async hydration race conditions
+  const savedJobIdsRef = useRef<Set<string>>(new Set());
+  const savedWorkerIdsRef = useRef<Set<string>>(new Set());
+
+  const applySavedJobIds = (jobsList: Job[]): Job[] => {
+    const sSet = savedJobIdsRef.current;
+    return jobsList.map(j => ({ ...j, bookmarked: sSet.has(j.id) }));
+  };
+
+  const applySavedWorkerIds = (workersList: Worker[]): Worker[] => {
+    const sSet = savedWorkerIdsRef.current;
+    return workersList.map(w => ({ ...w, bookmarked: sSet.has(w.id) }));
+  };
+
   useEffect(() => {
     if (!isJobsLoaded) {
       dbService.getJobsFromDb().then(fetchedJobs => {
         if (fetchedJobs && fetchedJobs.length > 0) {
-          setJobs(fetchedJobs);
+          setJobs(applySavedJobIds(fetchedJobs));
         } else {
           setJobs([]); // Remove demo jobs if empty in DB
         }
@@ -611,7 +625,7 @@ export default function App() {
       await dbService.deleteJobInDb(jobToDelete.id);
       triggerToast(`Job "${jobToDelete.title}" deleted successfully.`);
       const freshJobs = await dbService.getJobsFromDb();
-      if (freshJobs) setJobs(freshJobs);
+      if (freshJobs) setJobs(applySavedJobIds(freshJobs));
     } catch (err: any) {
       console.error('Error deleting job:', err);
       triggerToast(err.message || "Failed to delete job.");
@@ -990,11 +1004,11 @@ export default function App() {
         dbService.getSavedJobIds(userId),
         dbService.getSavedWorkerIds(userId)
       ]);
-      const savedJobSet = new Set(savedJobIds);
-      const savedWorkerSet = new Set(savedWorkerIds);
+      savedJobIdsRef.current = new Set(savedJobIds);
+      savedWorkerIdsRef.current = new Set(savedWorkerIds);
 
-      setJobs(prev => prev.map(j => ({ ...j, bookmarked: savedJobSet.has(j.id) })));
-      setWorkers(prev => prev.map(w => ({ ...w, bookmarked: savedWorkerSet.has(w.id) })));
+      setJobs(prev => applySavedJobIds(prev));
+      setWorkers(prev => applySavedWorkerIds(prev));
     } catch (err) {
       console.warn('Failed to load saved items for user:', err);
     }
@@ -1108,7 +1122,9 @@ export default function App() {
     localStorage.removeItem('opencomm_username');
     setUserIdState(null);
 
-    // Clear saved-state flags for previous user
+    // Clear saved-state flags & refs for previous user
+    savedJobIdsRef.current.clear();
+    savedWorkerIdsRef.current.clear();
     setJobs(prev => prev.map(j => ({ ...j, bookmarked: false })));
     setWorkers(prev => prev.map(w => ({ ...w, bookmarked: false })));
 
@@ -2064,12 +2080,18 @@ export default function App() {
       const nextState = !currentlySaved;
 
       // Optimistic update
+      if (nextState) {
+        savedJobIdsRef.current.add(jobId);
+      } else {
+        savedJobIdsRef.current.delete(jobId);
+      }
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: nextState } : j));
 
       try {
         const currentUserId = userIdState || (await supabase.auth.getUser()).data.user?.id || '';
         if (!currentUserId) {
           triggerToast('Please sign in to save jobs.');
+          if (currentlySaved) savedJobIdsRef.current.add(jobId); else savedJobIdsRef.current.delete(jobId);
           setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: currentlySaved } : j));
           return;
         }
@@ -2082,12 +2104,14 @@ export default function App() {
 
         if (!success) {
           // Rollback on failure
+          if (currentlySaved) savedJobIdsRef.current.add(jobId); else savedJobIdsRef.current.delete(jobId);
           setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: currentlySaved } : j));
           triggerToast('Failed to update saved item');
         } else {
           triggerToast(nextState ? `Saved "${targetJob.title}" to bookmarks.` : `Removed "${targetJob.title}" from bookmarks.`);
         }
       } catch (err) {
+        if (currentlySaved) savedJobIdsRef.current.add(jobId); else savedJobIdsRef.current.delete(jobId);
         setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: currentlySaved } : j));
         triggerToast('Failed to update saved item');
       } finally {
@@ -2112,12 +2136,18 @@ export default function App() {
       const nextState = !currentlySaved;
 
       // Optimistic update
+      if (nextState) {
+        savedWorkerIdsRef.current.add(workerId);
+      } else {
+        savedWorkerIdsRef.current.delete(workerId);
+      }
       setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: nextState } : w));
 
       try {
         const currentUserId = userIdState || (await supabase.auth.getUser()).data.user?.id || '';
         if (!currentUserId) {
           triggerToast('Please sign in to save professionals.');
+          if (currentlySaved) savedWorkerIdsRef.current.add(workerId); else savedWorkerIdsRef.current.delete(workerId);
           setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: currentlySaved } : w));
           return;
         }
@@ -2130,12 +2160,14 @@ export default function App() {
 
         if (!success) {
           // Rollback on failure
+          if (currentlySaved) savedWorkerIdsRef.current.add(workerId); else savedWorkerIdsRef.current.delete(workerId);
           setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: currentlySaved } : w));
           triggerToast('Failed to update saved item');
         } else {
           triggerToast(nextState ? `Saved "${targetWorker.name}" to bookmarked professionals.` : `Removed "${targetWorker.name}" from bookmarks.`);
         }
       } catch (err) {
+        if (currentlySaved) savedWorkerIdsRef.current.add(workerId); else savedWorkerIdsRef.current.delete(workerId);
         setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: currentlySaved } : w));
         triggerToast('Failed to update saved item');
       } finally {
@@ -2272,7 +2304,7 @@ export default function App() {
           setJobFormError(null);
 
           const freshJobs = await dbService.getJobsFromDb();
-          if (freshJobs) setJobs(freshJobs);
+          if (freshJobs) setJobs(applySavedJobIds(freshJobs));
         }
       } else {
         // CREATE MODE
@@ -2283,7 +2315,7 @@ export default function App() {
           setJobFormError(null);
           
           const freshJobs = await dbService.getJobsFromDb();
-          if (freshJobs && freshJobs.length > 0) setJobs(freshJobs);
+          if (freshJobs && freshJobs.length > 0) setJobs(applySavedJobIds(freshJobs));
 
           navigate(`/jobs/${finalJob.id}`);
         }

@@ -75,18 +75,25 @@ export default function SavedJobsPage({
               applied={job.applied}
               onSave={toggleBookmark}
               onViewDetails={onExplore}
-              onApply={(id, e) => { e.stopPropagation(); setApplyingJob(job); }}
+              onApply={(id, e) => {
+                e.stopPropagation();
+                if (!currentUserId) {
+                  if (onExplore) onExplore();
+                  return;
+                }
+                setApplyingJob(job);
+              }}
             />
           ))}
         </div>
       )}
 
-      {applyingJob && (
+      {applyingJob && currentUserId && (
         <SharedApplicationModal
           isOpen={true}
           onClose={() => setApplyingJob(null)}
           jobId={applyingJob.id}
-          applicantId={currentUserId || ''}
+          applicantId={currentUserId}
           jobSalary={applyingJob.salary}
           onSuccess={(appId) => {
             handleApplyJob(applyingJob.id, applyingJob.salary, 'Applied via Saved Jobs');
