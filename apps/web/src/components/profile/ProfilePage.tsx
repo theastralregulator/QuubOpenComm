@@ -73,96 +73,114 @@ export const getBannerClass = (bannerId?: string) => {
 const AttentionSection = ({ currentUserId, navigate }: { currentUserId: string, navigate: any }) => {
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
   const { workflowCount } = useUnreadCounts(currentUserId);
+  const [isExpanded, setIsExpanded] = React.useState(false);
 
   React.useEffect(() => {
     if (!currentUserId) return;
     notificationService.getMyNotifications({ unreadOnly: true, limit: 100 }).then(setNotifications);
   }, [currentUserId, workflowCount]);
 
-  if (!currentUserId || workflowCount === 0 || notifications.length === 0) return null;
-
   const workflowNotifs = notifications.filter(n => isWorkflowNotificationType(n.type));
-
-  const appReceived = workflowNotifs.filter(n => ['application_submitted', 'application_received'].includes(n.type));
-  const hireReq = workflowNotifs.filter(n => n.type === 'hire_request_received');
-  
-  const appUpdates = workflowNotifs.filter(n => 
-    n.type.startsWith('application_') && !['application_submitted', 'application_received'].includes(n.type)
-  );
-  
-  const negUpdates = workflowNotifs.filter(n => 
-    (n.type.startsWith('hire_') && n.type !== 'hire_request_received') || 
-    n.type.startsWith('negotiation_') || 
-    n.type.startsWith('deal_')
-  );
-  
-  const contractActions = workflowNotifs.filter(n => 
-    n.type.startsWith('contract_') || 
-    n.type.startsWith('work_') || 
-    n.type === 'completion_confirmed'
-  );
-  
-  const reviews = workflowNotifs.filter(n => n.type.startsWith('review_'));
-
-  const knownTypes = new Set([
-    ...appReceived, ...hireReq, ...appUpdates, ...negUpdates, ...contractActions, ...reviews
-  ].map(n => n.id));
-
-  const otherUpdates = workflowNotifs.filter(n => !knownTypes.has(n.id));
-
   const totalActionable = workflowNotifs.length;
-  if (totalActionable === 0) return null;
 
-  const Row = ({ icon: Icon, label, items, defaultUrl }: { icon: any, label: string, items: NotificationItem[], defaultUrl: string }) => {
-    if (items.length === 0) return null;
-    const count = items.length;
-    const handleClick = () => {
-      if (count === 1 && items[0].target_url) {
-        navigate(items[0].target_url);
+  if (!currentUserId || workflowCount === 0 || totalActionable === 0) return null;
+
+  const handleItemClick = async (e: React.MouseEvent, item: NotificationItem) => {
+    e.stopPropagation();
+    try {
+      await notificationService.markRead(item.id);
+      setNotifications(prev => prev.filter(n => n.id !== item.id));
+      unreadService.refresh(currentUserId);
+      if (item.target_url) {
+        navigate(item.target_url);
       } else {
-        navigate(defaultUrl);
+        navigate('/profile/notifications');
       }
-    };
+    } catch (err) {
+      console.error('Error marking as read', err);
+    }
+  };
 
-    return (
-      <div
-        onClick={handleClick}
-        className="flex items-center justify-between p-3 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors mb-2"
-      >
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-lg shrink-0 relative">
-            <Icon className="w-5 h-5" />
-            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white dark:border-[#111827]"></div>
-          </div>
-          <div>
-            <div className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center">
-              {label}
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {count} new item{count > 1 ? 's' : ''} require{count === 1 ? 's' : ''} your attention
-            </div>
-          </div>
-        </div>
-        <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
-      </div>
-    );
+  const getIconForType = (type: string) => {
+    if (type.startsWith('application_')) return Briefcase;
+    if (type.startsWith('hire_') || type.startsWith('negotiation_') || type.startsWith('deal_')) return Users;
+    if (type.startsWith('contract_') || type.startsWith('work_') || type === 'completion_confirmed') return FileText;
+    if (type.startsWith('review_')) return Star;
+    return AlertCircle;
+  };
+
+  const getTimeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
   };
 
   return (
-    <div className="mb-6 w-full max-w-5xl mx-auto px-1">
-      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center space-x-2 mb-3">
-        <AlertCircle className="w-4 h-4 text-red-500" />
-        <span>Needs your attention</span>
-      </h3>
-      <div className="space-y-1">
-        <Row icon={Briefcase} label="Applications Received" items={appReceived} defaultUrl="/profile/my-job-posts" />
-        <Row icon={Users} label="Direct Hire Requests" items={hireReq} defaultUrl="/profile/hire-requests" />
-        <Row icon={CheckCircle2} label="Job Application Updates" items={appUpdates} defaultUrl="/profile/jobs-applied" />
-        <Row icon={MessageSquare} label="Negotiation Updates" items={negUpdates} defaultUrl="/profile/hire-requests" />
-        <Row icon={FileText} label="Contract Actions" items={contractActions} defaultUrl="/profile/notifications" />
-        <Row icon={Star} label="Reviews Pending" items={reviews} defaultUrl="/profile/notifications" />
-        <Row icon={Navigation} label="Other Updates" items={otherUpdates} defaultUrl="/profile/notifications" />
+    <div className="mb-4 w-full max-w-5xl mx-auto px-1">
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-xl cursor-pointer hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-colors"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="relative">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-red-50 dark:border-[#111827]"></div>
+          </div>
+          <span className="text-sm font-bold text-red-700 dark:text-red-400">
+            {totalActionable} item{totalActionable !== 1 ? 's' : ''} need{totalActionable === 1 ? 's' : ''} your attention
+          </span>
+        </div>
+        <ChevronRight className={`w-4 h-4 text-red-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
       </div>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mt-2"
+          >
+            <div className="space-y-2">
+              {workflowNotifs.map(item => {
+                const Icon = getIconForType(item.type);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={(e) => handleItemClick(e, item)}
+                    className="flex items-start p-3 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group"
+                  >
+                    <div className="p-2 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-lg shrink-0 relative mt-0.5">
+                      <Icon className="w-4 h-4" />
+                      {!item.is_read && (
+                        <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 border-2 border-white dark:border-[#111827]"></div>
+                      )}
+                    </div>
+                    <div className="ml-3 flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {item.title}
+                        </h4>
+                        <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+                          {getTimeAgo(item.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5 pr-4">
+                        {item.message}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0 mt-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
