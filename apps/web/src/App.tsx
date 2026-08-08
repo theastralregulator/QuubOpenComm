@@ -43,6 +43,7 @@ import MyJobsAppliedPage from './components/profile/MyJobsAppliedPage';
 import ManageApplicationsPage from './components/profile/ManageApplicationsPage';
 import SettingsPage from './components/settings/SettingsPage';
 import HireRequestForm from './components/hiring/HireRequestForm';
+import ResetPasswordPage from './components/auth/ResetPasswordPage';
 import HireRequestsPage from './components/hiring/HireRequestsPage';
 import HireRequestDetailsPage from './components/hiring/HireRequestDetailsPage';
 import NegotiationPage from './components/hiring/NegotiationPage';
@@ -729,14 +730,26 @@ export default function App() {
     analytics.trackPageView(currentView);
   }, [currentView]);
 
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+
   // --- INITIALIZE SUPABASE AUTH LISTENER ---
   useEffect(() => {
     initializeRuntimeSupabase().then(() => {
       if (supabase) {
+        const isResetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-password';
+        const hasRecoveryMarker = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('opencomm_is_recovery') === 'true';
+
         // Fetch current session
         supabase.auth.getSession().then(({ data: { session } }: any) => {
           if (session?.user) {
-            syncUserSession(session).finally(() => setIsAuthLoading(false));
+            if (isResetPath || hasRecoveryMarker) {
+              // We are in password recovery flow. Keep recovery session active for updateUser, but DO NOT run syncUserSession!
+              setIsPasswordRecovery(true);
+              setIsLoggedIn(false);
+              setIsAuthLoading(false);
+            } else {
+              syncUserSession(session).finally(() => setIsAuthLoading(false));
+            }
           } else {
             setIsAuthLoading(false);
           }
@@ -744,6 +757,24 @@ export default function App() {
 
         // Listen for changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
+          if (event === 'PASSWORD_RECOVERY') {
+            setIsPasswordRecovery(true);
+            if (typeof sessionStorage !== 'undefined') {
+              sessionStorage.setItem('opencomm_is_recovery', 'true');
+            }
+            setIsLoggedIn(false);
+            setIsAuthLoading(false);
+            navigate('/reset-password', { replace: true });
+            return;
+          }
+
+          if (isResetPath || hasRecoveryMarker) {
+            setIsPasswordRecovery(true);
+            setIsLoggedIn(false);
+            setIsAuthLoading(false);
+            return;
+          }
+
           if (session?.user) {
             await syncUserSession(session);
           } else {
@@ -759,7 +790,7 @@ export default function App() {
         setIsAuthLoading(false);
       }
     }).catch(() => setIsAuthLoading(false));
-  }, []);
+  }, [navigate]);
 
   // --- DIRECT EMAIL VERIFICATION DEEP LINK REDIRECT HANDLER ---
   useEffect(() => {
@@ -2580,6 +2611,24 @@ export default function App() {
     );
   }
 
+  if (typeof window !== 'undefined' && (window.location.pathname === '/reset-password' || isPasswordRecovery)) {
+    return (
+      <ResetPasswordPage
+        onSuccessRedirect={() => {
+          setIsPasswordRecovery(false);
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('opencomm_is_recovery');
+          navigate('/login');
+        }}
+        onNavigateLogin={() => {
+          setIsPasswordRecovery(false);
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('opencomm_is_recovery');
+          navigate('/login');
+        }}
+        triggerToast={triggerToast}
+      />
+    );
+  }
+
   const isAdminRoute = path.startsWith('/admin');
   const isJobDetailRoute = path.startsWith('/jobs/') && path !== '/jobs';
   const isIndividualChatRoute = path.startsWith('/messages/') && path !== '/messages';
@@ -3128,6 +3177,23 @@ export default function App() {
             <div className="min-h-[60vh] flex items-center justify-center">
               <div className="text-slate-400 dark:text-zinc-500 font-medium">Opening Sign In...</div>
             </div>
+          } />
+
+          {/* Dedicated Reset Password route */}
+          <Route path="/reset-password" element={
+            <ResetPasswordPage
+              onSuccessRedirect={() => {
+                setIsPasswordRecovery(false);
+                if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('opencomm_is_recovery');
+                navigate('/login');
+              }}
+              onNavigateLogin={() => {
+                setIsPasswordRecovery(false);
+                if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('opencomm_is_recovery');
+                navigate('/login');
+              }}
+              triggerToast={triggerToast}
+            />
           } />
 
           {/* Email Verification Center */}
@@ -4017,14 +4083,15 @@ export default function App() {
                           try {
                             setIsAuthSubmitting(true);
                             setAuthError("");
-                            const { error } = await (supabase ? supabase.auth.resetPasswordForEmail(signinUsername, {
-                              redirectTo: NEXT_PUBLIC_APP_URL
+                            const recoveryRedirect = `${NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/reset-password`;
+                            const { error } = await (supabase ? supabase.auth.resetPasswordForEmail(signinUsername.trim(), {
+                              redirectTo: recoveryRedirect
                             }) : { error: null });
                             setIsAuthSubmitting(false);
                             if (error) {
                               setAuthError(error.message);
                             } else {
-                              triggerToast("Password reset link sent to your email!");
+                              triggerToast("If an account exists for this email, a password reset link has been sent.");
                             }
                           } catch (err: any) {
                             setIsAuthSubmitting(false);
