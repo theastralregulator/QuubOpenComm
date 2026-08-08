@@ -2260,12 +2260,12 @@ export const dbService = {
     if (!convRows || convRows.length === 0) {
       return [];
     }
-
     const otherParticipantIds = [...new Set(convRows.map((c: any) =>
       c.creator_id === user.id ? c.member_id : c.creator_id
     ).filter(Boolean))] as string[];
 
     const jobIds = [...new Set(convRows.map((c: any) => c.job_id).filter(Boolean))];
+    const contractIds = [...new Set(convRows.map((c: any) => c.work_contract_id).filter(Boolean))];
     const convIds = convRows.map((c: any) => c.id);
 
     let profileMap = new Map();
@@ -2317,6 +2317,17 @@ export const dbService = {
       }
     }
 
+    let contractTitleMap: Record<string, string> = {};
+    if (contractIds.length > 0) {
+      const { data: cRows } = await supabase
+        .from('work_contracts')
+        .select('id, work_title')
+        .in('id', contractIds);
+      if (cRows) {
+        cRows.forEach((c: any) => { contractTitleMap[c.id] = c.work_title; });
+      }
+    }
+
     const unreadCountMap: Record<string, number> = {};
     if (convIds.length > 0) {
       const { data: unreadRows, error: unreadError } = await supabase
@@ -2336,8 +2347,14 @@ export const dbService = {
     const mergedConversations = convRows.map((c: any) => {
       const otherId = c.creator_id === user.id ? c.member_id : c.creator_id;
       const otherProfile = profileMap.get(otherId) || {};
-      const jobTitle = jobMap[c.job_id] || 'Job Opportunity';
-      const profession = professionMap.get(otherId) || 'Professional';
+      let contextTitle = 'Job Opportunity';
+      if (c.work_contract_id && contractTitleMap[c.work_contract_id]) {
+        contextTitle = contractTitleMap[c.work_contract_id];
+      } else if (c.job_id && jobMap[c.job_id]) {
+        contextTitle = jobMap[c.job_id];
+      } else if (c.conversation_type === 'worker_direct') {
+        contextTitle = professionMap.get(otherId) || 'Professional';
+      }
 
       const lastTimeFormatted = c.last_message_time
         ? new Date(c.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -2352,9 +2369,7 @@ export const dbService = {
         otherParticipantId: otherId,
         otherParticipantName: otherProfile.full_name?.trim() || otherProfile.username?.trim() || 'OpenComm User',
         otherParticipantAvatar: otherProfile.avatar_url || null,
-        otherParticipantTitle: c.conversation_type === 'worker_direct'
-          ? profession
-          : jobTitle,
+        otherParticipantTitle: contextTitle,
         lastMessageText: c.last_message_text || 'No messages yet',
         lastMessageTime: lastTimeFormatted,
         lastMessageAt: c.last_message_time || c.created_at,

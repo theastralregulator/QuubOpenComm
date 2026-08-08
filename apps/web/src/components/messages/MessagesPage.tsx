@@ -462,7 +462,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           {group.conversations.length} conversations
                         </p>
                       ) : (
-                        <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate mb-1">
+                        <p 
+                          className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate mb-1 max-w-[200px]" 
+                          title={group.conversations[0].otherParticipantTitle || (group.conversations[0].conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
+                        >
                           {group.conversations[0].otherParticipantTitle || (group.conversations[0].conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                         </p>
                       )}
@@ -511,7 +514,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate leading-tight">
                       {activeConv.otherParticipantName}
                     </h3>
-                    <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate">
+                    <p 
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate max-w-[300px]"
+                      title={activeConv.otherParticipantTitle || (activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
+                    >
                       {activeConv.otherParticipantTitle || (activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                     </p>
                   </div>
@@ -722,8 +728,11 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         }}
                         className="w-full text-left p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group flex flex-col gap-1 border border-slate-100 dark:border-slate-800/60"
                       >
-                        <div className="flex items-center justify-between w-full">
-                          <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                        <div className="flex items-center justify-between w-full gap-2">
+                          <span 
+                            className="text-xs font-black text-slate-900 dark:text-white truncate flex-1"
+                            title={conv.otherParticipantTitle || (conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
+                          >
                             {conv.otherParticipantTitle || (conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                           </span>
                           <span className={`text-[10px] ${isUnread ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-semibold text-slate-400'}`}>
