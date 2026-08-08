@@ -1,5 +1,5 @@
 -- Migration: 20260809_account_deactivation_and_login_activity.sql
--- Description: Add Safe Account Deactivation, User Login Activity, and Server-Side Write Protection Guards
+-- Description: Add Safe Account Deactivation, User Login Activity, and Canonical RLS / RPC Active Account Guards
 
 -- =========================================================================
 -- 1. ACCOUNT DEACTIVATION SCHEMA & STATUS CONSTRAINTS
@@ -403,10 +403,10 @@ GRANT EXECUTE ON FUNCTION public.record_login_activity TO authenticated;
 
 
 -- =========================================================================
--- 7. SERVER-SIDE DEACTIVATED USER WRITE PROTECTION GUARDS
+-- 7. CANONICAL RLS POLICIES & RPC ACTIVE ACCOUNT GUARDS
 -- =========================================================================
 
--- Canonical database helper: returns true ONLY when auth.uid() is active in public.profiles
+-- Helper function: returns true ONLY when auth.uid() is active in public.profiles
 CREATE OR REPLACE FUNCTION public.is_current_user_active()
 RETURNS boolean
 LANGUAGE plpgsql
@@ -429,55 +429,270 @@ $$;
 GRANT EXECUTE ON FUNCTION public.is_current_user_active() TO authenticated;
 
 
--- Guard 1: Prevent non-active users from posting new jobs
+-- -----------------------------------------------------------------------------
+-- 7.1 JOBS (Replace existing INSERT policies with ONE canonical policy)
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Authenticated users can post jobs" ON public.jobs;
 DROP POLICY IF EXISTS "Active users can insert jobs" ON public.jobs;
-CREATE POLICY "Active users can insert jobs"
+
+CREATE POLICY "Authenticated users can post jobs"
   ON public.jobs
   FOR INSERT
-  WITH CHECK (auth.uid() = posted_by AND public.is_current_user_active());
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = posted_by
+    AND public.is_current_user_active()
+  );
 
 
--- Guard 2: Prevent non-active users from submitting job applications
+-- -----------------------------------------------------------------------------
+-- 7.2 JOB APPLICATIONS (Replace existing INSERT policies with ONE canonical policy)
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Applicants can submit application" ON public.job_applications;
 DROP POLICY IF EXISTS "Active users can insert job applications" ON public.job_applications;
-CREATE POLICY "Active users can insert job applications"
+
+CREATE POLICY "Applicants can submit application"
   ON public.job_applications
   FOR INSERT
-  WITH CHECK (auth.uid() = applicant_id AND public.is_current_user_active());
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = applicant_id
+    AND public.is_current_user_active()
+  );
 
 
--- Guard 3: Prevent non-active users from sending new hire requests
+-- -----------------------------------------------------------------------------
+-- 7.3 HIRING REQUESTS (Replace existing INSERT policies with ONE canonical policy)
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Clients can post hiring requests" ON public.hiring_requests;
 DROP POLICY IF EXISTS "Active users can insert hiring requests" ON public.hiring_requests;
-CREATE POLICY "Active users can insert hiring requests"
+
+CREATE POLICY "Clients can post hiring requests"
   ON public.hiring_requests
   FOR INSERT
-  WITH CHECK (auth.uid() = client_id AND public.is_current_user_active());
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = client_id
+    AND public.is_current_user_active()
+  );
 
 
--- Guard 4: Prevent non-active users from creating deal proposals
-DROP POLICY IF EXISTS "Active users can insert deal proposals" ON public.deal_proposals;
-CREATE POLICY "Active users can insert deal proposals"
-  ON public.deal_proposals
-  FOR INSERT
-  WITH CHECK (auth.uid() = proposed_by AND public.is_current_user_active());
-
-
--- Guard 5: Prevent non-active users from creating normal direct messages
+-- -----------------------------------------------------------------------------
+-- 7.4 MESSAGES (Replace ALL existing/legacy message INSERT policies with ONE canonical policy)
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Conversation participants can send messages" ON public.messages;
+DROP POLICY IF EXISTS "Participants can send messages" ON public.messages;
+DROP POLICY IF EXISTS "Users in conversation can send messages" ON public.messages;
+DROP POLICY IF EXISTS "Members can send message content" ON public.messages;
 DROP POLICY IF EXISTS "Active users can insert messages" ON public.messages;
-CREATE POLICY "Active users can insert messages"
+
+CREATE POLICY "Conversation participants can send messages"
   ON public.messages
   FOR INSERT
-  WITH CHECK (auth.uid() = sender_id AND public.is_current_user_active());
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = sender_id
+    AND public.is_current_user_active()
+    AND EXISTS (
+      SELECT 1
+      FROM public.conversations c
+      WHERE c.id = conversation_id
+        AND c.archived_at IS NULL
+        AND (
+          c.creator_id = auth.uid()
+          OR c.member_id = auth.uid()
+          OR EXISTS (
+            SELECT 1
+            FROM public.conversation_members cm
+            WHERE cm.conversation_id = c.id
+              AND cm.user_id = auth.uid()
+          )
+        )
+    )
+  );
 
 
--- Guard 6: Prevent non-active users from creating negotiation messages
+-- -----------------------------------------------------------------------------
+-- 7.5 DEAL PROPOSALS & NEGOTIATION MESSAGES (Remove direct INSERT policies, enforce in RPCs)
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Active users can insert deal proposals" ON public.deal_proposals;
 DROP POLICY IF EXISTS "Active users can insert negotiation messages" ON public.negotiation_messages;
-CREATE POLICY "Active users can insert negotiation messages"
-  ON public.negotiation_messages
-  FOR INSERT
-  WITH CHECK (auth.uid() = sender_id AND public.is_current_user_active());
+
+-- Override submit_deal_proposal RPC to enforce active account status
+CREATE OR REPLACE FUNCTION public.submit_deal_proposal(
+  p_request_id uuid,
+  p_work_title text,
+  p_work_description text,
+  p_final_price numeric,
+  p_payment_type text DEFAULT 'fixed',
+  p_work_date date DEFAULT NULL,
+  p_start_time time DEFAULT NULL,
+  p_duration text DEFAULT NULL,
+  p_location text DEFAULT NULL,
+  p_additional_terms text DEFAULT NULL
+)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_request public.hiring_requests%ROWTYPE;
+  v_room public.negotiation_rooms%ROWTYPE;
+  v_version integer;
+  v_proposal_id uuid;
+  v_client_resp text;
+  v_worker_resp text;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  IF NOT public.is_current_user_active() THEN
+    RAISE EXCEPTION 'Account is deactivated or non-active.';
+  END IF;
+
+  SELECT * INTO v_request
+  FROM public.hiring_requests
+  WHERE id = p_request_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Hiring request not found.';
+  END IF;
+
+  IF v_user_id != v_request.client_id AND v_user_id != v_request.worker_id THEN
+    RAISE EXCEPTION 'Not authorized to submit proposal for this hiring request.';
+  END IF;
+
+  SELECT * INTO v_room
+  FROM public.negotiation_rooms
+  WHERE hiring_request_id = p_request_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Negotiation room not found.';
+  END IF;
+
+  SELECT COALESCE(MAX(proposal_version), 0) + 1 INTO v_version
+  FROM public.deal_proposals
+  WHERE hiring_request_id = p_request_id;
+
+  IF v_user_id = v_request.client_id THEN
+    v_client_resp := 'accepted';
+    v_worker_resp := 'pending';
+  ELSE
+    v_client_resp := 'pending';
+    v_worker_resp := 'accepted';
+  END IF;
+
+  INSERT INTO public.deal_proposals (
+    hiring_request_id,
+    negotiation_room_id,
+    proposed_by,
+    proposal_version,
+    work_title,
+    work_description,
+    final_price,
+    payment_type,
+    work_date,
+    start_time,
+    duration,
+    location,
+    additional_terms,
+    client_response,
+    worker_response,
+    status
+  ) VALUES (
+    p_request_id,
+    v_room.id,
+    v_user_id,
+    v_version,
+    trim(p_work_title),
+    trim(p_work_description),
+    p_final_price,
+    COALESCE(p_payment_type, 'fixed'),
+    p_work_date,
+    p_start_time,
+    p_duration,
+    p_location,
+    p_additional_terms,
+    v_client_resp,
+    v_worker_resp,
+    'pending'
+  )
+  RETURNING id INTO v_proposal_id;
+
+  UPDATE public.hiring_requests
+  SET status = 'proposal_pending',
+      updated_at = now()
+  WHERE id = p_request_id;
+
+  RETURN json_build_object('success', true, 'proposal_id', v_proposal_id, 'proposal_version', v_version);
+END;
+$$;
 
 
--- Guard 7: Prevent non-active users from making worker profile publicly visible
+-- Override send_negotiation_message RPC to enforce active account status
+CREATE OR REPLACE FUNCTION public.send_negotiation_message(p_room_id uuid, p_text text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_room public.negotiation_rooms%ROWTYPE;
+  v_msg_id uuid;
+  v_created_at timestamp with time zone;
+  v_clean_text text;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  IF NOT public.is_current_user_active() THEN
+    RAISE EXCEPTION 'Account is deactivated or non-active.';
+  END IF;
+
+  v_clean_text := trim(p_text);
+  IF v_clean_text IS NULL OR char_length(v_clean_text) = 0 THEN
+    RAISE EXCEPTION 'Message text cannot be empty.';
+  END IF;
+
+  IF char_length(v_clean_text) > 5000 THEN
+    RAISE EXCEPTION 'Message text exceeds maximum length of 5000 characters.';
+  END IF;
+
+  SELECT * INTO v_room
+  FROM public.negotiation_rooms
+  WHERE id = p_room_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Negotiation room not found.';
+  END IF;
+
+  IF v_user_id != v_room.client_id AND v_user_id != v_room.worker_id THEN
+    RAISE EXCEPTION 'Not authorized to send messages in this negotiation room.';
+  END IF;
+
+  INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_text)
+  VALUES (p_room_id, v_user_id, v_clean_text)
+  RETURNING id, created_at INTO v_msg_id, v_created_at;
+
+  UPDATE public.negotiation_rooms
+  SET updated_at = now()
+  WHERE id = p_room_id;
+
+  RETURN json_build_object('success', true, 'message_id', v_msg_id, 'created_at', v_created_at);
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- 7.6 WORKER PROFILE PUBLIC VISIBILITY TRIGGER
+-- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.check_worker_profile_visibility()
 RETURNS trigger
 LANGUAGE plpgsql
