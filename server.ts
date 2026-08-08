@@ -725,26 +725,9 @@ app.post("/api/record-login", async (req, res) => {
     const { auth_provider, session_fingerprint } = req.body || {};
     const parsed = parseUserAgent(userAgent);
 
-    // Create user-scoped Supabase client with verified JWT token header so auth.uid() in Postgres resolves to user ID
-    const supabaseAnonKey =
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.VITE_SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      "";
-    if (!supabaseAnonKey) {
-      console.warn("Supabase anon key is missing for user-scoped client.");
-      return res.status(500).json({ error: "Server authentication client misconfigured" });
-    }
-
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-
-    const { data: rpcRes, error: rpcErr } = await userClient.rpc("record_login_activity", {
+    // Invoke record_login_activity via trusted supabaseAdmin (service role) with verified user.id
+    const { data: rpcRes, error: rpcErr } = await supabaseAdmin.rpc("record_login_activity", {
+      p_user_id: user.id,
       p_ip_address: (rawIp && rawIp !== "127.0.0.1" && rawIp !== "::1") ? rawIp : null,
       p_country: null,
       p_region: null,

@@ -2800,18 +2800,7 @@ export const dbService = {
       });
 
       if (!response.ok) {
-        await supabase.rpc('record_login_activity', {
-          p_ip_address: null,
-          p_country: null,
-          p_region: null,
-          p_city: null,
-          p_device_type: 'Desktop',
-          p_os: 'Windows',
-          p_browser: 'Chrome',
-          p_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-          p_auth_provider: authProvider || session.user?.app_metadata?.provider || 'email',
-          p_session_fingerprint: fingerprint || session.access_token.slice(-32)
-        });
+        console.warn('recordLoginActivity server endpoint returned status:', response.status);
       }
     } catch (err) {
       console.warn('recordLoginActivity error:', err);

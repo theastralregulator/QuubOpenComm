@@ -1,5 +1,5 @@
 -- Migration: 20260809_account_deactivation_and_login_activity.sql
--- Description: Add Safe Account Deactivation, User Login Activity, and Canonical RLS / RPC Active Account Guards
+-- Description: Add Safe Account Deactivation, Server-Only Login Activity, and Canonical RLS / RPC Active Account Guards
 
 -- =========================================================================
 -- 1. ACCOUNT DEACTIVATION SCHEMA & STATUS CONSTRAINTS
@@ -129,21 +129,23 @@ BEGIN
   FROM public.work_contracts
   WHERE client_id = v_user_id OR worker_id = v_user_id;
 
-  -- 2. Active hire commitments (hiring_requests with unfulfilled commitments)
+  -- 2. Genuine committed hire requests (mutually accepted/negotiating/confirmed but contract not completed)
+  -- Note: Unaccepted 'pending' requests DO NOT block deactivation; they are auto-withdrawn upon deactivation.
   SELECT COALESCE(COUNT(*), 0) INTO v_active_hire_commitments
   FROM public.hiring_requests hr
   LEFT JOIN public.work_contracts wc ON hr.work_contract_id = wc.id
   WHERE (hr.client_id = v_user_id OR hr.worker_id = v_user_id)
-    AND hr.status IN ('pending', 'accepted', 'negotiating', 'proposal_pending', 'changes_requested', 'confirmed')
+    AND hr.status IN ('accepted', 'negotiating', 'proposal_pending', 'changes_requested', 'confirmed')
     AND (hr.work_contract_id IS NULL OR wc.status NOT IN ('completed', 'cancelled'));
 
-  -- 3. Active application commitments (job_applications with unfulfilled commitments)
+  -- 3. Genuine committed job applications (mutually accepted/negotiating/confirmed but contract not completed)
+  -- Note: Unaccepted ('pending', 'under_review', 'shortlisted') applications DO NOT block deactivation; they are auto-cleaned.
   SELECT COALESCE(COUNT(*), 0) INTO v_active_app_commitments
   FROM public.job_applications ja
   JOIN public.jobs j ON ja.job_id = j.id
   LEFT JOIN public.work_contracts wc ON ja.work_contract_id = wc.id
   WHERE (ja.applicant_id = v_user_id OR j.posted_by = v_user_id)
-    AND ja.status IN ('pending', 'under_review', 'shortlisted', 'accepted', 'negotiating', 'proposal_pending', 'changes_requested', 'confirmed')
+    AND ja.status IN ('accepted', 'negotiating', 'proposal_pending', 'changes_requested', 'confirmed')
     AND (ja.work_contract_id IS NULL OR wc.status NOT IN ('completed', 'cancelled'));
 
   v_can_deactivate := (
@@ -202,6 +204,22 @@ BEGIN
   IF NOT v_can_deactivate THEN
     RAISE EXCEPTION 'Account deactivation blocked by unresolved work commitments: %', v_eligibility->'blockers';
   END IF;
+
+  -- Auto-cleanup non-committed pending applications submitted by the user (mark as withdrawn)
+  UPDATE public.job_applications
+  SET status = 'withdrawn', updated_at = now()
+  WHERE applicant_id = v_user_id AND status IN ('pending', 'under_review', 'shortlisted');
+
+  -- Auto-cleanup non-committed pending applications submitted to the user's jobs (mark as rejected)
+  UPDATE public.job_applications ja
+  SET status = 'rejected', updated_at = now()
+  FROM public.jobs j
+  WHERE ja.job_id = j.id AND j.posted_by = v_user_id AND ja.status IN ('pending', 'under_review', 'shortlisted');
+
+  -- Auto-cleanup unaccepted pending hire requests involving the user (mark as withdrawn)
+  UPDATE public.hiring_requests
+  SET status = 'withdrawn', updated_at = now()
+  WHERE (client_id = v_user_id OR worker_id = v_user_id) AND status = 'pending';
 
   -- Archive user's active job posts (setting both is_active = false and status = 'archived')
   UPDATE public.jobs
@@ -282,7 +300,7 @@ GRANT EXECUTE ON FUNCTION public.reactivate_my_account() TO authenticated;
 
 
 -- =========================================================================
--- 6. USER LOGIN ACTIVITY TABLE & RPC
+-- 6. USER LOGIN ACTIVITY TABLE & RPC (SERVER-WRITE ONLY)
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS public.user_login_activity (
@@ -320,8 +338,9 @@ REVOKE INSERT, UPDATE, DELETE ON public.user_login_activity FROM anon, authentic
 GRANT SELECT ON public.user_login_activity TO authenticated;
 
 
--- SECURITY DEFINER RPC to record authenticated user login events
+-- TRUSTED SERVER RPC to record authenticated user login events
 CREATE OR REPLACE FUNCTION public.record_login_activity(
+  p_user_id uuid,
   p_ip_address text DEFAULT NULL,
   p_country text DEFAULT NULL,
   p_region text DEFAULT NULL,
@@ -339,13 +358,11 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_user_id uuid;
   v_existing_id uuid;
   v_ip_inet inet;
 BEGIN
-  v_user_id := auth.uid();
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated';
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'User ID is required.';
   END IF;
 
   -- Cast IP string safely to inet
@@ -363,7 +380,7 @@ BEGIN
   IF p_session_fingerprint IS NOT NULL AND p_session_fingerprint != '' THEN
     SELECT id INTO v_existing_id
     FROM public.user_login_activity
-    WHERE user_id = v_user_id
+    WHERE user_id = p_user_id
       AND session_fingerprint = p_session_fingerprint
       AND logged_in_at > (now() - interval '15 minutes')
     ORDER BY logged_in_at DESC
@@ -392,7 +409,7 @@ BEGIN
       session_fingerprint,
       is_current_hint
     ) VALUES (
-      v_user_id,
+      p_user_id,
       now(),
       v_ip_inet,
       p_country,
@@ -413,7 +430,9 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.record_login_activity TO authenticated;
+-- Revoke write/execute access from client roles; grant ONLY to service_role
+REVOKE ALL ON FUNCTION public.record_login_activity(uuid, text, text, text, text, text, text, text, text, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_login_activity(uuid, text, text, text, text, text, text, text, text, text, text) TO service_role;
 
 
 -- =========================================================================
