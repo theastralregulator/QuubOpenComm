@@ -293,6 +293,11 @@ BEGIN
 END;
 $$;
 
+-- Enable Supabase Cron before creating the archive scheduler.
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+GRANT USAGE ON SCHEMA cron TO postgres;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cron TO postgres;
+
 -- Supabase Cron uses cron.schedule rather than direct cron.job writes. Existing
 -- jobs are altered in place, so rerunning this migration cannot create duplicates.
 -- If pg_cron is unavailable, the function remains installed and the scheduler
