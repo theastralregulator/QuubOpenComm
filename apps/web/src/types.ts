@@ -441,3 +441,35 @@ export interface UserSettings {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface UserLoginActivity {
+  id: string;
+  user_id: string;
+  logged_in_at: string;
+  ip_address?: string | null;
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+  device_type?: string | null;
+  os?: string | null;
+  browser?: string | null;
+  user_agent?: string | null;
+  auth_provider?: string | null;
+  session_fingerprint?: string | null;
+  is_current_hint?: boolean | null;
+  created_at: string;
+}
+
+export interface DeactivationBlockers {
+  active_contracts: number;
+  pending_completion: number;
+  pending_cancellation: number;
+  disputed_contracts: number;
+  active_hire_commitments: number;
+  active_application_commitments: number;
+}
+
+export interface DeactivationStatusResponse {
+  can_deactivate: boolean;
+  blockers: DeactivationBlockers;
+}

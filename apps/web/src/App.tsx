@@ -58,6 +58,7 @@ import { useUnreadCounts } from './lib/unreadService';
 import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE } from './data/countryCodes';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
+import ReactivateAccountModal from './components/auth/ReactivateAccountModal';
 
 // Import our new legal pages and footer
 import TermsPage from './components/legal/TermsPage';
@@ -119,6 +120,7 @@ export default function App() {
   // Custom states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [isAccountDeactivated, setIsAccountDeactivated] = useState(false);
   
   // Router Hooks
   const location = useLocation();
@@ -921,6 +923,15 @@ export default function App() {
       }
     }
     
+    // Account status deactivation check
+    if (profile?.account_status === 'deactivated') {
+      setIsAccountDeactivated(true);
+    } else {
+      setIsAccountDeactivated(false);
+      // Record login activity idempotently for active sessions
+      dbService.recordLoginActivity();
+    }
+
     // Verification status must come only from Supabase Auth
     const isVerified = Boolean(user?.email_confirmed_at || user?.confirmed_at);
     setIsEmailVerified(isVerified);
@@ -2477,6 +2488,25 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* REACTIVATE ACCOUNT MODAL FOR DEACTIVATED ACCOUNTS */}
+      {isAccountDeactivated && (
+        <ReactivateAccountModal
+          onReactivated={() => {
+            setIsAccountDeactivated(false);
+            if (supabase) {
+              supabase.auth.getSession().then(({ data: { session } }: any) => {
+                if (session) syncUserSession(session);
+              });
+            }
+          }}
+          onSignOut={() => {
+            if (supabase) supabase.auth.signOut();
+            handleLogoutCleanState();
+            setIsAccountDeactivated(false);
+          }}
+        />
+      )}
 
       {/* STICKY TOP NAVBAR */}
       {!isAdminRoute && (

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
-import { ConversationViewModel, DbMessage } from '../types';
+import { ConversationViewModel, DbMessage, UserLoginActivity, DeactivationStatusResponse } from '../types';
 import { normalizeJobType } from './jobType';
 import { UserSettings } from '../types';
 import { clearProfileCache } from './profileService';
@@ -98,7 +98,7 @@ export interface LocalProfile {
   latitude?: number;
   longitude?: number;
   preferred_language: string;
-  account_status: 'active' | 'disabled';
+  account_status: 'active' | 'deactivated' | 'suspended' | 'under_review' | 'disabled';
   profile_type: 'basic' | 'worker' | 'company';
   is_worker_listed?: boolean;
   signup_status?: 'pending_verification' | 'completed';
@@ -2710,6 +2710,112 @@ export const dbService = {
       return null;
     }
     return data;
+  },
+
+  // Account Deactivation & Reactivation
+  async getAccountDeactivationStatus(): Promise<DeactivationStatusResponse> {
+    if (supabase) {
+      const { data, error } = await supabase.rpc('get_account_deactivation_status');
+      if (error) {
+        console.error('get_account_deactivation_status error:', error);
+        throw new Error(error.message);
+      }
+      return data as DeactivationStatusResponse;
+    }
+    return {
+      can_deactivate: true,
+      blockers: {
+        active_contracts: 0,
+        pending_completion: 0,
+        pending_cancellation: 0,
+        disputed_contracts: 0,
+        active_hire_commitments: 0,
+        active_application_commitments: 0
+      }
+    };
+  },
+
+  async deactivateMyAccount(): Promise<{ success: boolean; message: string }> {
+    if (supabase) {
+      const { data, error } = await supabase.rpc('deactivate_my_account');
+      if (error) {
+        console.error('deactivate_my_account error:', error);
+        throw new Error(error.message);
+      }
+      clearProfileCache();
+      return data;
+    }
+    return { success: true, message: 'Account deactivated (local).' };
+  },
+
+  async reactivateMyAccount(): Promise<{ success: boolean; message: string }> {
+    if (supabase) {
+      const { data, error } = await supabase.rpc('reactivate_my_account');
+      if (error) {
+        console.error('reactivate_my_account error:', error);
+        throw new Error(error.message);
+      }
+      clearProfileCache();
+      return data;
+    }
+    return { success: true, message: 'Account reactivated (local).' };
+  },
+
+  // Login Activity
+  async getLoginActivity(): Promise<UserLoginActivity[]> {
+    if (supabase) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('user_login_activity')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('logged_in_at', { ascending: false })
+        .limit(20);
+      if (error) {
+        console.error('getLoginActivity error:', error);
+        return [];
+      }
+      return (data || []) as UserLoginActivity[];
+    }
+    return [];
+  },
+
+  async recordLoginActivity(authProvider?: string, fingerprint?: string): Promise<void> {
+    if (!supabase) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !session.access_token) return;
+
+      const response = await fetch('/api/record-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          auth_provider: authProvider || session.user?.app_metadata?.provider || 'email',
+          session_fingerprint: fingerprint || session.access_token.slice(-32)
+        })
+      });
+
+      if (!response.ok) {
+        await supabase.rpc('record_login_activity', {
+          p_ip_address: null,
+          p_country: null,
+          p_region: null,
+          p_city: null,
+          p_device_type: 'Desktop',
+          p_os: 'Windows',
+          p_browser: 'Chrome',
+          p_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+          p_auth_provider: authProvider || session.user?.app_metadata?.provider || 'email',
+          p_session_fingerprint: fingerprint || session.access_token.slice(-32)
+        });
+      }
+    } catch (err) {
+      console.warn('recordLoginActivity error:', err);
+    }
   }
 };
 

@@ -3,15 +3,41 @@ import { useNavigate } from 'react-router-dom';
 import {
   User, Eye, Lock, Palette, Bell, LifeBuoy, ShieldCheck,
   ChevronRight, Sun, Moon, Monitor, Save, Loader2, CheckCircle2,
-  AlertCircle, LogOut, Clock, Send, ArrowLeft
+  AlertCircle, LogOut, Clock, Send, ArrowLeft,
+  Laptop, Smartphone, Tablet, ExternalLink, ShieldAlert
 } from 'lucide-react';
 import { supabase, dbService, SupportTicket, LocalProfile } from '../../lib/supabase';
 import { notificationService, NotificationPreferences } from '../../lib/notificationService';
-import { UserSettings } from '../../types';
+import { UserSettings, UserLoginActivity, DeactivationStatusResponse } from '../../types';
 
 /* ------------------------------------------------------------------ */
 /* Helpers / sub-components                                             */
 /* ------------------------------------------------------------------ */
+
+function maskIpAddress(ip?: string | null): string {
+  if (!ip || ip === '127.0.0.1' || ip === '::1') return 'Hidden IP';
+  if (ip.includes('.')) {
+    const parts = ip.split('.');
+    if (parts.length === 4) return `${parts[0]}.xxx.xxx.${parts[3]}`;
+  }
+  if (ip.includes(':')) {
+    const parts = ip.split(':');
+    if (parts.length >= 2) return `${parts[0]}:xxxx:xxxx:${parts[parts.length - 1]}`;
+  }
+  return 'Protected IP';
+}
+
+function formatLocation(activity: UserLoginActivity): string {
+  const parts = [activity.city, activity.region, activity.country].filter(Boolean);
+  if (parts.length > 0) return parts.join(', ');
+  return 'Location unavailable';
+}
+
+function formatDeviceTitle(activity: UserLoginActivity): string {
+  const browser = activity.browser || 'Browser';
+  const os = activity.os || 'Device';
+  return `${browser} on ${os}`;
+}
 
 function SectionHeader({ icon: Icon, title, description }: {
   icon: React.ElementType;
@@ -196,6 +222,80 @@ export default function SettingsPage() {
   const [submittingTicket, setSubmittingTicket] = useState(false);
   const [ticketSuccess, setTicketSuccess] = useState<string | null>(null);
   const [ticketError, setTicketError] = useState<string | null>(null);
+
+  // ── Login Activity & Deactivation State ─────────────────────────────
+  const [loginActivities, setLoginActivities] = useState<UserLoginActivity[]>([]);
+  const [loadingLogins, setLoadingLogins] = useState(false);
+  const [signingOutOthers, setSigningOutOthers] = useState(false);
+
+  const [deactivationModalOpen, setDeactivationModalOpen] = useState(false);
+  const [deactivationStep, setDeactivationStep] = useState<'checking' | 'blocked' | 'confirm'>('checking');
+  const [deactivationStatus, setDeactivationStatus] = useState<DeactivationStatusResponse | null>(null);
+  const [deactivateConfirmInput, setDeactivateConfirmInput] = useState('');
+  const [deactivatingAccount, setDeactivatingAccount] = useState(false);
+  const [deactivationError, setDeactivationError] = useState<string | null>(null);
+
+  const fetchLogins = useCallback(async () => {
+    setLoadingLogins(true);
+    try {
+      const logs = await dbService.getLoginActivity();
+      setLoginActivities(logs);
+    } catch (err) {
+      console.error('Failed to load login activity:', err);
+    } finally {
+      setLoadingLogins(false);
+    }
+  }, []);
+
+  const handleSignOutOthers = async () => {
+    setSigningOutOthers(true);
+    try {
+      if (supabase) {
+        await supabase.auth.signOut({ scope: 'others' });
+      }
+      alert('Successfully signed out of all other active sessions.');
+    } catch (err: any) {
+      console.error('Sign out other sessions error:', err);
+    } finally {
+      setSigningOutOthers(false);
+    }
+  };
+
+  const handleStartDeactivationFlow = async () => {
+    setDeactivationModalOpen(true);
+    setDeactivationStep('checking');
+    setDeactivateConfirmInput('');
+    setDeactivationError(null);
+    try {
+      const statusRes = await dbService.getAccountDeactivationStatus();
+      setDeactivationStatus(statusRes);
+      if (!statusRes.can_deactivate) {
+        setDeactivationStep('blocked');
+      } else {
+        setDeactivationStep('confirm');
+      }
+    } catch (err: any) {
+      console.error('Deactivation check failed:', err);
+      setDeactivationError(err?.message || 'Failed to check deactivation status.');
+      setDeactivationStep('confirm');
+    }
+  };
+
+  const handleConfirmDeactivation = async () => {
+    if (deactivateConfirmInput.trim().toUpperCase() !== 'DEACTIVATE') return;
+    setDeactivatingAccount(true);
+    setDeactivationError(null);
+    try {
+      await dbService.deactivateMyAccount();
+      setDeactivationModalOpen(false);
+      handleLogout();
+    } catch (err: any) {
+      console.error('Failed to deactivate account:', err);
+      setDeactivationError(err?.message || 'Failed to deactivate account. Please try again.');
+    } finally {
+      setDeactivatingAccount(false);
+    }
+  };
 
   // ── Fetch all data ─────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -667,7 +767,7 @@ export default function SettingsPage() {
   );
 
   const renderSecurity = () => (
-    <div>
+    <div className="space-y-6">
       <SectionHeader icon={ShieldCheck} title="Security" description="Manage your account security and authentication" />
       <Card>
         <div className="space-y-0">
@@ -719,6 +819,292 @@ export default function SettingsPage() {
           </button>
         </div>
       </Card>
+
+      {/* LOGIN ACTIVITY */}
+      <Card>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Login Activity</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Recent successful OpenComm login sessions</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSignOutOthers}
+            disabled={signingOutOthers}
+            className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] border border-[#2563EB]/30 hover:bg-[#2563EB]/5 px-3.5 py-1.5 rounded-xl transition-all disabled:opacity-50 cursor-pointer"
+          >
+            {signingOutOthers ? 'Revoking…' : 'Sign out other sessions'}
+          </button>
+        </div>
+
+        {loadingLogins ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin text-[#2563EB]" />
+          </div>
+        ) : loginActivities.length === 0 ? (
+          <div className="text-center py-6 text-xs text-slate-500 dark:text-slate-400">
+            Current session recorded. Activity history will populate as logins occur.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {loginActivities.map((act, idx) => {
+              const isCurrent = idx === 0 || act.is_current_hint === true;
+              const DeviceIcon = act.device_type === 'Mobile' ? Smartphone : act.device_type === 'Tablet' ? Tablet : Laptop;
+              return (
+                <div key={act.id || idx} className="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-[#0d1524]/40">
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                    <div className="w-9 h-9 rounded-xl bg-slate-200/60 dark:bg-slate-800 flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300">
+                      <DeviceIcon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white truncate">{formatDeviceTitle(act)}</span>
+                        {isCurrent && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            Current
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5 truncate">
+                        <span>{formatLocation(act)}</span>
+                        <span>•</span>
+                        <span>{new Date(act.logged_in_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(act.logged_in_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">{maskIpAddress(act.ip_address)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* ACCOUNT STATUS & DEACTIVATION */}
+      <Card>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Account Status</h3>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 capitalize">
+                {profile?.account_status || 'Active'}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleStartDeactivationFlow}
+            disabled={deactivatingAccount}
+            className="text-xs font-semibold text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 px-4 py-2 rounded-xl transition-all cursor-pointer"
+          >
+            Deactivate Account
+          </button>
+        </div>
+      </Card>
+
+      {/* DEACTIVATION MODALS */}
+      {deactivationModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="w-full max-w-lg bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-3xl shadow-2xl overflow-hidden p-6 sm:p-8">
+            {deactivationStep === 'checking' && (
+              <div className="text-center py-8">
+                <Loader2 className="w-8 h-8 animate-spin text-[#2563EB] mx-auto mb-3" />
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Checking account eligibility…</p>
+              </div>
+            )}
+
+            {deactivationStep === 'blocked' && (
+              <div>
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-4">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
+                  Account deactivation is currently unavailable
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  You have unfinished work commitments.
+                </p>
+
+                <div className="space-y-2 mb-6">
+                  {deactivationStatus?.blockers.active_contracts! > 0 && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs">
+                      <span className="font-semibold text-amber-800 dark:text-amber-300">
+                        {deactivationStatus.blockers.active_contracts} Active Contract{deactivationStatus.blockers.active_contracts > 1 ? 's' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeactivationModalOpen(false); navigate('/contracts'); }}
+                        className="font-bold text-[#2563EB] dark:text-[#60A5FA] underline flex items-center gap-1 cursor-pointer"
+                      >
+                        Manage Contract <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {deactivationStatus?.blockers.pending_completion! > 0 && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs">
+                      <span className="font-semibold text-amber-800 dark:text-amber-300">
+                        {deactivationStatus.blockers.pending_completion} Completion Request Pending
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeactivationModalOpen(false); navigate('/contracts'); }}
+                        className="font-bold text-[#2563EB] dark:text-[#60A5FA] underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View Work <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {deactivationStatus?.blockers.pending_cancellation! > 0 && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs">
+                      <span className="font-semibold text-amber-800 dark:text-amber-300">
+                        {deactivationStatus.blockers.pending_cancellation} Cancellation Request Pending
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeactivationModalOpen(false); navigate('/contracts'); }}
+                        className="font-bold text-[#2563EB] dark:text-[#60A5FA] underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View Work <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {deactivationStatus?.blockers.disputed_contracts! > 0 && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs">
+                      <span className="font-semibold text-red-800 dark:text-red-300">
+                        {deactivationStatus.blockers.disputed_contracts} Disputed Contract{deactivationStatus.blockers.disputed_contracts > 1 ? 's' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeactivationModalOpen(false); navigate('/contracts'); }}
+                        className="font-bold text-[#2563EB] dark:text-[#60A5FA] underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View Work <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {deactivationStatus?.blockers.active_hire_commitments! > 0 && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs">
+                      <span className="font-semibold text-amber-800 dark:text-amber-300">
+                        {deactivationStatus.blockers.active_hire_commitments} Active Hire Commitment{deactivationStatus.blockers.active_hire_commitments > 1 ? 's' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeactivationModalOpen(false); navigate('/hire-requests'); }}
+                        className="font-bold text-[#2563EB] dark:text-[#60A5FA] underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View Hire Requests <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {deactivationStatus?.blockers.active_application_commitments! > 0 && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs">
+                      <span className="font-semibold text-amber-800 dark:text-amber-300">
+                        {deactivationStatus.blockers.active_application_commitments} Active Application Commitment{deactivationStatus.blockers.active_application_commitments > 1 ? 's' : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeactivationModalOpen(false); navigate('/my-applications'); }}
+                        className="font-bold text-[#2563EB] dark:text-[#60A5FA] underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View Applications <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setDeactivationModalOpen(false)}
+                    className="px-5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {deactivationStep === 'confirm' && (
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">
+                  Deactivate Your Account?
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
+                  Deactivating your account takes your profile offline temporarily. You can reactivate anytime by logging back in.
+                </p>
+
+                <div className="p-3.5 mb-5 rounded-2xl bg-slate-50 dark:bg-[#0d1524] border border-slate-100 dark:border-slate-800 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                  <p className="flex items-start gap-2">
+                    <span className="text-amber-500 font-bold">•</span>
+                    Profile and worker listing will be hidden from public discovery.
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-amber-500 font-bold">•</span>
+                    Active job posts will be archived.
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-amber-500 font-bold">•</span>
+                    Users will no longer be able to hire, contact, or apply through this account.
+                  </p>
+                  <p className="flex items-start gap-2">
+                    <span className="text-emerald-500 font-bold">•</span>
+                    Historical contracts, conversations, and reviews remain safely stored.
+                  </p>
+                </div>
+
+                <div className="mb-5">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                    Type <span className="font-bold text-slate-900 dark:text-white">DEACTIVATE</span> to confirm:
+                  </label>
+                  <input
+                    type="text"
+                    value={deactivateConfirmInput}
+                    onChange={e => setDeactivateConfirmInput(e.target.value)}
+                    placeholder="DEACTIVATE"
+                    className="w-full text-sm rounded-xl border border-slate-200 dark:border-[#273449] bg-slate-50 dark:bg-[#0d1524] text-slate-800 dark:text-slate-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]"
+                  />
+                </div>
+
+                {deactivationError && (
+                  <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{deactivationError}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setDeactivationModalOpen(false)}
+                    disabled={deactivatingAccount}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeactivation}
+                    disabled={deactivateConfirmInput.trim().toUpperCase() !== 'DEACTIVATE' || deactivatingAccount}
+                    className="px-5 py-2 rounded-xl bg-amber-600 text-white text-xs font-semibold shadow hover:bg-amber-700 transition-all disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {deactivatingAccount && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {deactivatingAccount ? 'Deactivating…' : 'DEACTIVATE'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
     </div>
   );
 

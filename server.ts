@@ -670,6 +670,86 @@ app.get("/verify-email", async (req, res) => {
   res.send(renderSuccessHtml(redirectAction));
 });
 
+// User-Agent parser helper
+function parseUserAgent(ua: string): { os: string; browser: string; deviceType: string } {
+  let os = 'Unknown OS';
+  let browser = 'Unknown Browser';
+  let deviceType = 'Desktop';
+
+  if (!ua) return { os, browser, deviceType };
+
+  if (/mobile/i.test(ua)) deviceType = 'Mobile';
+  else if (/tablet|ipad/i.test(ua)) deviceType = 'Tablet';
+
+  if (/windows/i.test(ua)) os = 'Windows';
+  else if (/macintosh|mac os x/i.test(ua)) os = 'macOS';
+  else if (/iphone|ipad|ipod/i.test(ua)) { os = 'iOS'; deviceType = /ipad/i.test(ua) ? 'Tablet' : 'Mobile'; }
+  else if (/android/i.test(ua)) { os = 'Android'; deviceType = 'Mobile'; }
+  else if (/cros/i.test(ua)) os = 'ChromeOS';
+  else if (/linux/i.test(ua)) os = 'Linux';
+
+  if (/edg/i.test(ua)) browser = 'Edge';
+  else if (/samsungbrowser/i.test(ua)) browser = 'Samsung Internet';
+  else if (/chrome|crios/i.test(ua)) browser = 'Chrome';
+  else if (/firefox|fxios/i.test(ua)) browser = 'Firefox';
+  else if (/safari/i.test(ua) && !/chrome|crios/i.test(ua)) browser = 'Safari';
+  else if (/opr\//i.test(ua)) browser = 'Opera';
+
+  return { os, browser, deviceType };
+}
+
+// Endpoint: Record authenticated user login activity
+app.post("/api/record-login", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Missing or invalid authorization token" });
+    }
+    const token = authHeader.slice(7).trim();
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: "Server authentication client unavailable" });
+    }
+
+    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(token);
+    if (authErr || !user) {
+      return res.status(401).json({ error: "Invalid or expired session token" });
+    }
+
+    let rawIp = (req.headers["x-forwarded-for"] as string || "").split(",")[0].trim() || req.socket.remoteAddress || "";
+    if (rawIp.startsWith("::ffff:")) {
+      rawIp = rawIp.substring(7);
+    }
+
+    const userAgent = req.headers["user-agent"] || "";
+    const { auth_provider, session_fingerprint } = req.body || {};
+    const parsed = parseUserAgent(userAgent);
+
+    const { data: rpcRes, error: rpcErr } = await supabaseAdmin.rpc("record_login_activity", {
+      p_ip_address: (rawIp && rawIp !== "127.0.0.1" && rawIp !== "::1") ? rawIp : null,
+      p_country: null,
+      p_region: null,
+      p_city: null,
+      p_device_type: parsed.deviceType,
+      p_os: parsed.os,
+      p_browser: parsed.browser,
+      p_user_agent: userAgent,
+      p_auth_provider: auth_provider || user.app_metadata?.provider || "email",
+      p_session_fingerprint: session_fingerprint || null
+    });
+
+    if (rpcErr) {
+      console.warn("record_login_activity RPC warning:", rpcErr.message);
+      return res.status(500).json({ error: rpcErr.message });
+    }
+
+    return res.json(rpcRes || { success: true });
+  } catch (err: any) {
+    console.error("Error in /api/record-login:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+
 // Serve frontend through Vite in dev, or statically in prod
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
