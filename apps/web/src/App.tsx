@@ -574,7 +574,7 @@ export default function App() {
 
   // Form states for Post a Job
   const [newJobTitle, setNewJobTitle] = useState('');
-  const [newJobCompany, setNewJobCompany] = useState('');
+  const [newJobWorkersNeeded, setNewJobWorkersNeeded] = useState<number>(1);
   const [newJobSalary, setNewJobSalary] = useState('');
   const [newJobLocation, setNewJobLocation] = useState('');
   const [newJobLocationData, setNewJobLocationData] = useState<any>({});
@@ -587,10 +587,14 @@ export default function App() {
   const [jobFormError, setJobFormError] = useState<string | null>(null);
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
 
+  // Bookmark double-tap lock refs
+  const savingJobIdsRef = useRef<Set<string>>(new Set());
+  const savingWorkerIdsRef = useRef<Set<string>>(new Set());
+
   const openEditJobModal = (jobToEdit: Job) => {
     setEditingJob(jobToEdit);
     setNewJobTitle(jobToEdit.title || '');
-    setNewJobCompany(jobToEdit.company || '');
+    setNewJobWorkersNeeded(jobToEdit.workers_needed || 1);
     setNewJobSalary(jobToEdit.salary || '');
     setNewJobLocation(jobToEdit.location || '');
     setNewJobCategory(jobToEdit.category || 'Developer');
@@ -979,6 +983,21 @@ export default function App() {
         profile.onboarding_completed = true;
       }
     }
+
+    // Parallel load authenticated user's saved jobs and saved workers
+    try {
+      const [savedJobIds, savedWorkerIds] = await Promise.all([
+        dbService.getSavedJobIds(userId),
+        dbService.getSavedWorkerIds(userId)
+      ]);
+      const savedJobSet = new Set(savedJobIds);
+      const savedWorkerSet = new Set(savedWorkerIds);
+
+      setJobs(prev => prev.map(j => ({ ...j, bookmarked: savedJobSet.has(j.id) })));
+      setWorkers(prev => prev.map(w => ({ ...w, bookmarked: savedWorkerSet.has(w.id) })));
+    } catch (err) {
+      console.warn('Failed to load saved items for user:', err);
+    }
   };
 
   function clearSignupTempState(forceClearPending = false) {
@@ -1088,6 +1107,10 @@ export default function App() {
     
     localStorage.removeItem('opencomm_username');
     setUserIdState(null);
+
+    // Clear saved-state flags for previous user
+    setJobs(prev => prev.map(j => ({ ...j, bookmarked: false })));
+    setWorkers(prev => prev.map(w => ({ ...w, bookmarked: false })));
 
     // Force public DOM root back to Light Theme immediately
     const root = document.documentElement;
@@ -2027,29 +2050,97 @@ export default function App() {
   // --- ACTIONS ---
   const toggleBookmark = (jobId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    requireAuth('Save Jobs', () => {
-      setJobs(prev => prev.map(j => {
-        if (j.id === jobId) {
-          const nextState = !j.bookmarked;
-          triggerToast(nextState ? `Saved "${j.title}" to bookmarks.` : `Removed "${j.title}" from bookmarks.`);
-          return { ...j, bookmarked: nextState };
+    requireAuth('Save Jobs', async () => {
+      if (savingJobIdsRef.current.has(jobId)) return;
+      savingJobIdsRef.current.add(jobId);
+
+      const targetJob = jobs.find(j => j.id === jobId);
+      if (!targetJob) {
+        savingJobIdsRef.current.delete(jobId);
+        return;
+      }
+
+      const currentlySaved = Boolean(targetJob.bookmarked);
+      const nextState = !currentlySaved;
+
+      // Optimistic update
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: nextState } : j));
+
+      try {
+        const currentUserId = userIdState || (await supabase.auth.getUser()).data.user?.id || '';
+        if (!currentUserId) {
+          triggerToast('Please sign in to save jobs.');
+          setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: currentlySaved } : j));
+          return;
         }
-        return j;
-      }));
+        let success = false;
+        if (nextState) {
+          success = await dbService.saveJobId(currentUserId, jobId);
+        } else {
+          success = await dbService.removeSavedJobId(currentUserId, jobId);
+        }
+
+        if (!success) {
+          // Rollback on failure
+          setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: currentlySaved } : j));
+          triggerToast('Failed to update saved item');
+        } else {
+          triggerToast(nextState ? `Saved "${targetJob.title}" to bookmarks.` : `Removed "${targetJob.title}" from bookmarks.`);
+        }
+      } catch (err) {
+        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, bookmarked: currentlySaved } : j));
+        triggerToast('Failed to update saved item');
+      } finally {
+        savingJobIdsRef.current.delete(jobId);
+      }
     });
   };
 
   const toggleWorkerBookmark = (workerId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    requireAuth('Save Workers', () => {
-      setWorkers(prev => prev.map(w => {
-        if (w.id === workerId) {
-          const nextState = !(w as any).bookmarked;
-          triggerToast(nextState ? `Saved "${w.name}" to bookmarked professionals.` : `Removed "${w.name}" from bookmarks.`);
-          return { ...w, bookmarked: nextState };
+    requireAuth('Save Workers', async () => {
+      if (savingWorkerIdsRef.current.has(workerId)) return;
+      savingWorkerIdsRef.current.add(workerId);
+
+      const targetWorker = workers.find(w => w.id === workerId);
+      if (!targetWorker) {
+        savingWorkerIdsRef.current.delete(workerId);
+        return;
+      }
+
+      const currentlySaved = Boolean((targetWorker as any).bookmarked);
+      const nextState = !currentlySaved;
+
+      // Optimistic update
+      setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: nextState } : w));
+
+      try {
+        const currentUserId = userIdState || (await supabase.auth.getUser()).data.user?.id || '';
+        if (!currentUserId) {
+          triggerToast('Please sign in to save professionals.');
+          setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: currentlySaved } : w));
+          return;
         }
-        return w;
-      }));
+        let success = false;
+        if (nextState) {
+          success = await dbService.saveWorkerId(currentUserId, workerId);
+        } else {
+          success = await dbService.removeSavedWorkerId(currentUserId, workerId);
+        }
+
+        if (!success) {
+          // Rollback on failure
+          setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: currentlySaved } : w));
+          triggerToast('Failed to update saved item');
+        } else {
+          triggerToast(nextState ? `Saved "${targetWorker.name}" to bookmarked professionals.` : `Removed "${targetWorker.name}" from bookmarks.`);
+        }
+      } catch (err) {
+        setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, bookmarked: currentlySaved } : w));
+        triggerToast('Failed to update saved item');
+      } finally {
+        savingWorkerIdsRef.current.delete(workerId);
+      }
     });
   };
 
@@ -2127,7 +2218,6 @@ export default function App() {
     // Validation
     const missingFields = [];
     if (!newJobTitle.trim()) missingFields.push('Job Title');
-    if (!newJobCompany.trim()) missingFields.push('Company');
     if (!newJobSalary.trim()) missingFields.push('Salary or Budget');
     if (!newJobDeadline.trim()) missingFields.push('Application Deadline');
     if (!newJobLocation.trim()) missingFields.push('Location');
@@ -2159,7 +2249,7 @@ export default function App() {
 
     const jobPayload = {
       title: newJobTitle.trim(),
-      company: newJobCompany.trim(),
+      workers_needed: Math.max(1, Math.min(100, Math.floor(Number(newJobWorkersNeeded || 1)))),
       salary: newJobSalary.includes('₹') ? newJobSalary : `₹${newJobSalary}`,
       location: newJobLocation.trim(),
       category: newJobCategory,
@@ -2964,6 +3054,7 @@ export default function App() {
               >
                 <SavedJobsPage 
                   jobs={jobs}
+                  currentUserId={userIdState || undefined}
                   toggleBookmark={toggleBookmark}
                   handleApplyJob={handleApplyJob}
                   onExplore={() => navigate('/jobs')}
@@ -3324,18 +3415,36 @@ export default function App() {
                       placeholder="Job title or role"
                       value={newJobTitle}
                       onChange={(e) => setNewJobTitle(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 font-semibold"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Company / Household Name</label>
-                    <input 
-                      type="text" 
-                      placeholder="Company name"
-                      value={newJobCompany}
-                      onChange={(e) => setNewJobCompany(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                    />
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Workers Needed</label>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewJobWorkersNeeded(prev => Math.max(1, prev - 1))}
+                        className="w-9 h-9 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={newJobWorkersNeeded}
+                        onChange={(e) => setNewJobWorkersNeeded(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                        className="w-20 text-center px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs font-bold focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNewJobWorkersNeeded(prev => Math.min(100, prev + 1))}
+                        className="w-9 h-9 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        +
+                      </button>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Position(s)</span>
+                    </div>
                   </div>
                 </div>
 

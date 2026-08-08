@@ -1635,14 +1635,19 @@ export const dbService = {
               datePosted: new Date(job.created_at).toLocaleDateString(),
               applicationDeadline: job.application_deadline || job.deadline || job.expires_at || null,
               is_active: job.is_active !== undefined ? job.is_active : true,
+              workers_needed: job.workers_needed || 1,
+              filled_positions: job.filled_positions || 0,
+              status: job.status || (job.is_active ? 'active' : 'closed'),
+              closed_at: job.closed_at || null,
+              archive_after: job.archive_after || null,
               posted_by: job.posted_by,
               created_at: job.created_at
             };
           });
 
-          // Apply 4-day post-deadline public visibility rule
+          // Apply 4-day post-deadline public visibility rule & archived check
           return mapped.filter(j => {
-            if (j.is_active === false) return false;
+            if (j.is_active === false || j.status === 'archived') return false;
             if (j.applicationDeadline) {
               const dTime = new Date(j.applicationDeadline).getTime();
               if (!isNaN(dTime) && nowTime > (dTime + FOUR_DAYS_MS)) {

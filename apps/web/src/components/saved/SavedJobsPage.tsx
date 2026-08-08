@@ -6,6 +6,7 @@ import SharedApplicationModal from '../jobs/SharedApplicationModal';
 
 interface SavedJobsPageProps {
   jobs: Job[];
+  currentUserId?: string;
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
   handleApplyJob: (id: string, bidOrEvent?: any, note?: string) => void;
   onExplore: () => void;
@@ -13,6 +14,7 @@ interface SavedJobsPageProps {
 
 export default function SavedJobsPage({
   jobs,
+  currentUserId,
   toggleBookmark,
   handleApplyJob,
   onExplore,
@@ -63,6 +65,10 @@ export default function SavedJobsPage({
               salaryRange={job.salary}
               category={job.category}
               jobType={job.jobType}
+              workersNeeded={job.workers_needed}
+              filledPositions={job.filled_positions}
+              status={job.status}
+              isActive={job.is_active}
               created_at={job.created_at || job.datePosted}
               applicationDeadline={job.applicationDeadline}
               saved={job.bookmarked}
@@ -80,7 +86,7 @@ export default function SavedJobsPage({
           isOpen={true}
           onClose={() => setApplyingJob(null)}
           jobId={applyingJob.id}
-          applicantId="user" // This is a mock ID for logged in user in this context, or pass it via props. Since this page uses generic handleApplyJob, we just need it to trigger.
+          applicantId={currentUserId || ''}
           jobSalary={applyingJob.salary}
           onSuccess={(appId) => {
             handleApplyJob(applyingJob.id, applyingJob.salary, 'Applied via Saved Jobs');

@@ -28,6 +28,9 @@ export interface JobCardProps {
   isActive?: boolean;
   isSubmitting?: boolean;
   applicationDeadline?: string;
+  workersNeeded?: number;
+  filledPositions?: number;
+  status?: string;
   onSave: (id: string, e: React.MouseEvent) => void;
   onViewDetails: () => void;
   onApply: (id: string, e: React.MouseEvent) => void;
@@ -55,6 +58,9 @@ export default function JobCard({
   isActive = true,
   isSubmitting = false,
   applicationDeadline,
+  workersNeeded = 1,
+  filledPositions = 0,
+  status: jobStatus,
   onSave,
   onViewDetails,
   onApply,
@@ -65,7 +71,8 @@ export default function JobCard({
   const [copied, setCopied] = useState(false);
 
   const dateRangeInfo = getJobDateRangeInfo(created_at, applicationDeadline);
-  const isClosed = !isActive || dateRangeInfo.isExpired;
+  const isJobFull = filledPositions >= workersNeeded;
+  const isClosed = !isActive || dateRangeInfo.isExpired || jobStatus === 'closed' || isJobFull;
 
   const displayJobType = formatJobType(jobType || employmentType);
 
@@ -165,6 +172,18 @@ export default function JobCard({
         >
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
           <span>{label}</span>
+        </button>
+      );
+    }
+
+    if (isClosed) {
+      return (
+        <button
+          type="button"
+          onClick={onViewDetails}
+          className="h-10 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center space-x-1 cursor-pointer"
+        >
+          <span>{isJobFull ? 'Positions Filled' : 'Closed'}</span>
         </button>
       );
     }
@@ -284,14 +303,21 @@ export default function JobCard({
           </div>
         </div>
 
-        {/* Category & Job Type Tags */}
-        <div className="mt-3 flex flex-wrap gap-1">
+        {/* Category & Job Type Tags & Workers Needed Capacity */}
+        <div className="mt-3 flex flex-wrap gap-1 items-center">
           <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
             {category || 'Professional'}
           </span>
           <span className="text-[10px] font-bold tracking-wide bg-slate-100 dark:bg-slate-800/60 text-[#475569] dark:text-slate-300 px-2 py-0.5 rounded-full">
             {displayJobType}
           </span>
+          {workersNeeded > 1 && (
+            <span className={`text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full ${
+              isJobFull ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+            }`}>
+              {filledPositions} / {workersNeeded} Filled
+            </span>
+          )}
         </div>
       </div>
 

@@ -32,12 +32,24 @@ export default function SharedApplicationModal({
 
     setIsSubmitting(true);
     try {
-      if (supabase && applicantId) {
+      if (supabase) {
+        let realApplicantId = applicantId;
+        if (!realApplicantId || realApplicantId === 'user') {
+          const { data: { user } } = await supabase.auth.getUser();
+          realApplicantId = user?.id || '';
+        }
+
+        if (!realApplicantId) {
+          if (triggerToast) triggerToast('Please sign in to submit a job application.');
+          setIsSubmitting(false);
+          return;
+        }
+
         const { data: newApp, error: appError } = await supabase
           .from('job_applications')
           .insert({
             job_id: jobId,
-            applicant_id: applicantId,
+            applicant_id: realApplicantId,
             proposed_rate: bidRate.trim(),
             cover_letter: coverLetter.trim(),
             status: 'pending',

@@ -16,6 +16,11 @@ export interface Job {
   jobType?: string;
   posted_by?: string;
   is_active?: boolean;
+  workers_needed?: number;
+  filled_positions?: number;
+  status?: 'active' | 'closed' | 'archived';
+  closed_at?: string | null;
+  archive_after?: string | null;
   created_at?: string;
 }
 
