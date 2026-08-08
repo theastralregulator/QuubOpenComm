@@ -132,14 +132,25 @@ async function getFallbackCounts(userId: string): Promise<UnreadCounts> {
     ...(conversations || []).map((conversation: any) => conversation.id),
     ...(memberships || []).map((membership: any) => membership.conversation_id)
   ].filter(Boolean)));
+
   if (conversationIds.length > 0) {
-    const { count } = await supabase
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .in('conversation_id', conversationIds)
-      .neq('sender_id', userId)
-      .eq('unread', true);
-    messageCount = count || 0;
+    const { data: conversationStates } = await supabase
+      .from('conversations')
+      .select('id, archived_at')
+      .in('id', conversationIds);
+    const activeConversationIds = (conversationStates || [])
+      .filter((conversation: any) => !conversation.archived_at)
+      .map((conversation: any) => conversation.id);
+
+    if (activeConversationIds.length > 0) {
+      const { count } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .in('conversation_id', activeConversationIds)
+        .neq('sender_id', userId)
+        .eq('unread', true);
+      messageCount = count || 0;
+    }
   }
 
   const { data: unreadNotifications } = await supabase

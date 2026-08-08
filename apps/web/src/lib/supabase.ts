@@ -2210,7 +2210,8 @@ export const dbService = {
   },
 
 
-  async getMyConversations(): Promise<ConversationViewModel[]> {
+  async getMyConversations(options: { includeArchived?: boolean } = {}): Promise<ConversationViewModel[]> {
+    const includeArchived = options.includeArchived === true;
     if (!supabase) return [];
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return [];
@@ -2249,13 +2250,16 @@ export const dbService = {
       }
     }
 
-    const convRows = Array.from(
+    const allConvRows = Array.from(
       new Map([...(directConvRows || []), ...memberConvRows].map((row: any) => [row.id, row])).values()
     ).sort((a: any, b: any) => {
       const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
       const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
       return timeB - timeA;
     });
+    const convRows = includeArchived
+      ? allConvRows
+      : allConvRows.filter((row: any) => !row.archived_at);
 
     if (!convRows || convRows.length === 0) {
       return [];
@@ -2266,7 +2270,7 @@ export const dbService = {
 
     const jobIds = [...new Set(convRows.map((c: any) => c.job_id).filter(Boolean))];
     const contractIds = [...new Set(convRows.map((c: any) => c.work_contract_id).filter(Boolean))];
-    const convIds = convRows.map((c: any) => c.id);
+    const activeConvIds = convRows.filter((c: any) => !c.archived_at).map((c: any) => c.id);
 
     let profileMap = new Map();
     if (otherParticipantIds.length > 0) {
@@ -2329,11 +2333,11 @@ export const dbService = {
     }
 
     const unreadCountMap: Record<string, number> = {};
-    if (convIds.length > 0) {
+    if (activeConvIds.length > 0) {
       const { data: unreadRows, error: unreadError } = await supabase
         .from('messages')
         .select('conversation_id')
-        .in('conversation_id', convIds)
+        .in('conversation_id', activeConvIds)
         .neq('sender_id', user.id)
         .eq('unread', true);
       if (unreadError) {
@@ -2376,7 +2380,10 @@ export const dbService = {
         unreadCount: unreadCountMap[c.id] || 0,
         createdAt: c.created_at,
         conversationType: c.conversation_type,
-        workContractId: c.work_contract_id
+        workContractId: c.work_contract_id,
+        archiveScheduledAt: c.archive_scheduled_at || null,
+        archivedAt: c.archived_at || null,
+        archiveReason: c.archive_reason || null
       };
     });
 

@@ -106,6 +106,9 @@ export interface DbConversation {
   created_at: string;
   conversation_type?: 'application' | 'worker_direct' | 'work_contract' | 'direct';
   work_contract_id?: string;
+  archive_scheduled_at?: string | null;
+  archived_at?: string | null;
+  archive_reason?: string | null;
 }
 
 export interface ConversationViewModel {
@@ -125,6 +128,9 @@ export interface ConversationViewModel {
   createdAt: string;
   conversationType?: 'application' | 'worker_direct' | 'work_contract' | 'direct';
   workContractId?: string;
+  archiveScheduledAt?: string | null;
+  archivedAt?: string | null;
+  archiveReason?: string | null;
 }
 
 export interface Conversation {

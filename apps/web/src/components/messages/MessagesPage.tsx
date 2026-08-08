@@ -87,7 +87,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 1. Authenticate user & load conversations
-  const loadConversations = async () => {
+  const loadConversations = async (includeArchived = Boolean(conversationId)) => {
     setLoadingConvs(true);
     setConvsError(null);
     try {
@@ -100,7 +100,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       }
       setCurrentUserId(user.id);
 
-      const convList = await dbService.getMyConversations();
+      const convList = await dbService.getMyConversations({ includeArchived });
       handleSetConversations(convList);
     } catch (err: any) {
       console.error('Error loading conversations:', err);
@@ -111,7 +111,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   };
 
   useEffect(() => {
-    loadConversations();
+    loadConversations(Boolean(conversationId));
   }, []);
 
   // Active conversation selection
@@ -137,7 +137,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           await dbService.markConversationRead(conversationId!);
           await unreadService.refresh(currentUserId);
           // Refresh conversation list to update unread badge counts
-          const updatedConvs = await dbService.getMyConversations();
+          const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
           if (isMounted) handleSetConversations(updatedConvs);
         }
       } catch (err: any) {
@@ -161,7 +161,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     let isMounted = true;
 
     const refreshConversations = async () => {
-      const updatedConvs = await dbService.getMyConversations();
+      const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
       if (isMounted) handleSetConversations(updatedConvs);
     };
 
@@ -211,7 +211,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   // 5. Send Text Message
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!conversationId || !chatInput.trim() || isSending) return;
+    if (!conversationId || activeConv?.archivedAt || !chatInput.trim() || isSending) return;
 
     const textToSend = chatInput.trim();
     const tempId = `temp-${Date.now()}`;
@@ -229,7 +229,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           return [...prev, sentMsg];
         });
         // Refresh conversations list to update preview
-        const updatedConvs = await dbService.getMyConversations();
+        const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
         handleSetConversations(updatedConvs);
       }
     } catch (err: any) {
@@ -248,10 +248,39 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     }
   };
 
+  const archiveStatus = useMemo(() => {
+    if (!activeConv) return null;
+    if (activeConv.archivedAt) {
+      return { message: 'This work conversation has been archived.', remaining: null };
+    }
+    if (!activeConv.archiveScheduledAt) return null;
+
+    const reason = activeConv.archiveReason === 'cancelled' ? 'cancelled' : 'completed';
+    const remainingMs = new Date(activeConv.archiveScheduledAt).getTime() - Date.now();
+    const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    const remaining = remainingMs > 0
+      ? remainingMinutes >= 60
+        ? `${Math.floor(remainingMinutes / 60)}h remaining`
+        : `${remainingMinutes}m remaining`
+      : 'soon';
+
+    return {
+      message: reason === 'cancelled'
+        ? 'Work cancelled. This conversation will be archived within 24 hours.'
+        : 'Work completed. This conversation will be archived within 24 hours.',
+      remaining
+    };
+  }, [activeConv]);
+
+  const inboxConversations = useMemo(
+    () => conversations.filter((conversation) => !conversation.archivedAt),
+    [conversations]
+  );
+
   const groupedConversations = useMemo(() => {
     const groupMap = new Map<string, ConversationGroup>();
 
-    conversations.forEach(c => {
+    inboxConversations.forEach(c => {
       const pid = c.otherParticipantId;
       const actTime = c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : (c.createdAt ? new Date(c.createdAt).getTime() : 0);
       
@@ -289,7 +318,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     groups.sort((a, b) => b.latestActivityTime - a.latestActivityTime);
     return groups;
-  }, [conversations]);
+  }, [inboxConversations]);
 
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groupedConversations;
@@ -396,7 +425,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
                 <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{convsError}</p>
                 <button
-                  onClick={loadConversations}
+                  onClick={() => loadConversations(Boolean(conversationId))}
                   className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg"
                 >
                   Retry
@@ -537,6 +566,17 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 <span>Keep communication professional and never share sensitive payment details.</span>
               </div>
 
+              {archiveStatus && (
+                <div className={`px-4 py-2 border-b text-[11px] font-semibold flex items-center justify-center gap-2 shrink-0 ${
+                  activeConv.archivedAt
+                    ? 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'
+                    : 'bg-amber-50 dark:bg-amber-950/30 border-amber-100 dark:border-amber-900/50 text-amber-700 dark:text-amber-300'
+                }`}>
+                  <span>{archiveStatus.message}</span>
+                  {archiveStatus.remaining && <span className="font-bold whitespace-nowrap">({archiveStatus.remaining})</span>}
+                </div>
+              )}
+
               {/* Messages Thread Content - Only this section scrolls */}
               <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30 touch-pan-y overscroll-contain">
                 {loadingMessages ? (
@@ -631,7 +671,12 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               </div>
 
               {/* Redesigned Compact Composer - Fixed at Bottom */}
-              <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
+              {activeConv.archivedAt ? (
+                <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-[#0E1320] text-center text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                  This work conversation has been archived.
+                </div>
+              ) : (
+                <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-full px-3 py-1.5 focus-within:border-blue-500 transition-colors">
                   <textarea
                     ref={textareaRef}
@@ -660,7 +705,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     )}
                   </button>
                 </div>
-              </form>
+                </form>
+              )}
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3 text-slate-400">
