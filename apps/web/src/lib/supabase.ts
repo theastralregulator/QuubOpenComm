@@ -2357,6 +2357,7 @@ export const dbService = {
           : jobTitle,
         lastMessageText: c.last_message_text || 'No messages yet',
         lastMessageTime: lastTimeFormatted,
+        lastMessageAt: c.last_message_time || c.created_at,
         unreadCount: unreadCountMap[c.id] || 0,
         createdAt: c.created_at,
         conversationType: c.conversation_type,

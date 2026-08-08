@@ -253,7 +253,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     conversations.forEach(c => {
       const pid = c.otherParticipantId;
-      const actTime = c.createdAt ? new Date(c.createdAt).getTime() : 0;
+      const actTime = c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : (c.createdAt ? new Date(c.createdAt).getTime() : 0);
       
       if (!groupMap.has(pid)) {
         groupMap.set(pid, {
@@ -281,8 +281,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     const groups = Array.from(groupMap.values());
     groups.forEach(g => {
       g.conversations.sort((a, b) => {
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
         return timeB - timeA;
       });
     });
@@ -378,7 +378,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           </div>
 
           {/* Conversations Scroll Area */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y pb-4 divide-y divide-slate-100 dark:divide-slate-800/50">
+          <div className="flex-1 min-h-0 overflow-y-auto touch-pan-y pb-24 md:pb-4 divide-y divide-slate-100 dark:divide-slate-800/50">
             {loadingConvs ? (
               <div className="p-4 space-y-4 animate-pulse">
                 {[1, 2, 3].map((i) => (
@@ -459,7 +459,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       
                       {isMulti ? (
                         <p className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 truncate mb-1">
-                          {group.conversations.map(c => c.otherParticipantTitle || (c.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')).join(' • ')}
+                          {group.conversations.length} conversations
                         </p>
                       ) : (
                         <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate mb-1">

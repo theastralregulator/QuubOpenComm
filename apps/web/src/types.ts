@@ -120,6 +120,7 @@ export interface ConversationViewModel {
   otherParticipantTitle: string; // Job title
   lastMessageText: string;
   lastMessageTime: string;
+  lastMessageAt: string;
   unreadCount: number;
   createdAt: string;
   conversationType?: 'application' | 'worker_direct' | 'work_contract' | 'direct';
