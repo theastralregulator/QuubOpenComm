@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Conversation } from '../../types';
 import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile, formatWorkerRate } from '../../lib/supabase';
-import { unreadService } from '../../lib/unreadService';
+import { unreadService, useUnreadCounts } from '../../lib/unreadService';
+import { notificationService, NotificationItem } from '../../lib/notificationService';
 import { getPublicProfileById, clearProfileCache } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
@@ -66,6 +67,80 @@ export const BUILTIN_BANNERS = [
 export const getBannerClass = (bannerId?: string) => {
   const found = BUILTIN_BANNERS.find(b => b.id === bannerId);
   return found ? found.class : BUILTIN_BANNERS[0].class;
+};
+
+const AttentionSection = ({ currentUserId, navigate }: { currentUserId: string, navigate: any }) => {
+  const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
+  const { workflowCount } = useUnreadCounts(currentUserId);
+
+  React.useEffect(() => {
+    if (!currentUserId) return;
+    notificationService.getMyNotifications({ unreadOnly: true, limit: 100 }).then(setNotifications);
+  }, [currentUserId, workflowCount]);
+
+  if (!currentUserId || workflowCount === 0 || notifications.length === 0) return null;
+
+  const appReceived = notifications.filter(n => ['application_submitted', 'application_received'].includes(n.type));
+  const hireReq = notifications.filter(n => n.type === 'hire_request_received');
+  const appUpdates = notifications.filter(n => ['application_accepted', 'application_rejected', 'application_withdrawn', 'application_shortlisted', 'application_negotiation_started'].includes(n.type));
+  const negUpdates = notifications.filter(n => ['hire_request_accepted', 'hire_request_rejected', 'hire_request_declined', 'hire_proposal_submitted', 'hire_proposal_responded', 'negotiation_updated', 'deal_confirmed', 'deal_proposal_received'].includes(n.type));
+  const contractActions = notifications.filter(n => ['contract_created', 'contract_cancelled', 'contract_cancellation', 'work_started', 'work_completed', 'completion_confirmed', 'contract_completion', 'contract_cancellation_requested', 'contract_signature_required'].includes(n.type));
+  const reviews = notifications.filter(n => ['review_required', 'review_available', 'review_received'].includes(n.type));
+
+  const totalActionable = appReceived.length + hireReq.length + appUpdates.length + negUpdates.length + contractActions.length + reviews.length;
+  if (totalActionable === 0) return null;
+
+  const Row = ({ icon: Icon, label, items, defaultUrl }: { icon: any, label: string, items: NotificationItem[], defaultUrl: string }) => {
+    if (items.length === 0) return null;
+    const count = items.length;
+    const handleClick = () => {
+      if (count === 1 && items[0].target_url) {
+        navigate(items[0].target_url);
+      } else {
+        navigate(defaultUrl);
+      }
+    };
+
+    return (
+      <div
+        onClick={handleClick}
+        className="flex items-center justify-between p-3 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors mb-2"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-lg shrink-0 relative">
+            <Icon className="w-5 h-5" />
+            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white dark:border-[#111827]"></div>
+          </div>
+          <div>
+            <div className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center">
+              {label}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {count} new item{count > 1 ? 's' : ''} require{count === 1 ? 's' : ''} your attention
+            </div>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+      </div>
+    );
+  };
+
+  return (
+    <div className="mb-6 w-full max-w-5xl mx-auto px-1">
+      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center space-x-2 mb-3">
+        <AlertCircle className="w-4 h-4 text-red-500" />
+        <span>Needs your attention</span>
+      </h3>
+      <div className="space-y-1">
+        <Row icon={Briefcase} label="Applications Received" items={appReceived} defaultUrl="/profile/my-job-posts" />
+        <Row icon={Users} label="Direct Hire Requests" items={hireReq} defaultUrl="/profile/hire-requests" />
+        <Row icon={CheckCircle2} label="Job Application Updates" items={appUpdates} defaultUrl="/profile/jobs-applied" />
+        <Row icon={MessageSquare} label="Negotiation Updates" items={negUpdates} defaultUrl="/profile/hire-requests" />
+        <Row icon={FileText} label="Contract Actions" items={contractActions} defaultUrl="/profile/notifications" />
+        <Row icon={Star} label="Reviews Pending" items={reviews} defaultUrl="/profile/notifications" />
+      </div>
+    </div>
+  );
 };
 
 export default function ProfilePage({
@@ -914,6 +989,7 @@ export default function ProfilePage({
     if (isOwner) {
       return (
         <>
+          {loggedInId && <AttentionSection currentUserId={loggedInId} navigate={navigate} />}
           <BasicProfileDashboard
             profile={profile}
             username={username}
@@ -1098,6 +1174,10 @@ export default function ProfilePage({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
+
+      {isOwner && loggedInId && (
+        <AttentionSection currentUserId={loggedInId} navigate={navigate} />
+      )}
 
       {/* 1. GUEST GATEWAY BANNER (If not logged in) */}
       {!isLoggedIn && (
