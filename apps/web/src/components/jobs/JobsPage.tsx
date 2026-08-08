@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, SlidersHorizontal, ChevronDown, X,
@@ -8,6 +8,7 @@ import {
 import { Job } from '../../types';
 import JobCard from '../cards/JobCard';
 import { getDeadlineInfo } from '../../lib/deadline';
+import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import { supabase } from '../../lib/supabase';
 import SharedApplicationModal from './SharedApplicationModal';
 
@@ -38,6 +39,7 @@ export default function JobsPage({
 }: JobsPageProps) {
   const { jobId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Local fetch state
   const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
@@ -432,7 +434,12 @@ export default function JobsPage({
                       onSave={(id, e) => toggleBookmark(id, e)}
                       onViewDetails={() => navigate(`/jobs/${job.id}`)}
                       onApply={(id, e) => handleApplyClick(job, e)}
-                      onManageJob={() => navigate(`/profile/my-jobs`)}
+                      onManageJob={() => navigateWithOrigin(
+                        navigate,
+                        `/jobs/${job.id}/applications`,
+                        location,
+                        SESSION_STORAGE_KEYS.manageApplications(job.id)
+                      )}
                     />
                   );
                 })}
