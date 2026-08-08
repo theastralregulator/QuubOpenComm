@@ -12,6 +12,7 @@ import { Activity, Job, Worker, Message, JobApplication, ApplicationMessage, Con
 import { supabase, dbService, assertUserEmailConfirmed, LocalProfile, LocalWorkerProfile, LocalCompanyProfile, formatWorkerRate } from '../../lib/supabase';
 import { unreadService, useUnreadCounts } from '../../lib/unreadService';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
+import { isWorkflowNotificationType } from '../../lib/notificationCategories';
 import { getPublicProfileById, clearProfileCache } from '../../lib/profileService';
 import { analytics } from '../../lib/analytics';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
@@ -80,14 +81,36 @@ const AttentionSection = ({ currentUserId, navigate }: { currentUserId: string, 
 
   if (!currentUserId || workflowCount === 0 || notifications.length === 0) return null;
 
-  const appReceived = notifications.filter(n => ['application_submitted', 'application_received'].includes(n.type));
-  const hireReq = notifications.filter(n => n.type === 'hire_request_received');
-  const appUpdates = notifications.filter(n => ['application_accepted', 'application_rejected', 'application_withdrawn', 'application_shortlisted', 'application_negotiation_started'].includes(n.type));
-  const negUpdates = notifications.filter(n => ['hire_request_accepted', 'hire_request_rejected', 'hire_request_declined', 'hire_proposal_submitted', 'hire_proposal_responded', 'negotiation_updated', 'deal_confirmed', 'deal_proposal_received'].includes(n.type));
-  const contractActions = notifications.filter(n => ['contract_created', 'contract_cancelled', 'contract_cancellation', 'work_started', 'work_completed', 'completion_confirmed', 'contract_completion', 'contract_cancellation_requested', 'contract_signature_required'].includes(n.type));
-  const reviews = notifications.filter(n => ['review_required', 'review_available', 'review_received'].includes(n.type));
+  const workflowNotifs = notifications.filter(n => isWorkflowNotificationType(n.type));
 
-  const totalActionable = appReceived.length + hireReq.length + appUpdates.length + negUpdates.length + contractActions.length + reviews.length;
+  const appReceived = workflowNotifs.filter(n => ['application_submitted', 'application_received'].includes(n.type));
+  const hireReq = workflowNotifs.filter(n => n.type === 'hire_request_received');
+  
+  const appUpdates = workflowNotifs.filter(n => 
+    n.type.startsWith('application_') && !['application_submitted', 'application_received'].includes(n.type)
+  );
+  
+  const negUpdates = workflowNotifs.filter(n => 
+    (n.type.startsWith('hire_') && n.type !== 'hire_request_received') || 
+    n.type.startsWith('negotiation_') || 
+    n.type.startsWith('deal_')
+  );
+  
+  const contractActions = workflowNotifs.filter(n => 
+    n.type.startsWith('contract_') || 
+    n.type.startsWith('work_') || 
+    n.type === 'completion_confirmed'
+  );
+  
+  const reviews = workflowNotifs.filter(n => n.type.startsWith('review_'));
+
+  const knownTypes = new Set([
+    ...appReceived, ...hireReq, ...appUpdates, ...negUpdates, ...contractActions, ...reviews
+  ].map(n => n.id));
+
+  const otherUpdates = workflowNotifs.filter(n => !knownTypes.has(n.id));
+
+  const totalActionable = workflowNotifs.length;
   if (totalActionable === 0) return null;
 
   const Row = ({ icon: Icon, label, items, defaultUrl }: { icon: any, label: string, items: NotificationItem[], defaultUrl: string }) => {
@@ -138,6 +161,7 @@ const AttentionSection = ({ currentUserId, navigate }: { currentUserId: string, 
         <Row icon={MessageSquare} label="Negotiation Updates" items={negUpdates} defaultUrl="/profile/hire-requests" />
         <Row icon={FileText} label="Contract Actions" items={contractActions} defaultUrl="/profile/notifications" />
         <Row icon={Star} label="Reviews Pending" items={reviews} defaultUrl="/profile/notifications" />
+        <Row icon={Navigation} label="Other Updates" items={otherUpdates} defaultUrl="/profile/notifications" />
       </div>
     </div>
   );
