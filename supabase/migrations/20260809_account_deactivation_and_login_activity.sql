@@ -19,8 +19,10 @@ ALTER TABLE public.profiles
 
 
 -- =========================================================================
--- 2. PROFILE DIRECTORY SYNC TRIGGER FUNCTION ASSURANCE
+-- 2. PROFILE DIRECTORY SYNC TRIGGER FUNCTION ASSURANCE (PRIVACY-AWARE)
 -- =========================================================================
+
+ALTER TABLE public.profile_directory ADD COLUMN IF NOT EXISTS show_location_publicly boolean DEFAULT true;
 
 CREATE OR REPLACE FUNCTION public.sync_profile_directory()
 RETURNS trigger
@@ -39,12 +41,23 @@ BEGIN
       INSERT INTO public.profile_directory (
         id, username, full_name, avatar_url, banner_url, bio,
         city, state, country, preferred_language, profile_type,
-        onboarding_completed, created_at
+        show_location_publicly, onboarding_completed, created_at
       )
       VALUES (
-        NEW.id, NEW.username, NEW.full_name, NEW.avatar_url, NEW.banner_url, NEW.bio,
-        NEW.city, NEW.state, NEW.country, NEW.preferred_language, NEW.profile_type,
-        NEW.onboarding_completed, NEW.created_at
+        NEW.id,
+        NEW.username,
+        NEW.full_name,
+        NEW.avatar_url,
+        NEW.banner_url,
+        NEW.bio,
+        CASE WHEN COALESCE(NEW.show_location_publicly, true) THEN NEW.city ELSE NULL END,
+        CASE WHEN COALESCE(NEW.show_location_publicly, true) THEN NEW.state ELSE NULL END,
+        CASE WHEN COALESCE(NEW.show_location_publicly, true) THEN NEW.country ELSE NULL END,
+        NEW.preferred_language,
+        NEW.profile_type,
+        COALESCE(NEW.show_location_publicly, true),
+        NEW.onboarding_completed,
+        NEW.created_at
       )
       ON CONFLICT (id) DO UPDATE SET
         username = EXCLUDED.username,
@@ -52,11 +65,12 @@ BEGIN
         avatar_url = EXCLUDED.avatar_url,
         banner_url = EXCLUDED.banner_url,
         bio = EXCLUDED.bio,
-        city = EXCLUDED.city,
-        state = EXCLUDED.state,
-        country = EXCLUDED.country,
+        city = CASE WHEN COALESCE(EXCLUDED.show_location_publicly, true) THEN EXCLUDED.city ELSE NULL END,
+        state = CASE WHEN COALESCE(EXCLUDED.show_location_publicly, true) THEN EXCLUDED.state ELSE NULL END,
+        country = CASE WHEN COALESCE(EXCLUDED.show_location_publicly, true) THEN EXCLUDED.country ELSE NULL END,
         preferred_language = EXCLUDED.preferred_language,
         profile_type = EXCLUDED.profile_type,
+        show_location_publicly = EXCLUDED.show_location_publicly,
         onboarding_completed = EXCLUDED.onboarding_completed;
     ELSE
       -- Remove profile from directory if account_status is not active (e.g. deactivated, suspended, under_review)
@@ -513,23 +527,31 @@ CREATE POLICY "Conversation participants can send messages"
 
 
 -- -----------------------------------------------------------------------------
--- 7.5 DEAL PROPOSALS & NEGOTIATION MESSAGES (Remove direct INSERT policies, enforce in RPCs)
+-- 7.5 DEAL PROPOSALS & NEGOTIATION MESSAGES (Remove direct INSERT policies, preserve canonical RPCs with active guard)
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Active users can insert deal proposals" ON public.deal_proposals;
 DROP POLICY IF EXISTS "Active users can insert negotiation messages" ON public.negotiation_messages;
 
--- Override submit_deal_proposal RPC to enforce active account status
+-- Preserve exact canonical submit_deal_proposal implementation (Dual-Source & Overload Resolution)
+DROP FUNCTION IF EXISTS public.submit_deal_proposal(
+  uuid, text, text, numeric, text, date, time, text, text, text
+);
+DROP FUNCTION IF EXISTS public.submit_deal_proposal(
+  uuid, text, text, numeric, text, date, time, text, text, text, uuid
+);
+
 CREATE OR REPLACE FUNCTION public.submit_deal_proposal(
-  p_request_id uuid,
-  p_work_title text,
-  p_work_description text,
-  p_final_price numeric,
+  p_request_id uuid DEFAULT NULL,
+  p_work_title text DEFAULT '',
+  p_work_description text DEFAULT '',
+  p_final_price numeric DEFAULT 0,
   p_payment_type text DEFAULT 'fixed',
   p_work_date date DEFAULT NULL,
   p_start_time time DEFAULT NULL,
   p_duration text DEFAULT NULL,
   p_location text DEFAULT NULL,
-  p_additional_terms text DEFAULT NULL
+  p_additional_terms text DEFAULT NULL,
+  p_application_id uuid DEFAULT NULL
 )
 RETURNS json
 LANGUAGE plpgsql
@@ -539,7 +561,10 @@ AS $$
 DECLARE
   v_user_id uuid;
   v_request public.hiring_requests%ROWTYPE;
+  v_app RECORD;
   v_room public.negotiation_rooms%ROWTYPE;
+  v_client_id uuid;
+  v_worker_id uuid;
   v_version integer;
   v_proposal_id uuid;
   v_client_resp text;
@@ -554,31 +579,84 @@ BEGIN
     RAISE EXCEPTION 'Account is deactivated or non-active.';
   END IF;
 
-  SELECT * INTO v_request
-  FROM public.hiring_requests
-  WHERE id = p_request_id;
+  -- Validate exactly one input source is supplied
+  IF (p_request_id IS NULL AND p_application_id IS NULL) OR (p_request_id IS NOT NULL AND p_application_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'Exactly one of p_request_id or p_application_id must be provided.';
+  END IF;
+
+  IF p_application_id IS NOT NULL THEN
+    -- Job Application path
+    SELECT ja.id, ja.status, ja.applicant_id, ja.job_id, j.posted_by AS job_owner
+    INTO v_app
+    FROM public.job_applications ja
+    JOIN public.jobs j ON j.id = ja.job_id
+    WHERE ja.id = p_application_id
+    FOR UPDATE OF ja;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Job application not found.';
+    END IF;
+
+    v_client_id := v_app.job_owner;
+    v_worker_id := v_app.applicant_id;
+
+    IF v_client_id != v_user_id AND v_worker_id != v_user_id THEN
+      RAISE EXCEPTION 'Only employer or applicant can submit deal proposals.';
+    END IF;
+
+    SELECT * INTO v_room
+    FROM public.negotiation_rooms
+    WHERE job_application_id = p_application_id
+    FOR UPDATE;
+  ELSE
+    -- Direct Hire path
+    SELECT * INTO v_request
+    FROM public.hiring_requests
+    WHERE id = p_request_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Hiring request not found.';
+    END IF;
+
+    v_client_id := v_request.client_id;
+    v_worker_id := v_request.worker_id;
+
+    IF v_client_id != v_user_id AND v_worker_id != v_user_id THEN
+      RAISE EXCEPTION 'Only client or worker can submit deal proposals.';
+    END IF;
+
+    SELECT * INTO v_room
+    FROM public.negotiation_rooms
+    WHERE hiring_request_id = p_request_id
+    FOR UPDATE;
+  END IF;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Hiring request not found.';
+    RAISE EXCEPTION 'Active negotiation room required before submitting a deal proposal.';
   END IF;
 
-  IF v_user_id != v_request.client_id AND v_user_id != v_request.worker_id THEN
-    RAISE EXCEPTION 'Not authorized to submit proposal for this hiring request.';
+  IF v_room.status != 'active' THEN
+    RAISE EXCEPTION 'Negotiation room is locked or closed.';
   END IF;
 
-  SELECT * INTO v_room
-  FROM public.negotiation_rooms
-  WHERE hiring_request_id = p_request_id;
+  IF p_application_id IS NOT NULL THEN
+    SELECT COALESCE(MAX(version_number), 0) + 1 INTO v_version
+    FROM public.deal_proposals WHERE job_application_id = p_application_id;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Negotiation room not found.';
+    UPDATE public.deal_proposals
+    SET proposal_status = 'superseded', updated_at = now()
+    WHERE job_application_id = p_application_id AND proposal_status IN ('pending', 'changes_requested');
+  ELSE
+    SELECT COALESCE(MAX(version_number), 0) + 1 INTO v_version
+    FROM public.deal_proposals WHERE hiring_request_id = p_request_id;
+
+    UPDATE public.deal_proposals
+    SET proposal_status = 'superseded', updated_at = now()
+    WHERE hiring_request_id = p_request_id AND proposal_status IN ('pending', 'changes_requested');
   END IF;
 
-  SELECT COALESCE(MAX(proposal_version), 0) + 1 INTO v_version
-  FROM public.deal_proposals
-  WHERE hiring_request_id = p_request_id;
-
-  IF v_user_id = v_request.client_id THEN
+  IF v_user_id = v_client_id THEN
     v_client_resp := 'accepted';
     v_worker_resp := 'pending';
   ELSE
@@ -588,9 +666,10 @@ BEGIN
 
   INSERT INTO public.deal_proposals (
     hiring_request_id,
+    job_application_id,
     negotiation_room_id,
+    version_number,
     proposed_by,
-    proposal_version,
     work_title,
     work_description,
     final_price,
@@ -600,14 +679,17 @@ BEGIN
     duration,
     location,
     additional_terms,
+    proposal_status,
     client_response,
     worker_response,
-    status
+    client_responded_at,
+    worker_responded_at
   ) VALUES (
     p_request_id,
+    p_application_id,
     v_room.id,
-    v_user_id,
     v_version,
+    v_user_id,
     trim(p_work_title),
     trim(p_work_description),
     p_final_price,
@@ -617,25 +699,50 @@ BEGIN
     p_duration,
     p_location,
     p_additional_terms,
+    'pending',
     v_client_resp,
     v_worker_resp,
-    'pending'
-  )
-  RETURNING id INTO v_proposal_id;
+    CASE WHEN v_client_resp = 'accepted' THEN now() ELSE NULL END,
+    CASE WHEN v_worker_resp = 'accepted' THEN now() ELSE NULL END
+  ) RETURNING id INTO v_proposal_id;
 
-  UPDATE public.hiring_requests
-  SET status = 'proposal_pending',
-      updated_at = now()
-  WHERE id = p_request_id;
+  IF p_application_id IS NOT NULL THEN
+    UPDATE public.job_applications
+    SET active_proposal_id = v_proposal_id, status = 'proposal_pending', updated_at = now()
+    WHERE id = p_application_id;
+  ELSE
+    UPDATE public.hiring_requests
+    SET active_proposal_id = v_proposal_id, status = 'proposal_pending', updated_at = now()
+    WHERE id = p_request_id;
+  END IF;
 
-  RETURN json_build_object('success', true, 'proposal_id', v_proposal_id, 'proposal_version', v_version);
+  UPDATE public.negotiation_rooms SET updated_at = now() WHERE id = v_room.id;
+
+  INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_type, text, metadata)
+  VALUES (
+    v_room.id,
+    v_user_id,
+    'proposal_event',
+    'Submitted Final Deal Proposal (v' || v_version || ') for ₹' || p_final_price || '.',
+    jsonb_build_object('proposal_id', v_proposal_id, 'version', v_version, 'price', p_final_price)
+  );
+
+  RETURN json_build_object(
+    'proposal_id', v_proposal_id,
+    'version_number', v_version,
+    'status', 'pending',
+    'message', 'Deal proposal submitted successfully.'
+  );
 END;
 $$;
 
+REVOKE EXECUTE ON FUNCTION public.submit_deal_proposal(uuid, text, text, numeric, text, date, time, text, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_deal_proposal(uuid, text, text, numeric, text, date, time, text, text, text, uuid) TO authenticated;
 
--- Override send_negotiation_message RPC to enforce active account status
+
+-- Preserve exact canonical send_negotiation_message implementation
 CREATE OR REPLACE FUNCTION public.send_negotiation_message(p_room_id uuid, p_text text)
-RETURNS json
+RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, auth
@@ -667,27 +774,42 @@ BEGIN
 
   SELECT * INTO v_room
   FROM public.negotiation_rooms
-  WHERE id = p_room_id;
+  WHERE id = p_room_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Negotiation room not found.';
   END IF;
 
-  IF v_user_id != v_room.client_id AND v_user_id != v_room.worker_id THEN
-    RAISE EXCEPTION 'Not authorized to send messages in this negotiation room.';
+  IF v_room.client_id != v_user_id AND v_room.worker_id != v_user_id THEN
+    RAISE EXCEPTION 'You are not a participant in this negotiation room.';
   END IF;
 
-  INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_text)
-  VALUES (p_room_id, v_user_id, v_clean_text)
+  IF v_room.status != 'active' THEN
+    RAISE EXCEPTION 'This negotiation room is locked or closed.';
+  END IF;
+
+  INSERT INTO public.negotiation_messages (negotiation_room_id, sender_id, message_type, text)
+  VALUES (p_room_id, v_user_id, 'text', v_clean_text)
   RETURNING id, created_at INTO v_msg_id, v_created_at;
 
   UPDATE public.negotiation_rooms
-  SET updated_at = now()
+  SET last_message_at = now(), updated_at = now()
   WHERE id = p_room_id;
 
-  RETURN json_build_object('success', true, 'message_id', v_msg_id, 'created_at', v_created_at);
+  RETURN jsonb_build_object(
+    'id', v_msg_id,
+    'negotiation_room_id', p_room_id,
+    'sender_id', v_user_id,
+    'message_type', 'text',
+    'text', v_clean_text,
+    'created_at', v_created_at
+  );
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.send_negotiation_message(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.send_negotiation_message(uuid, text) TO authenticated;
 
 
 -- -----------------------------------------------------------------------------

@@ -726,9 +726,13 @@ app.post("/api/record-login", async (req, res) => {
     const parsed = parseUserAgent(userAgent);
 
     // Create user-scoped Supabase client with verified JWT token header so auth.uid() in Postgres resolves to user ID
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
+    const supabaseAnonKey =
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      "";
     if (!supabaseAnonKey) {
-      console.warn("NEXT_PUBLIC_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY is missing for user-scoped client.");
+      console.warn("Supabase anon key is missing for user-scoped client.");
       return res.status(500).json({ error: "Server authentication client misconfigured" });
     }
 
