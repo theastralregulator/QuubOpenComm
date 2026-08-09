@@ -200,20 +200,27 @@ export default function App() {
   const [showCreateProfile, setShowCreateProfile] = useState(false);
   const [showBasicWorkerIntroModal, setShowBasicWorkerIntroModal] = useState(false);
 
-  const handleBecomeWorkerFromIntro = () => {
+  const handleBecomeWorkerFromIntro = async () => {
     setShowBasicWorkerIntroModal(false);
     if (userIdState) {
       localStorage.setItem(`opencomm_basic_intro_seen_${userIdState}`, 'true');
-      dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
+      await dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
+
+      // Fresh idempotent worker profile existence check
+      const workerExists = await dbService.hasWorkerProfile(userIdState);
+      if (workerExists) {
+        triggerToast("You already have a Worker Profile.");
+        return;
+      }
     }
     setShowCreateProfile(true);
   };
 
-  const handleContinueBasicFromIntro = () => {
+  const handleContinueBasicFromIntro = async () => {
     setShowBasicWorkerIntroModal(false);
     if (userIdState) {
       localStorage.setItem(`opencomm_basic_intro_seen_${userIdState}`, 'true');
-      dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
+      await dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
     }
   };
 
@@ -1057,7 +1064,14 @@ export default function App() {
         profile.basic_account_intro_seen === false &&
         localStorage.getItem(`opencomm_basic_intro_seen_${userId}`) !== 'true'
       ) {
-        setShowBasicWorkerIntroModal(true);
+        dbService.hasWorkerProfile(userId).then(workerExists => {
+          if (workerExists) {
+            localStorage.setItem(`opencomm_basic_intro_seen_${userId}`, 'true');
+            dbService.updateProfile(userId, { basic_account_intro_seen: true }).catch(() => {});
+          } else {
+            setShowBasicWorkerIntroModal(true);
+          }
+        });
       }
     }
 
@@ -1562,6 +1576,8 @@ export default function App() {
           }
         }
 
+        const currentProfile = await dbService.getProfile(userId);
+        const existingIntroSeen = currentProfile?.basic_account_intro_seen ?? true;
         const profilePayload = {
           id: userId,
           full_name: formFullName,
@@ -1581,7 +1597,7 @@ export default function App() {
           account_status: 'active' as const,
           email_verified_for_actions: true,
           onboarding_completed: true,
-          basic_account_intro_seen: isWorker ? true : false,
+          basic_account_intro_seen: isWorker ? true : existingIntroSeen,
           whatsapp_preference: whatsappSameNumber,
           telegram_username: telegramUsername
         };
@@ -1640,8 +1656,11 @@ export default function App() {
         setIsAuthSubmitting(false);
         triggerToast("Profile onboarding completed successfully!");
 
-        if (!isWorker) {
-          setShowBasicWorkerIntroModal(true);
+        if (!isWorker && existingIntroSeen === false) {
+          const workerExists = await dbService.hasWorkerProfile(userId);
+          if (!workerExists) {
+            setShowBasicWorkerIntroModal(true);
+          }
         }
 
       } catch (err: any) {
@@ -2019,18 +2038,17 @@ export default function App() {
       triggerToast("Verification successful! Welcome to OpenComm.");
 
       if (!isWorker) {
-        setShowBasicWorkerIntroModal(true);
+        const workerExists = await dbService.hasWorkerProfile(verifiedUser.id);
+        if (!workerExists) {
+          setShowBasicWorkerIntroModal(true);
+        }
       }
-      navigate('/', { replace: true });
 
-      // 10. Replace navigation to home
+      // Single navigation decision
       const queryParams = new URLSearchParams(window.location.search);
       const redirectPath = queryParams.get('redirect');
-      if (redirectPath && redirectPath !== '/signup' && redirectPath !== '/login') {
-        navigate(redirectPath, { replace: true });
-      } else {
-        navigate('/', { replace: true });
-      }
+      const targetPath = (redirectPath && redirectPath !== '/signup' && redirectPath !== '/login') ? redirectPath : '/';
+      navigate(targetPath, { replace: true });
 
     } catch (err: any) {
       console.error("VERIFY OTP EXCEPTION:", err);

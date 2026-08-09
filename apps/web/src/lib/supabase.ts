@@ -1022,6 +1022,22 @@ export const dbService = {
     return null;
   },
 
+  async hasWorkerProfile(userId: string): Promise<boolean> {
+    if (!userId) return false;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('worker_profiles').select('id').eq('id', userId).maybeSingle();
+        if (!error && data) {
+          return true;
+        }
+      } catch (err) {
+        console.error('hasWorkerProfile Supabase error:', err);
+      }
+    }
+    const local = openCommDb.getWorkerProfiles().find(w => w.id === userId);
+    return !!local;
+  },
+
   async logTermsConsent(consent: { user_id: string; terms_version: string; privacy_version: string; account_type: string; }): Promise<void> {
     if (supabase) {
       try {
