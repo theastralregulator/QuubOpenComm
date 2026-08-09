@@ -752,10 +752,89 @@ app.post("/api/record-login", async (req, res) => {
   }
 });
 
+// In-memory rate limiter for telemetry endpoint (IP SHA-256 slice key, 60 requests / 5 minutes)
+const telemetryRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+function isTelemetryRateLimited(req: express.Request): boolean {
+  const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const ipStr = Array.isArray(rawIp) ? rawIp[0] : rawIp.split(',')[0].trim();
+  const ipHash = crypto.createHash('sha256').update(ipStr).digest('hex').substring(0, 16);
+
+  const now = Date.now();
+  const windowMs = 5 * 60 * 1000;
+  const maxRequests = 60;
+
+  const current = telemetryRateLimitMap.get(ipHash);
+  if (!current || now > current.resetTime) {
+    telemetryRateLimitMap.set(ipHash, { count: 1, resetTime: now + windowMs });
+    return false;
+  }
+
+  if (current.count >= maxRequests) {
+    return true;
+  }
+
+  current.count += 1;
+  return false;
+}
+
+function isAllowedTelemetryOrigin(req: express.Request): boolean {
+  const origin = req.headers.origin;
+  const referer = req.headers.referer;
+  const candidate = origin || referer;
+
+  if (!candidate) {
+    return process.env.NODE_ENV !== 'production';
+  }
+
+  try {
+    const url = new URL(candidate);
+    const host = url.hostname.toLowerCase();
+
+    const allowedEnvUrls = [process.env.VITE_APP_URL, process.env.APP_URL].filter(Boolean);
+    for (const envUrl of allowedEnvUrls) {
+      try {
+        if (new URL(envUrl!).hostname.toLowerCase() === host) return true;
+      } catch (_) {}
+    }
+
+    if (host === 'opencomm.online' || host === 'www.opencomm.online' || host.endsWith('.opencomm.online')) {
+      return true;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      if (host === 'localhost' || host === '127.0.0.1') return true;
+    }
+
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Telemetry Endpoint: Privacy-safe Location Services Event Logging
 app.post("/api/location-service-event", async (req, res) => {
   try {
-    const { service, eventType, httpStatus, latencyMs, source } = req.body || {};
+    // 1. Origin / Referer Validation
+    if (!isAllowedTelemetryOrigin(req)) {
+      return res.status(403).json({ error: "Forbidden origin" });
+    }
+
+    // 2. Rate Limit Validation
+    if (isTelemetryRateLimited(req)) {
+      return res.status(429).json({ error: "Too many telemetry requests" });
+    }
+
+    const body = req.body || {};
+
+    // 3. Strict Payload Keys Validation (Reject any unknown key)
+    const ALLOWED_KEYS = new Set(['service', 'eventType', 'httpStatus', 'latencyMs', 'source']);
+    const bodyKeys = Object.keys(body);
+    if (bodyKeys.some(k => !ALLOWED_KEYS.has(k))) {
+      return res.status(400).json({ error: "Invalid payload keys" });
+    }
+
+    const { service, eventType, httpStatus, latencyMs, source } = body;
 
     const ALLOWED_SERVICES = ['nominatim_reverse', 'osm_tiles'];
     const ALLOWED_EVENT_TYPES = ['success', 'http_error', 'rate_limited', 'forbidden', 'timeout', 'network_error', 'tile_error'];
@@ -769,6 +848,32 @@ app.post("/api/location-service-event", async (req, res) => {
     }
     if (source && !ALLOWED_SOURCES.includes(source)) {
       return res.status(400).json({ error: "Invalid source" });
+    }
+
+    // 4. Global Event Combination Sanity Checks
+    if (service === 'osm_tiles') {
+      if (source && source !== 'map_tiles') {
+        return res.status(400).json({ error: "Invalid source for osm_tiles" });
+      }
+      if (eventType !== 'success' && eventType !== 'tile_error') {
+        return res.status(400).json({ error: "Invalid eventType for osm_tiles" });
+      }
+    }
+
+    if (service === 'nominatim_reverse') {
+      if (source && source !== 'gps' && source !== 'map_confirm') {
+        return res.status(400).json({ error: "Invalid source for nominatim_reverse" });
+      }
+      if (eventType === 'tile_error') {
+        return res.status(400).json({ error: "Invalid eventType for nominatim_reverse" });
+      }
+    }
+
+    if (eventType === 'rate_limited' && typeof httpStatus === 'number' && httpStatus !== 429) {
+      return res.status(400).json({ error: "Invalid httpStatus for rate_limited event" });
+    }
+    if (eventType === 'forbidden' && typeof httpStatus === 'number' && httpStatus !== 403) {
+      return res.status(400).json({ error: "Invalid httpStatus for forbidden event" });
     }
 
     const sanitizedHttpStatus = typeof httpStatus === 'number' && httpStatus >= 100 && httpStatus <= 599 ? Math.floor(httpStatus) : null;

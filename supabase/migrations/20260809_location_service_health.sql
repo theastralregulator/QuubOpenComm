@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS public.location_service_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   service text NOT NULL CHECK (service IN ('nominatim_reverse', 'osm_tiles')),
   event_type text NOT NULL CHECK (event_type IN ('success', 'http_error', 'rate_limited', 'forbidden', 'timeout', 'network_error', 'tile_error')),
-  http_status integer NULL,
-  latency_ms integer NULL CHECK (latency_ms IS NULL OR latency_ms >= 0),
+  http_status integer NULL CHECK (http_status IS NULL OR (http_status >= 100 AND http_status <= 599)),
+  latency_ms integer NULL CHECK (latency_ms IS NULL OR (latency_ms >= 0 AND latency_ms <= 120000)),
   source text NULL CHECK (source IN ('gps', 'map_confirm', 'map_tiles')),
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -41,15 +41,17 @@ $$;
 
 REVOKE ALL ON FUNCTION public.cleanup_old_location_service_events() FROM PUBLIC, anon, authenticated;
 
--- Schedule daily cron cleanup if pg_cron extension is active
+-- Schedule daily cron cleanup if pg_cron extension is active (Idempotent job check)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-    PERFORM cron.schedule(
-      'cleanup-location-service-events-job',
-      '0 3 * * *',
-      'SELECT public.cleanup_old_location_service_events()'
-    );
+    IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup-location-service-events-job') THEN
+      PERFORM cron.schedule(
+        'cleanup-location-service-events-job',
+        '0 3 * * *',
+        'SELECT public.cleanup_old_location_service_events()'
+      );
+    END IF;
   END IF;
 EXCEPTION WHEN OTHERS THEN
   -- Safe fallback if pg_cron is unavailable or non-superuser
