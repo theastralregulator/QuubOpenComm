@@ -46,6 +46,7 @@ export default function LocationMapPicker({
   const [currentLat, setCurrentLat] = useState<number>(defaultCenter[0]);
   const [currentLng, setCurrentLng] = useState<number>(defaultCenter[1]);
   const [confirming, setConfirming] = useState(false);
+  const [tileErrorNotice, setTileErrorNotice] = useState(false);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -79,6 +80,7 @@ export default function LocationMapPicker({
     });
 
     tileLayer.on('tileerror', () => {
+      setTileErrorNotice(true);
       if (!reportedTileError) {
         reportedTileError = true;
         reportLocationTelemetry({
@@ -134,7 +136,7 @@ export default function LocationMapPicker({
               <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
               <span>Choose Exact Location on Map</span>
             </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-md">
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate max-w-md">
               {contextTitle ? `Target Area: ${contextTitle}` : 'Move the map to place the pin on the exact location.'}
             </p>
           </div>
@@ -151,6 +153,14 @@ export default function LocationMapPicker({
         <div className="relative flex-1 bg-slate-100 dark:bg-slate-950 overflow-hidden">
           {/* Leaflet Container */}
           <div ref={mapContainerRef} className="w-full h-full z-10" />
+
+          {/* Tile Error Notice */}
+          {tileErrorNotice && (
+            <div className="absolute top-3 left-3 z-20 px-3 py-1.5 bg-amber-900/90 backdrop-blur-md text-amber-100 rounded-xl text-xs font-semibold shadow-md flex items-center space-x-1.5 border border-amber-700/50">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Map tile service temporarily unavailable</span>
+            </div>
+          )}
 
           {/* Fixed Center Pin Overlay */}
           <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
@@ -179,7 +189,7 @@ export default function LocationMapPicker({
 
         {/* Sticky Action Bar */}
         <div className="px-4 py-3 sm:px-6 sm:py-4 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+          <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
             <span>Coordinates will save exact map pin location</span>
           </div>
           <div className="flex items-center space-x-2">
