@@ -10,11 +10,11 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS latitude double precision,
   ADD COLUMN IF NOT EXISTS longitude double precision;
 
--- 2. Drop existing update_my_basic_profile overload signatures to avoid PostgREST ambiguity
+-- 2. Drop previous overloaded signatures to avoid PostgREST ambiguity
 DROP FUNCTION IF EXISTS public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean);
 DROP FUNCTION IF EXISTS public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision);
 
--- 3. Create updated update_my_basic_profile RPC with exact canonical logic + structured location parameters
+-- 3. Create updated update_my_basic_profile RPC matching exact LIVE error codes and behavior
 CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
   p_username text DEFAULT NULL,
   p_full_name text DEFAULT NULL,
@@ -36,8 +36,7 @@ CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path TO public, pg_temp
 AS $$
 DECLARE
   v_user_id uuid;
@@ -47,31 +46,21 @@ DECLARE
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated';
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
   END IF;
 
   IF p_username IS NOT NULL THEN
     v_username := trim(p_username);
     IF length(v_username) = 0 THEN
-      RAISE EXCEPTION 'Username cannot be empty';
-    END IF;
-    IF length(v_username) > 100 THEN
-      RAISE EXCEPTION 'Username exceeds 100 characters';
+      RAISE EXCEPTION 'Username cannot be empty or whitespace' USING ERRCODE = '22023';
     END IF;
   END IF;
 
   IF p_full_name IS NOT NULL THEN
     v_full_name := trim(p_full_name);
     IF length(v_full_name) = 0 THEN
-      RAISE EXCEPTION 'Full name cannot be empty';
+      RAISE EXCEPTION 'Full name cannot be empty or whitespace' USING ERRCODE = '22023';
     END IF;
-    IF length(v_full_name) > 200 THEN
-      RAISE EXCEPTION 'Full name exceeds 200 characters';
-    END IF;
-  END IF;
-
-  IF p_bio IS NOT NULL AND length(trim(p_bio)) > 2000 THEN
-    RAISE EXCEPTION 'Bio exceeds 2000 characters';
   END IF;
 
   UPDATE public.profiles
@@ -103,7 +92,7 @@ BEGIN
   INTO v_updated;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Profile not found';
+    RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
   END IF;
 
   RETURN to_jsonb(v_updated);
