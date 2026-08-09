@@ -1,7 +1,7 @@
 /**
  * Location Service Module — Provider Abstraction
  * Handles location formatting, country-specific region catalogs, languages,
- * policy-safe Nominatim place search, district search, coordinate validation, and reverse geocoding.
+ * district search, coordinate validation, reverse geocoding, and map center fallbacks.
  */
 
 import { COUNTRIES_DATA } from './locationsData';
@@ -12,15 +12,9 @@ export interface LocationData {
   state: string;
   state_code: string;
   district: string;
-  city: string; // Locality / City / Town / Village / Suburb
+  city: string; // Locality / City / Town / Village / Suburb / Display Label
   latitude?: number;
   longitude?: number;
-}
-
-export interface PlaceSearchResult {
-  display_name: string;
-  formatted_summary: string;
-  data: LocationData;
 }
 
 export interface DistrictSearchResult {
@@ -124,6 +118,33 @@ export function getRegionsForCountry(countryCodeOrName: string): { code: string;
 }
 
 /**
+ * Get country default center coordinates for initial map positioning
+ */
+export function getCountryDefaultCenter(countryCodeOrName?: string): [number, number] {
+  if (!countryCodeOrName) return [20.5937, 78.9629];
+  const code = countryCodeOrName.trim().toUpperCase();
+
+  switch (code) {
+    case 'US':
+    case 'UNITED STATES':
+      return [37.0902, -95.7129];
+    case 'CA':
+    case 'CANADA':
+      return [56.1304, -106.3468];
+    case 'GB':
+    case 'UNITED KINGDOM':
+      return [55.3781, -3.4360];
+    case 'AE':
+    case 'UNITED ARAB EMIRATES':
+      return [23.4241, 53.8478];
+    case 'IN':
+    case 'INDIA':
+    default:
+      return [20.5937, 78.9629];
+  }
+}
+
+/**
  * Validate numeric coordinates
  */
 export function isValidCoordinates(lat?: number, lng?: number): boolean {
@@ -165,7 +186,6 @@ export function formatLocationSummary(data?: Partial<LocationData> | null | stri
 }
 
 // In-memory rate limiting and result caching for Nominatim API
-const searchCache = new Map<string, PlaceSearchResult[]>();
 const districtCache = new Map<string, DistrictSearchResult[]>();
 const reverseCache = new Map<string, LocationData>();
 let lastApiCallTimestamp = 0;
@@ -268,109 +288,7 @@ export async function searchDistricts(
 }
 
 /**
- * Search places/localities by query with multi-pass fallback & settlement filtering.
- * High-coverage for small towns, villages, and localities.
- */
-export async function searchPlaces(
-  query: string,
-  options: { countryCode?: string; state?: string; district?: string } = {}
-): Promise<PlaceSearchResult[]> {
-  const q = query.trim();
-  if (q.length < 2) return [];
-
-  const countryCode = (options.countryCode || 'IN').toLowerCase();
-  const cacheKey = `locality:${countryCode}:${options.state || ''}:${options.district || ''}:${q.toLowerCase()}`;
-
-  if (searchCache.has(cacheKey)) {
-    return searchCache.get(cacheKey)!;
-  }
-
-  // Pass 1: Query + District + State
-  let searchQuery = q;
-  const contextParts: string[] = [q];
-  if (options.district && !q.toLowerCase().includes(options.district.toLowerCase())) {
-    contextParts.push(options.district);
-  }
-  if (options.state && !q.toLowerCase().includes(options.state.toLowerCase())) {
-    contextParts.push(options.state);
-  }
-  searchQuery = contextParts.join(', ');
-
-  const executeQuery = async (queryStr: string): Promise<PlaceSearchResult[]> => {
-    await enforceRateLimit();
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=40&accept-language=en&layer=address&featureType=settlement&countrycodes=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(queryStr)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const rawList = await res.json();
-    if (!Array.isArray(rawList)) return [];
-
-    const uniqueKeys = new Set<string>();
-    const results: PlaceSearchResult[] = [];
-
-    for (const item of rawList) {
-      const addr = item.address || {};
-      const countryName = addr.country || (countryCode === 'in' ? 'India' : '');
-      const stateName = addr.state || addr.province || addr.region || options.state || '';
-      const districtName = addr.state_district || addr.county || addr.district || options.district || '';
-      const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || item.name || q;
-      const cCode = (addr.country_code || countryCode).toUpperCase();
-
-      const countryRegions = getRegionsForCountry(cCode);
-      const matchedRegion = countryRegions.find(r =>
-        (stateName && r.name.toLowerCase() === stateName.toLowerCase()) ||
-        (options.state && r.name.toLowerCase() === options.state.toLowerCase())
-      );
-      const sCode = matchedRegion ? matchedRegion.code : '';
-
-      const lat = item.lat ? Math.round(parseFloat(item.lat) * 1000) / 1000 : undefined;
-      const lng = item.lon ? Math.round(parseFloat(item.lon) * 1000) / 1000 : undefined;
-
-      const dedupeKey = `${cCode}:${sCode}:${districtName.toLowerCase()}:${localityName.toLowerCase()}:${lat || 0}:${lng || 0}`;
-      if (uniqueKeys.has(dedupeKey)) continue;
-      uniqueKeys.add(dedupeKey);
-
-      const data: LocationData = {
-        country: countryName,
-        country_code: cCode,
-        state: stateName,
-        state_code: sCode,
-        district: districtName.replace(/ district$/i, '').trim(),
-        city: localityName,
-        latitude: lat,
-        longitude: lng
-      };
-
-      const summary = formatLocationSummary(data);
-
-      results.push({
-        display_name: item.display_name,
-        formatted_summary: summary,
-        data
-      });
-    }
-
-    return results;
-  };
-
-  try {
-    let results = await executeQuery(searchQuery);
-
-    // Controlled Pass 2 Fallback (Query + State if Pass 1 yielded 0 results and district was specified)
-    if (results.length === 0 && options.district && options.state) {
-      const fallbackQuery = `${q}, ${options.state}`;
-      results = await executeQuery(fallbackQuery);
-    }
-
-    searchCache.set(cacheKey, results);
-    return results;
-  } catch (err) {
-    console.warn('[LocationService] Nominatim place search error:', err);
-    return [];
-  }
-}
-
-/**
- * Reverse geocode approximate coordinates
+ * Reverse geocode approximate coordinates (called ONCE post map confirm or GPS detection)
  */
 export async function reverseGeocodeLocation(lat: number, lng: number): Promise<LocationData | null> {
   const approxLat = Math.round(lat * 1000) / 1000;
