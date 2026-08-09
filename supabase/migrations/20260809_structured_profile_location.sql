@@ -1,0 +1,114 @@
+-- Migration: 20260809_structured_profile_location.sql
+-- Description: Add structured location columns to profiles and update update_my_basic_profile RPC
+-- DO NOT APPLY REMOTELY YET.
+
+-- 1. Add structured location columns to profiles if they do not exist
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS country_code text,
+  ADD COLUMN IF NOT EXISTS state_code text,
+  ADD COLUMN IF NOT EXISTS district text,
+  ADD COLUMN IF NOT EXISTS latitude double precision,
+  ADD COLUMN IF NOT EXISTS longitude double precision;
+
+-- 2. Drop existing update_my_basic_profile to allow signature update
+DROP FUNCTION IF EXISTS public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean);
+
+-- 3. Create updated update_my_basic_profile RPC supporting structured location parameters
+CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
+  p_username text DEFAULT NULL,
+  p_full_name text DEFAULT NULL,
+  p_avatar_url text DEFAULT NULL,
+  p_banner_url text DEFAULT NULL,
+  p_phone text DEFAULT NULL,
+  p_city text DEFAULT NULL,
+  p_state text DEFAULT NULL,
+  p_country text DEFAULT NULL,
+  p_preferred_language text DEFAULT NULL,
+  p_bio text DEFAULT NULL,
+  p_show_location_publicly boolean DEFAULT NULL,
+  p_onboarding_completed boolean DEFAULT NULL,
+  p_country_code text DEFAULT NULL,
+  p_state_code text DEFAULT NULL,
+  p_district text DEFAULT NULL,
+  p_latitude double precision DEFAULT NULL,
+  p_longitude double precision DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_username text;
+  v_full_name text;
+  v_updated RECORD;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF p_username IS NOT NULL THEN
+    v_username := trim(p_username);
+    IF length(v_username) = 0 THEN
+      RAISE EXCEPTION 'Username cannot be empty';
+    END IF;
+    IF length(v_username) > 100 THEN
+      RAISE EXCEPTION 'Username exceeds 100 characters';
+    END IF;
+  END IF;
+
+  IF p_full_name IS NOT NULL THEN
+    v_full_name := trim(p_full_name);
+    IF length(v_full_name) = 0 THEN
+      RAISE EXCEPTION 'Full name cannot be empty';
+    END IF;
+    IF length(v_full_name) > 200 THEN
+      RAISE EXCEPTION 'Full name exceeds 200 characters';
+    END IF;
+  END IF;
+
+  IF p_bio IS NOT NULL AND length(trim(p_bio)) > 2000 THEN
+    RAISE EXCEPTION 'Bio exceeds 2000 characters';
+  END IF;
+
+  UPDATE public.profiles
+  SET 
+    username = COALESCE(v_username, username),
+    full_name = COALESCE(v_full_name, full_name),
+    avatar_url = COALESCE(trim(p_avatar_url), avatar_url),
+    banner_url = COALESCE(trim(p_banner_url), banner_url),
+    phone = COALESCE(trim(p_phone), phone),
+    city = COALESCE(trim(p_city), city),
+    state = COALESCE(trim(p_state), state),
+    country = COALESCE(trim(p_country), country),
+    country_code = COALESCE(trim(p_country_code), country_code),
+    state_code = COALESCE(trim(p_state_code), state_code),
+    district = COALESCE(trim(p_district), district),
+    latitude = COALESCE(p_latitude, latitude),
+    longitude = COALESCE(p_longitude, longitude),
+    preferred_language = COALESCE(trim(p_preferred_language), preferred_language),
+    bio = COALESCE(trim(p_bio), bio),
+    show_location_publicly = COALESCE(p_show_location_publicly, show_location_publicly),
+    onboarding_completed = COALESCE(p_onboarding_completed, onboarding_completed),
+    updated_at = now()
+  WHERE id = v_user_id
+  RETURNING 
+    id, username, full_name, avatar_url, banner_url, phone, city, state, country, 
+    country_code, state_code, district, latitude, longitude,
+    preferred_language, bio, show_location_publicly, onboarding_completed, 
+    profile_type, created_at, updated_at 
+  INTO v_updated;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Profile not found';
+  END IF;
+
+  RETURN to_jsonb(v_updated);
+END;
+$$;
+
+-- 4. Permissions management
+REVOKE EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) TO authenticated;

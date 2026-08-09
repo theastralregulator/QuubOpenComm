@@ -21,6 +21,8 @@ import BasicProfileDashboard from './BasicProfileDashboard';
 import PublicBasicProfile from './PublicBasicProfile';
 import AvatarUploadMenu from './AvatarUploadMenu';
 import ProfileReviewsSection from './ProfileReviewsSection';
+import LocationSelector, { LocationData } from '../common/LocationSelector';
+import { formatLocationSummary } from '../../lib/locationService';
 
 interface ProfilePageProps {
   username: string;
@@ -305,6 +307,11 @@ export default function ProfilePage({
   const [editCity, setEditCity] = useState('');
   const [editState, setEditState] = useState('');
   const [editCountry, setEditCountry] = useState('');
+  const [editCountryCode, setEditCountryCode] = useState('');
+  const [editStateCode, setEditStateCode] = useState('');
+  const [editDistrict, setEditDistrict] = useState('');
+  const [editLat, setEditLat] = useState<number | undefined>(undefined);
+  const [editLng, setEditLng] = useState<number | undefined>(undefined);
   const [editLang, setEditLang] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
@@ -770,6 +777,11 @@ export default function ProfilePage({
         city: editCity,
         state: editState,
         country: editCountry,
+        country_code: editCountryCode,
+        state_code: editStateCode,
+        district: editDistrict,
+        latitude: editLat,
+        longitude: editLng,
         preferred_language: editLang,
         phone: editPhone,
         banner_id: finalBannerId,
@@ -815,7 +827,7 @@ export default function ProfilePage({
           availability: editAvailability,
           skills: editSkills.split(',').map(s => s.trim()).filter(Boolean),
           bio_summary: editBio,
-          work_location: [editCity, editState, editCountry].filter(Boolean).join(', ')
+          work_location: formatLocationSummary({ country: editCountry, state: editState, district: editDistrict, city: editCity })
         });
         console.log('[Edit Profile Debug] dbService.updateWorkerProfileData completed successfully.');
       }
@@ -854,6 +866,11 @@ export default function ProfilePage({
       setEditCity(profile.city || '');
       setEditState(profile.state || '');
       setEditCountry(profile.country || '');
+      setEditCountryCode(profile.country_code || '');
+      setEditStateCode(profile.state_code || '');
+      setEditDistrict(profile.district || '');
+      setEditLat(profile.latitude);
+      setEditLng(profile.longitude);
       setEditLang(profile.preferred_language || '');
       setEditEmail(profile.email || '');
       setEditPhone(profile.phone || '');
@@ -2060,30 +2077,29 @@ export default function ProfilePage({
                 </div>
 
                 <div className="space-y-3">
-                  <label className="block font-bold text-slate-600 dark:text-slate-400 text-xs">Location</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <input
-                      type="text"
-                      value={editCity}
-                      onChange={(e) => setEditCity(e.target.value)}
-                      placeholder="City"
-                      className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
-                    />
-                    <input
-                      type="text"
-                      value={editState}
-                      onChange={(e) => setEditState(e.target.value)}
-                      placeholder="State"
-                      className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
-                    />
-                    <input
-                      type="text"
-                      value={editCountry}
-                      onChange={(e) => setEditCountry(e.target.value)}
-                      placeholder="Country"
-                      className="col-span-2 sm:col-span-1 w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500"
-                    />
-                  </div>
+                  <LocationSelector
+                    label="Location"
+                    value={{
+                      country: editCountry,
+                      country_code: editCountryCode,
+                      state: editState,
+                      state_code: editStateCode,
+                      district: editDistrict,
+                      city: editCity,
+                      latitude: editLat,
+                      longitude: editLng
+                    }}
+                    onChange={(loc) => {
+                      setEditCountry(loc.country);
+                      setEditCountryCode(loc.country_code);
+                      setEditState(loc.state);
+                      setEditStateCode(loc.state_code);
+                      setEditDistrict(loc.district);
+                      setEditCity(loc.city);
+                      setEditLat(loc.latitude);
+                      setEditLng(loc.longitude);
+                    }}
+                  />
                   <label className="flex items-center gap-2 cursor-pointer mt-3">
                     <input
                       type="checkbox"

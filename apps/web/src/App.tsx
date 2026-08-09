@@ -52,6 +52,7 @@ import NotificationsPage from './components/notifications/NotificationsPage';
 import NotificationSettingsPage from './components/notifications/NotificationSettingsPage';
 import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
+import { MAJOR_LANGUAGES, formatLocationSummary } from './lib/locationService';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
 import { PRESET_AVATARS, DEFAULT_AVATAR_URL } from './data/presetAvatars';
 import { resolveProfileImage } from './lib/avatarResolver';
@@ -3580,7 +3581,7 @@ export default function App() {
                     value={newJobLocationData}
                     onChange={(loc) => {
                       setNewJobLocationData(loc);
-                      setNewJobLocation(loc.city ? `${loc.city}, ${loc.state_code || loc.state}` : '');
+                      setNewJobLocation(formatLocationSummary(loc));
                     }}
                   />
                 </div>
@@ -3742,7 +3743,7 @@ export default function App() {
                     value={newWorkerLocationData}
                     onChange={(loc) => {
                       setNewWorkerLocationData(loc);
-                      setNewWorkerLocation(loc.city ? `${loc.city}, ${loc.state_code || loc.state}` : '');
+                      setNewWorkerLocation(formatLocationSummary(loc));
                     }}
                   />
                 </div>
@@ -4401,12 +4402,30 @@ export default function App() {
                           </div>
                         )}
 
+                        {/* Preferred Language */}
+                        <div className="space-y-1.5 pt-1 text-left">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Preferred Language <span className="text-rose-500">*</span>
+                          </label>
+                          <select
+                            required
+                            value={workerForm.preferredLanguage || 'English'}
+                            onChange={(e) => setWorkerForm(prev => ({ ...prev, preferredLanguage: e.target.value }))}
+                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 cursor-pointer"
+                          >
+                            {MAJOR_LANGUAGES.map((lang) => (
+                              <option key={lang} value={lang}>{lang}</option>
+                            ))}
+                          </select>
+                        </div>
+
                         {/* Base Location */}
-                        <div className="space-y-1.5 pt-1">
+                        <div className="space-y-1.5 pt-1 text-left">
                           <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                             Base Location <span className="text-rose-500">*</span>
                           </label>
                           <LocationSelector
+                            label="Base Location"
                             value={{
                               country: workerForm.country,
                               country_code: workerForm.country_code,
