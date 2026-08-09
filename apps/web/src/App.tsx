@@ -577,15 +577,18 @@ export default function App() {
     return <>{children}</>;
   }
 
-  // --- RESEND EMAIL COOLDOWN COUNTDOWN ---
+  const [showForgotPasswordPanel, setShowForgotPasswordPanel] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordCooldown, setForgotPasswordCooldown] = useState(0);
+  const [forgotPasswordSent, setForgotPasswordSent] = useState(false);
+
   useEffect(() => {
-    if (resendCooldown > 0) {
-      const timer = setTimeout(() => {
-        setResendCooldown(prev => prev - 1);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [resendCooldown]);
+    if (forgotPasswordCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setForgotPasswordCooldown(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [forgotPasswordCooldown]);
 
   // Form states for Post a Job
   const [newJobTitle, setNewJobTitle] = useState('');
@@ -3963,6 +3966,95 @@ export default function App() {
 
               {/* --- CASE B: SIGN IN FORM --- */}
               {showAuthModal === 'signin' && (
+                showForgotPasswordPanel ? (
+                  <div className="space-y-4 text-left">
+                    <div className="flex items-center space-x-3 pb-2 border-b border-slate-200 dark:border-zinc-800">
+                      <div className="w-9 h-9 rounded-xl bg-blue-600/10 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-500/20 shrink-0">
+                        <Lock className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Reset your password</h3>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400">Enter your email address and we'll send you a secure reset link.</p>
+                      </div>
+                    </div>
+
+                    {forgotPasswordSent && (
+                      <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start space-x-2 text-emerald-600 dark:text-emerald-400 text-xs">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span className="font-medium">Reset link sent! If an account exists for this email, a password recovery link has been sent.</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] uppercase tracking-wider font-mono font-bold text-slate-500 dark:text-zinc-400">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={forgotPasswordEmail}
+                        onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                        placeholder="your.email@example.com"
+                        className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 placeholder-[#94A3B8] font-semibold transition-all"
+                        required
+                      />
+                    </div>
+
+                    <div className="pt-2 space-y-2">
+                      <button
+                        type="button"
+                        disabled={isAuthSubmitting || forgotPasswordCooldown > 0}
+                        onClick={async () => {
+                          if (!forgotPasswordEmail.trim() || !forgotPasswordEmail.includes('@')) {
+                            setAuthError("Please enter a valid registered email address.");
+                            return;
+                          }
+                          try {
+                            setIsAuthSubmitting(true);
+                            setAuthError("");
+                            const recoveryRedirect = `${NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/reset-password`;
+                            const { error } = await (supabase ? supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
+                              redirectTo: recoveryRedirect
+                            }) : { error: null });
+                            setIsAuthSubmitting(false);
+                            if (error) {
+                              setAuthError(error.message);
+                            } else {
+                              setForgotPasswordSent(true);
+                              setForgotPasswordCooldown(45);
+                              triggerToast("If an account exists for this email, a password reset link has been sent.");
+                            }
+                          } catch (err: any) {
+                            setIsAuthSubmitting(false);
+                            setAuthError(err.message || "Could not trigger password reset request.");
+                          }
+                        }}
+                        className="w-full h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white font-bold rounded-xl text-xs shadow-md transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-60"
+                      >
+                        {isAuthSubmitting ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Sending Link...</span>
+                          </>
+                        ) : forgotPasswordCooldown > 0 ? (
+                          <span>Resend in {forgotPasswordCooldown}s</span>
+                        ) : (
+                          <span>Send Reset Link</span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowForgotPasswordPanel(false);
+                          setAuthError("");
+                        }}
+                        className="w-full h-11 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 font-semibold rounded-xl text-xs transition-colors cursor-pointer text-center flex items-center justify-center"
+                      >
+                        Back to Sign In
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                 <form 
                   onSubmit={async (e) => {
                     e.preventDefault();
@@ -4075,30 +4167,12 @@ export default function App() {
                       <span className="text-slate-400 dark:text-zinc-500 font-medium">Session secured by Supabase Guard</span>
                       <button
                         type="button"
-                        onClick={async () => {
-                          if (!signinUsername.trim() || !signinUsername.includes('@')) {
-                            setAuthError("Please enter your registered email address above first.");
-                            return;
-                          }
-                          try {
-                            setIsAuthSubmitting(true);
-                            setAuthError("");
-                            const recoveryRedirect = `${NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/reset-password`;
-                            const { error } = await (supabase ? supabase.auth.resetPasswordForEmail(signinUsername.trim(), {
-                              redirectTo: recoveryRedirect
-                            }) : { error: null });
-                            setIsAuthSubmitting(false);
-                            if (error) {
-                              setAuthError(error.message);
-                            } else {
-                              triggerToast("If an account exists for this email, a password reset link has been sent.");
-                            }
-                          } catch (err: any) {
-                            setIsAuthSubmitting(false);
-                            setAuthError(err.message || "Could not trigger password reset request.");
-                          }
+                        onClick={() => {
+                          setForgotPasswordEmail(signinUsername.trim());
+                          setShowForgotPasswordPanel(true);
+                          setAuthError('');
                         }}
-                        className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
                       >
                         Forgot password?
                       </button>
@@ -4136,7 +4210,7 @@ export default function App() {
                     </p>
                   </div>
                 </form>
-              )}
+              ))}
 
               {/* --- CASE C: SINGLE-PAGE SIGN UP & ONBOARDING FORM --- */}
               {showAuthModal === 'signup' && (

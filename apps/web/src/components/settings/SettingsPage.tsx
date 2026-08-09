@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  User, Eye, Lock, Palette, Bell, LifeBuoy, ShieldCheck,
+  User, Eye, EyeOff, Lock, Palette, Bell, LifeBuoy, ShieldCheck,
   ChevronRight, Sun, Moon, Monitor, Save, Loader2, CheckCircle2,
-  AlertCircle, LogOut, Clock, Send, ArrowLeft,
+  AlertCircle, LogOut, Clock, Send, ArrowLeft, RefreshCw, X,
   Laptop, Smartphone, Tablet, ExternalLink, ShieldAlert
 } from 'lucide-react';
-import { supabase, dbService, SupportTicket, LocalProfile } from '../../lib/supabase';
+import { supabase, createTemporaryAuthClient, dbService, SupportTicket, LocalProfile } from '../../lib/supabase';
+import { validatePassword } from '../../lib/passwordValidation';
 import { notificationService, NotificationPreferences } from '../../lib/notificationService';
 import { UserSettings, UserLoginActivity, DeactivationStatusResponse } from '../../types';
 
@@ -234,6 +235,116 @@ export default function SettingsPage() {
   const [deactivateConfirmInput, setDeactivateConfirmInput] = useState('');
   const [deactivatingAccount, setDeactivatingAccount] = useState(false);
   const [deactivationError, setDeactivationError] = useState<string | null>(null);
+
+  // ── Change Password Modal State ─────────────────────────────────────
+  const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+
+  const [submittingChangePass, setSubmittingChangePass] = useState(false);
+  const [changePassError, setChangePassError] = useState<string | null>(null);
+  const [changePassSuccess, setChangePassSuccess] = useState<string | null>(null);
+
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setChangePassError(null);
+    setChangePassSuccess(null);
+
+    const isEmailProvider = !authMeta?.provider || authMeta.provider === 'email';
+    if (!isEmailProvider) {
+      setChangePassError('Password change is unavailable for this sign-in method.');
+      return;
+    }
+
+    if (!currentPassword) {
+      setChangePassError('Current password is required.');
+      return;
+    }
+
+    const passVal = validatePassword(newPassword);
+    if (!passVal.isValid) {
+      setChangePassError(passVal.error);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setChangePassError('New passwords do not match.');
+      return;
+    }
+
+    setSubmittingChangePass(true);
+    try {
+      // 1. Get current user email
+      let userEmail = authMeta?.email || profile?.email || '';
+      if (!userEmail && supabase) {
+        const { data: { user } } = await supabase.auth.getUser();
+        userEmail = user?.email || '';
+      }
+
+      if (!userEmail) {
+        throw new Error('User email address could not be verified.');
+      }
+
+      // 2. Verify current password using isolated temporary client
+      const tempClient = createTemporaryAuthClient();
+      if (!tempClient) {
+        throw new Error('Could not initialize verification client.');
+      }
+
+      const { data: verifyData, error: verifyErr } = await tempClient.auth.signInWithPassword({
+        email: userEmail,
+        password: currentPassword,
+      });
+
+      if (verifyErr || !verifyData?.user) {
+        setChangePassError('Current password is incorrect.');
+        setSubmittingChangePass(false);
+        return;
+      }
+
+      // 3. Update password on main authenticated client
+      if (!supabase) {
+        throw new Error('Supabase client unavailable.');
+      }
+
+      const { error: updateErr } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateErr) {
+        if (updateErr.message?.toLowerCase().includes('same') || updateErr.message?.toLowerCase().includes('previous')) {
+          setChangePassError('New password cannot be the same as your current password.');
+        } else {
+          setChangePassError(updateErr.message);
+        }
+        setSubmittingChangePass(false);
+        return;
+      }
+
+      // 4. Success flow
+      setChangePassSuccess('Password changed successfully! Redirecting to Sign In...');
+      setSubmittingChangePass(false);
+
+      // Auto sign-out and redirect to /login after 2 seconds
+      setTimeout(async () => {
+        try {
+          if (supabase) await supabase.auth.signOut();
+        } catch (_) {}
+        localStorage.clear();
+        window.location.href = '/login';
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('Failed to change password:', err);
+      setChangePassError(err?.message || 'Failed to change password. Please try again.');
+      setSubmittingChangePass(false);
+    }
+  };
 
   const fetchLogins = useCallback(async () => {
     setLoadingLogins(true);
@@ -766,47 +877,64 @@ export default function SettingsPage() {
     </div>
   );
 
-  const renderSecurity = () => (
-    <div className="space-y-6">
-      <SectionHeader icon={ShieldCheck} title="Security" description="Manage your account security and authentication" />
-      <Card>
-        <div className="space-y-0">
-          <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
-            <div>
-              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Email Address</span>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{authMeta?.email || profile?.email || '—'}</p>
+  const renderSecurity = () => {
+    const isEmailProvider = !authMeta?.provider || authMeta.provider === 'email';
+
+    return (
+      <div className="space-y-6">
+        <SectionHeader icon={ShieldCheck} title="Security" description="Manage your account security and authentication" />
+        <Card>
+          <div className="space-y-0">
+            <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Email Address</span>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{authMeta?.email || profile?.email || '—'}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
-            <div>
-              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Auth Provider</span>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 capitalize">{authMeta?.provider || 'Email / Password'}</p>
+            <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Auth Provider</span>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 capitalize">{authMeta?.provider || 'Email / Password'}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
-            <div>
-              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Change Password</span>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Password reset via email link</p>
+            <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Change Password</span>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {isEmailProvider ? 'Update your account password' : 'Password change is unavailable for this sign-in method.'}
+                </p>
+              </div>
+              <div>
+                {isEmailProvider ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChangePasswordModalOpen(true);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                      setChangePassError(null);
+                      setChangePassSuccess(null);
+                    }}
+                    className="text-xs font-semibold text-[#2563EB] hover:text-[#1d4ed8] dark:text-[#60A5FA] border border-[#2563EB]/30 dark:border-[#60A5FA]/30 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer hover:bg-[#2563EB]/5"
+                  >
+                    Change
+                  </button>
+                ) : (
+                  <span className="text-xs text-slate-400 dark:text-slate-500 font-medium px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                    Not Applicable
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between py-3">
+              <div>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Two-Factor Authentication</span>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Add an extra layer of security</p>
+              </div>
               <ComingSoonBadge />
-              <button
-                type="button"
-                disabled
-                className="text-xs font-semibold text-slate-400 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl cursor-not-allowed opacity-50"
-              >
-                Change
-              </button>
             </div>
           </div>
-          <div className="flex items-center justify-between py-3">
-            <div>
-              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Two-Factor Authentication</span>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Add an extra layer of security</p>
-            </div>
-            <ComingSoonBadge />
-          </div>
-        </div>
 
         <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
           <button
@@ -1106,7 +1234,8 @@ export default function SettingsPage() {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const renderSection = () => {
     switch (active) {

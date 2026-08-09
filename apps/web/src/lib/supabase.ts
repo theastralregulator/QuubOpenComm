@@ -28,6 +28,9 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL !== 'YOUR_SUPABASE_URL') {
   }
 }
 
+let activeSupabaseUrl = SUPABASE_URL;
+let activeSupabaseAnonKey = SUPABASE_ANON_KEY;
+
 // Dynamically try to load/refresh Supabase client from a runtime config endpoint
 export async function initializeRuntimeSupabase() {
   try {
@@ -38,6 +41,8 @@ export async function initializeRuntimeSupabase() {
         NEXT_PUBLIC_APP_URL = data.appUrl;
       }
       if (data.supabaseUrl && data.supabaseAnonKey) {
+        activeSupabaseUrl = data.supabaseUrl;
+        activeSupabaseAnonKey = data.supabaseAnonKey;
         if (!supabase) {
           supabase = createClient(data.supabaseUrl, data.supabaseAnonKey);
           console.log('Supabase client initialized dynamically from runtime /api/config');
@@ -49,6 +54,24 @@ export async function initializeRuntimeSupabase() {
     console.warn('Could not load dynamic configuration from /api/config.');
   }
   return supabase;
+}
+
+export function createTemporaryAuthClient() {
+  const url = activeSupabaseUrl || (import.meta as any).env?.VITE_SUPABASE_URL || '';
+  const key = activeSupabaseAnonKey || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+  if (!url || !key) return null;
+  try {
+    return createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      }
+    });
+  } catch (err) {
+    console.error('Failed to create temporary auth client:', err);
+    return null;
+  }
 }
 
 // =========================================================================
