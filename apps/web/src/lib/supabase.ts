@@ -2771,6 +2771,16 @@ export const dbService = {
     return data;
   },
 
+  async adminGetLocationServiceHealth(): Promise<any> {
+    if (!supabase) return null;
+    const { data, error } = await supabase.rpc('admin_get_location_service_health');
+    if (error) {
+      console.warn('[Audit] admin_get_location_service_health error:', error.message);
+      return null;
+    }
+    return data;
+  },
+
   // Account Deactivation & Reactivation
   async getAccountDeactivationStatus(): Promise<DeactivationStatusResponse> {
     if (supabase) {

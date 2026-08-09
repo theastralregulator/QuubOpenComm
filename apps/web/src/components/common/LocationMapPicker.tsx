@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, X, Check, Navigation, AlertCircle } from 'lucide-react';
 import L from 'leaflet';
-import { isValidCoordinates } from '../../lib/locationService';
+import { isValidCoordinates, reportLocationTelemetry } from '../../lib/locationService';
 
 interface LocationMapPickerProps {
   initialLat?: number;
@@ -58,11 +58,38 @@ export default function LocationMapPicker({
       attributionControl: true
     });
 
-    // OSM Tile Layer with mandatory attribution
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // OSM Tile Layer with mandatory attribution and sampled telemetry
+    let reportedTileSuccess = false;
+    let reportedTileError = false;
+
+    const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    });
+
+    tileLayer.on('tileload', () => {
+      if (!reportedTileSuccess) {
+        reportedTileSuccess = true;
+        reportLocationTelemetry({
+          service: 'osm_tiles',
+          eventType: 'success',
+          source: 'map_tiles'
+        });
+      }
+    });
+
+    tileLayer.on('tileerror', () => {
+      if (!reportedTileError) {
+        reportedTileError = true;
+        reportLocationTelemetry({
+          service: 'osm_tiles',
+          eventType: 'tile_error',
+          source: 'map_tiles'
+        });
+      }
+    });
+
+    tileLayer.addTo(map);
 
     mapInstanceRef.current = map;
 

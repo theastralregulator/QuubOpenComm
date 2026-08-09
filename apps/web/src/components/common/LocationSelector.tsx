@@ -172,7 +172,7 @@ export default function LocationSelector({
     setValidationError(null);
 
     try {
-      const reverseResult = await reverseGeocodeLocation(pinnedLat, pinnedLng);
+      const reverseResult = await reverseGeocodeLocation(pinnedLat, pinnedLng, 'map_confirm');
 
       // Preserve manually selected hierarchy as authoritative
       const newCity = reverseResult?.city || city || '';
@@ -244,7 +244,7 @@ export default function LocationSelector({
       async (position) => {
         try {
           const { latitude: lat, longitude: lng } = position.coords;
-          const detectedData = await reverseGeocodeLocation(lat, lng);
+          const detectedData = await reverseGeocodeLocation(lat, lng, 'gps');
 
           if (detectedData) {
             notifyChange(detectedData);

@@ -752,6 +752,51 @@ app.post("/api/record-login", async (req, res) => {
   }
 });
 
+// Telemetry Endpoint: Privacy-safe Location Services Event Logging
+app.post("/api/location-service-event", async (req, res) => {
+  try {
+    const { service, eventType, httpStatus, latencyMs, source } = req.body || {};
+
+    const ALLOWED_SERVICES = ['nominatim_reverse', 'osm_tiles'];
+    const ALLOWED_EVENT_TYPES = ['success', 'http_error', 'rate_limited', 'forbidden', 'timeout', 'network_error', 'tile_error'];
+    const ALLOWED_SOURCES = ['gps', 'map_confirm', 'map_tiles'];
+
+    if (!service || !ALLOWED_SERVICES.includes(service)) {
+      return res.status(400).json({ error: "Invalid service" });
+    }
+    if (!eventType || !ALLOWED_EVENT_TYPES.includes(eventType)) {
+      return res.status(400).json({ error: "Invalid eventType" });
+    }
+    if (source && !ALLOWED_SOURCES.includes(source)) {
+      return res.status(400).json({ error: "Invalid source" });
+    }
+
+    const sanitizedHttpStatus = typeof httpStatus === 'number' && httpStatus >= 100 && httpStatus <= 599 ? Math.floor(httpStatus) : null;
+    const sanitizedLatencyMs = typeof latencyMs === 'number' && latencyMs >= 0 && latencyMs <= 120000 ? Math.floor(latencyMs) : null;
+
+    if (supabaseAdmin && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const { error } = await supabaseAdmin.from('location_service_events').insert({
+        service,
+        event_type: eventType,
+        http_status: sanitizedHttpStatus,
+        latency_ms: sanitizedLatencyMs,
+        source: source || null
+      });
+
+      if (error) {
+        console.warn("[Telemetry] Insert warning:", error.message);
+        return res.status(500).json({ error: "Failed to record event" });
+      }
+      return res.status(200).json({ success: true });
+    } else {
+      return res.status(200).json({ success: true, warning: "Service role unconfigured" });
+    }
+  } catch (err: any) {
+    console.warn("[Telemetry] Exception:", err.message || err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Serve frontend through Vite in dev, or statically in prod
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

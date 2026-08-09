@@ -190,6 +190,27 @@ const districtCache = new Map<string, DistrictSearchResult[]>();
 const reverseCache = new Map<string, LocationData>();
 let lastApiCallTimestamp = 0;
 
+/**
+ * Privacy-safe non-blocking telemetry helper
+ */
+export function reportLocationTelemetry(payload: {
+  service: 'nominatim_reverse' | 'osm_tiles';
+  eventType: 'success' | 'http_error' | 'rate_limited' | 'forbidden' | 'timeout' | 'network_error' | 'tile_error';
+  httpStatus?: number;
+  latencyMs?: number;
+  source?: 'gps' | 'map_confirm' | 'map_tiles';
+}) {
+  try {
+    fetch('/api/location-service-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch (err) {
+    // Non-blocking fire-and-forget
+  }
+}
+
 async function enforceRateLimit(): Promise<void> {
   const now = Date.now();
   const timeSinceLast = now - lastApiCallTimestamp;
@@ -288,9 +309,13 @@ export async function searchDistricts(
 }
 
 /**
- * Reverse geocode approximate coordinates (called ONCE post map confirm or GPS detection)
+ * Reverse geocode approximate coordinates with telemetry instrumentation
  */
-export async function reverseGeocodeLocation(lat: number, lng: number): Promise<LocationData | null> {
+export async function reverseGeocodeLocation(
+  lat: number,
+  lng: number,
+  source: 'gps' | 'map_confirm' = 'map_confirm'
+): Promise<LocationData | null> {
   const approxLat = Math.round(lat * 1000) / 1000;
   const approxLng = Math.round(lng * 1000) / 1000;
   const cacheKey = `${approxLat},${approxLng}`;
@@ -301,14 +326,52 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
 
   await enforceRateLimit();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const startTime = Date.now();
+
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${approxLat}&lon=${approxLng}&accept-language=en&addressdetails=1`;
 
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    const latencyMs = Date.now() - startTime;
+
+    if (!res.ok) {
+      let eventType: any = 'http_error';
+      if (res.status === 429) eventType = 'rate_limited';
+      if (res.status === 403) eventType = 'forbidden';
+
+      reportLocationTelemetry({
+        service: 'nominatim_reverse',
+        eventType,
+        httpStatus: res.status,
+        latencyMs,
+        source
+      });
+      throw new Error(`HTTP ${res.status}`);
+    }
 
     const data = await res.json();
-    if (!data || !data.address) return null;
+    if (!data || !data.address) {
+      reportLocationTelemetry({
+        service: 'nominatim_reverse',
+        eventType: 'http_error',
+        httpStatus: 200,
+        latencyMs,
+        source
+      });
+      return null;
+    }
+
+    reportLocationTelemetry({
+      service: 'nominatim_reverse',
+      eventType: 'success',
+      httpStatus: 200,
+      latencyMs,
+      source
+    });
 
     const addr = data.address;
     const countryName = addr.country || '';
@@ -333,7 +396,26 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
 
     reverseCache.set(cacheKey, locData);
     return locData;
-  } catch (err) {
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startTime;
+
+    if (err.name === 'AbortError') {
+      reportLocationTelemetry({
+        service: 'nominatim_reverse',
+        eventType: 'timeout',
+        latencyMs,
+        source
+      });
+    } else if (!err.message?.startsWith('HTTP')) {
+      reportLocationTelemetry({
+        service: 'nominatim_reverse',
+        eventType: 'network_error',
+        latencyMs,
+        source
+      });
+    }
+
     console.warn('[LocationService] Reverse geocode error:', err);
     return null;
   }
