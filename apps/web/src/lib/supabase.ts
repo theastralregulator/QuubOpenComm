@@ -125,6 +125,7 @@ export interface LocalProfile {
   profile_type: 'basic' | 'worker' | 'company';
   is_worker_listed?: boolean;
   signup_status?: 'pending_verification' | 'completed';
+  opencomm_id?: string;
   created_at: string;
   updated_at: string;
   email_verified_for_actions?: boolean;
@@ -2891,6 +2892,115 @@ export const dbService = {
     } catch (err) {
       console.warn('recordLoginActivity error:', err);
     }
+  },
+
+  async adminListUsers(params?: { search?: string; limit?: number; offset?: number }): Promise<{ total: number; limit: number; offset: number; users: any[] }> {
+    const search = params?.search || '';
+    const limit = params?.limit || 50;
+    const offset = params?.offset || 0;
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('admin_list_users', {
+          p_search: search,
+          p_limit: limit,
+          p_offset: offset
+        });
+        if (!error && data) {
+          return {
+            total: data.total || 0,
+            limit: data.limit || limit,
+            offset: data.offset || offset,
+            users: data.users || []
+          };
+        }
+      } catch (err) {
+        console.error('adminListUsers RPC error:', err);
+      }
+    }
+
+    const allProfiles = openCommDb.getProfiles();
+    const filtered = allProfiles.filter((p: any) =>
+      !search ||
+      (p.opencomm_id || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.email || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.username || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.id || '').includes(search)
+    );
+    const paged = filtered.slice(offset, offset + limit);
+    return {
+      total: filtered.length,
+      limit,
+      offset,
+      users: paged
+    };
+  },
+
+  async adminGetUserDetails(userId: string): Promise<any> {
+    if (!userId) throw new Error('User ID required');
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('admin_get_user_details', {
+          p_user_id: userId
+        });
+        if (!error && data) {
+          return data;
+        }
+        if (error) throw error;
+      } catch (err) {
+        console.error('adminGetUserDetails RPC error:', err);
+      }
+    }
+
+    const p = await this.getProfile(userId);
+    if (!p) throw new Error('User profile not found');
+    const w = await this.getWorkerProfile(userId);
+    return {
+      account_identity: {
+        id: p.id,
+        opencomm_id: p.opencomm_id || 'USER-000000',
+        full_name: p.full_name,
+        username: p.username,
+        email: p.email,
+        phone: p.phone,
+        profile_type: p.profile_type,
+        account_status: p.account_status,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        preferred_language: p.preferred_language,
+        onboarding_completed: p.onboarding_completed || false,
+        email_verified_for_actions: p.email_verified_for_actions || false,
+        phone_verified_for_actions: p.phone_verified_for_actions || false,
+        deactivated_at: (p as any).deactivated_at
+      },
+      technical_identity: {
+        auth_user_id: p.id,
+        profile_id: p.id,
+        worker_profile_id: w ? p.id : null,
+        has_worker_profile: !!w,
+        has_profile_directory: true,
+        has_worker_directory: !!w
+      },
+      location: {
+        city: p.city,
+        district: p.district,
+        state: p.state,
+        country: p.country,
+        show_location_publicly: p.show_location_publicly ?? true
+      },
+      worker_summary: w ? {
+        profession: w.profession,
+        skills: w.skills,
+        experience_years: w.experience_years,
+        availability: w.availability,
+        hourly_rate: w.hourly_rate,
+        expected_salary: w.expected_salary,
+        portfolio_url: w.portfolio_url,
+        is_worker_listed: p.is_worker_listed ?? true
+      } : null,
+      recent_logins: []
+    };
   }
 };
 

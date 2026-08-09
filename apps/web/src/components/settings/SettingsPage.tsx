@@ -4,7 +4,7 @@ import {
   User, Eye, EyeOff, Lock, Palette, Bell, LifeBuoy, ShieldCheck,
   ChevronRight, Sun, Moon, Monitor, Save, Loader2, CheckCircle2,
   AlertCircle, LogOut, Clock, Send, ArrowLeft, RefreshCw, X,
-  Laptop, Smartphone, Tablet, ExternalLink, ShieldAlert
+  Laptop, Smartphone, Tablet, ExternalLink, ShieldAlert, Copy
 } from 'lucide-react';
 import { supabase, createTemporaryAuthClient, dbService, SupportTicket, LocalProfile } from '../../lib/supabase';
 import { validatePassword } from '../../lib/passwordValidation';
@@ -183,7 +183,7 @@ const NAV_ITEMS: { id: ActiveSection; label: string; icon: React.ElementType }[]
 ];
 
 const NAV_DESCRIPTIONS: Record<ActiveSection, string> = {
-  account:       'Name, username, email, account type',
+  account:       'Name, OpenComm ID, email, account type',
   visibility:    'Profile visibility, online status, location',
   privacy:       'Messages, hire requests, search indexing',
   appearance:    'System, light, or dark theme',
@@ -553,46 +553,91 @@ export default function SettingsPage() {
 
   const currentTheme = settingsEdit.themePreference || 'system';
 
-  const renderAccount = () => (
-    <div>
-      <SectionHeader icon={User} title="Account" description="Your account details and identity" />
-      <Card>
-        <div className="space-y-0">
-          {[
-            { label: 'Full Name', value: profile?.full_name || '—' },
-            { label: 'Username', value: profile?.username ? `@${profile.username}` : '—' },
-            { label: 'Email', value: profile?.email || authMeta?.email || '—' },
-            {
-              label: 'Account Type',
-              value: profile?.profile_type
-                ? profile.profile_type.charAt(0).toUpperCase() + profile.profile_type.slice(1)
-                : '—'
-            },
-            {
-              label: 'Member Since',
-              value: profile?.created_at
-                ? new Date(profile.created_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })
-                : '—'
-            },
-          ].map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800 last:border-0">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{label}</span>
-              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{value}</span>
+  const [copiedOpenCommId, setCopiedOpenCommId] = useState(false);
+
+  const handleCopyOpenCommId = (idString: string) => {
+    if (!idString || idString === '—') return;
+    navigator.clipboard.writeText(idString);
+    setCopiedOpenCommId(true);
+    setTimeout(() => setCopiedOpenCommId(false), 2000);
+  };
+
+  const renderAccount = () => {
+    const openCommIdValue = profile?.opencomm_id || '—';
+    return (
+      <div>
+        <SectionHeader icon={User} title="Account" description="Your account details and identity" />
+        <Card>
+          <div className="space-y-0">
+            {/* Full Name */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Full Name</span>
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{profile?.full_name || '—'}</span>
             </div>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate('/profile')}
-          className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl border border-[#2563EB]/40 text-[#2563EB] dark:text-[#60A5FA] text-sm font-semibold hover:bg-[#2563EB]/5 transition-all cursor-pointer"
-        >
-          <User className="w-4 h-4" />
-          Edit Profile
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </Card>
-    </div>
-  );
+
+            {/* OpenComm ID */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800 gap-1">
+              <div>
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block">OpenComm ID</span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal">Your permanent OpenComm account identifier.</span>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 pt-1 sm:pt-0">
+                <span className="font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                  {openCommIdValue}
+                </span>
+                {openCommIdValue !== '—' && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopyOpenCommId(openCommIdValue)}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Copy OpenComm ID"
+                  >
+                    {copiedOpenCommId ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Email */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Email</span>
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{profile?.email || authMeta?.email || '—'}</span>
+            </div>
+
+            {/* Account Type */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Account Type</span>
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                {profile?.profile_type
+                  ? profile.profile_type.charAt(0).toUpperCase() + profile.profile_type.slice(1)
+                  : '—'}
+              </span>
+            </div>
+
+            {/* Member Since */}
+            <div className="flex items-center justify-between py-3">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Member Since</span>
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                {profile?.created_at
+                  ? new Date(profile.created_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })
+                  : '—'}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => navigate('/profile')}
+            className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl border border-[#2563EB]/40 text-[#2563EB] dark:text-[#60A5FA] text-sm font-semibold hover:bg-[#2563EB]/5 transition-all cursor-pointer"
+          >
+            <User className="w-4 h-4" />
+            Edit Profile
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </Card>
+      </div>
+    );
+  };
 
   const renderVisibility = () => (
     <div>
