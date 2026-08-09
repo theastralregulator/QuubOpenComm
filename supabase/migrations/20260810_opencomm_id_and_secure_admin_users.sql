@@ -40,27 +40,8 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.generate_opencomm_id(text) FROM PUBLIC, anon, authenticated;
 
--- =========================================================================
--- 3. SIGNUP EMAIL CHECK RPC (SAFE PUBLIC HELPER)
--- =========================================================================
-CREATE OR REPLACE FUNCTION public.check_email_exists(p_email text)
-RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-BEGIN
-  IF p_email IS NULL OR trim(p_email) = '' THEN
-    RETURN false;
-  END IF;
-  RETURN EXISTS (
-    SELECT 1 FROM public.profiles WHERE lower(email) = lower(trim(p_email))
-  );
-END;
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.check_email_exists(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.check_email_exists(text) TO anon, authenticated;
+-- Clean up any existing check_email_exists RPC to prevent account enumeration
+DROP FUNCTION IF EXISTS public.check_email_exists(text);
 
 -- =========================================================================
 -- 4. CANONICAL handle_new_user() TRIGGER FUNCTION

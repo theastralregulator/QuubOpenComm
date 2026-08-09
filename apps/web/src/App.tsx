@@ -1672,22 +1672,13 @@ export default function App() {
 
     // Case 2: Logged-out user signing up
     try {
-      // Check if email already exists
-      const emailExists = await dbService.checkEmailExists(signupForm.email.trim().toLowerCase());
-
-      if (emailExists) {
-        setIsAuthSubmitting(false);
-        setAuthError("This email address is already registered. Please sign in instead.");
-        return;
-      }
-
       setWorkerForm(prev => ({
         ...prev,
         fullName: signupForm.name,
         phone: signupForm.phone,
       }));
 
-      // Submit actual signup request to Supabase
+      // Submit actual signup request to Supabase Auth directly
       const { data, error } = await supabase.auth.signUp({
         email: signupForm.email.trim().toLowerCase(),
         password: signupPassword,
@@ -1713,14 +1704,14 @@ export default function App() {
         }
 
         const errMsg = String(errorText).toLowerCase();
-        if (errMsg.includes('already registered') || errMsg.includes('already exists')) {
-          setAuthError("This email address is already registered. Please sign in instead.");
+        if (errMsg.includes('already registered') || errMsg.includes('already exists') || errMsg.includes('user_already_exists')) {
+          setAuthError("If this email is already associated with an account, try signing in or resetting your password.");
         } else if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
           setAuthError("Rate limit reached. Please wait a moment before trying again.");
         } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
           setAuthError("Network error. Please check your connection and try again.");
         } else {
-          setAuthError(errorText === "{}" ? "An unknown database error occurred during signup." : errorText);
+          setAuthError(errorText === "{}" ? "An unknown error occurred during signup." : errorText);
         }
         return;
       }
