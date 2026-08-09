@@ -37,13 +37,13 @@ export const COUNTRIES_DATA: CountryOption[] = [
       { id: "WB", name: "West Bengal", districts: [] },
       { id: "GJ", name: "Gujarat", districts: [] },
       { id: "RJ", name: "Rajasthan", districts: [] },
-      { id: "TS", name: "Telangana", districts: [] },
+      { id: "TG", name: "Telangana", districts: [] },
       { id: "AP", name: "Andhra Pradesh", districts: [] },
       { id: "PB", name: "Punjab", districts: [] },
       { id: "HR", name: "Haryana", districts: [] },
       { id: "BR", name: "Bihar", districts: [] },
       { id: "MP", name: "Madhya Pradesh", districts: [] },
-      { id: "OR", name: "Odisha", districts: [] },
+      { id: "OD", name: "Odisha", districts: [] },
       { id: "AS", name: "Assam", districts: [] },
       { id: "JH", name: "Jharkhand", districts: [] },
       { id: "CT", name: "Chhattisgarh", districts: [] },
@@ -124,7 +124,7 @@ export const COUNTRIES_DATA: CountryOption[] = [
     ]
   },
   {
-    id: "CA_CN",
+    id: "CA",
     name: "Canada",
     states: [
       { id: "AB", name: "Alberta", districts: [] },

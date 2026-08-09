@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Search, ChevronDown, Check, RefreshCw, AlertCircle, X, Globe } from 'lucide-react';
+import { MapPin, Search, ChevronDown, Check, RefreshCw, AlertCircle, X, Globe, Building2 } from 'lucide-react';
 import { COUNTRIES_DATA } from '../../lib/locationsData';
 import {
   LocationData,
   getRegionsForCountry,
   isValidCoordinates,
   formatLocationSummary,
+  searchDistricts,
   searchPlaces,
   reverseGeocodeLocation,
-  PlaceSearchResult
+  PlaceSearchResult,
+  DistrictSearchResult
 } from '../../lib/locationService';
 
 export type { LocationData };
@@ -26,7 +28,7 @@ export default function LocationSelector({
   className = '',
   label = 'Your Location'
 }: LocationSelectorProps) {
-  // Current values
+  // Current persistent values
   const [country, setCountry] = useState(value.country || 'India');
   const [countryCode, setCountryCode] = useState(value.country_code || 'IN');
   const [state, setState] = useState(value.state || '');
@@ -42,7 +44,14 @@ export default function LocationSelector({
   const [geoError, setGeoError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Manual Place Search State (Policy-Safe, No Nested Form)
+  // Dedicated District Search State
+  const [districtQuery, setDistrictQuery] = useState('');
+  const [searchingDistricts, setSearchingDistricts] = useState(false);
+  const [districtResults, setDistrictResults] = useState<DistrictSearchResult[]>([]);
+  const [districtSearchHasRun, setDistrictSearchHasRun] = useState(false);
+  const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
+
+  // Locality Search State
   const [placeQuery, setPlaceQuery] = useState('');
   const [searchingPlaces, setSearchingPlaces] = useState(false);
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
@@ -52,7 +61,7 @@ export default function LocationSelector({
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [showStateDropdown, setShowStateDropdown] = useState(false);
 
-  // Sync initial or prop updates
+  // Sync props
   useEffect(() => {
     if (value.country) setCountry(value.country);
     if (value.country_code) setCountryCode(value.country_code);
@@ -78,7 +87,7 @@ export default function LocationSelector({
     onChange(updated);
   };
 
-  // Country change resets subordinate location hierarchy
+  // Country change resets full hierarchy
   const handleCountryChange = (cName: string, cCode: string) => {
     const updated: LocationData = {
       country: cName,
@@ -91,13 +100,18 @@ export default function LocationSelector({
       longitude: undefined
     };
     setShowCountryDropdown(false);
+    setShowStateDropdown(false);
+    setShowDistrictDropdown(false);
+    setDistrictQuery('');
+    setDistrictResults([]);
+    setDistrictSearchHasRun(false);
     setPlaceQuery('');
     setSearchResults([]);
     setSearchHasRun(false);
     notifyChange(updated);
   };
 
-  // State change handler
+  // State change resets district & locality
   const handleStateChange = (sName: string, sCode: string) => {
     const updated: LocationData = {
       country,
@@ -110,16 +124,64 @@ export default function LocationSelector({
       longitude: undefined
     };
     setShowStateDropdown(false);
+    setShowDistrictDropdown(false);
+    setDistrictQuery('');
+    setDistrictResults([]);
+    setDistrictSearchHasRun(false);
     setPlaceQuery('');
     setSearchResults([]);
     setSearchHasRun(false);
     notifyChange(updated);
   };
 
-  // GPS Geolocation Handler
+  // District selection handler
+  const handleSelectDistrictResult = (res: DistrictSearchResult) => {
+    const updated: LocationData = {
+      country: res.data.country || country,
+      country_code: res.data.country_code || countryCode,
+      state: res.data.state || state,
+      state_code: res.data.state_code || stateCode,
+      district: res.data.district,
+      city: '',
+      latitude: res.data.latitude,
+      longitude: res.data.longitude
+    };
+    setShowDistrictDropdown(false);
+    setDistrictQuery('');
+    setDistrictResults([]);
+    setDistrictSearchHasRun(false);
+    setPlaceQuery('');
+    setSearchResults([]);
+    setSearchHasRun(false);
+    notifyChange(updated);
+  };
+
+  // Locality selection handler
+  const handleSelectLocalityResult = (result: PlaceSearchResult) => {
+    notifyChange(result.data);
+    setSearchResults([]);
+    setPlaceQuery('');
+    setSearchHasRun(false);
+    setManualExpanded(false);
+  };
+
+  // GPS Geolocation Handler — IMMEDIATELY closes manual panel & preserves old location on error
   const handleDetectLocation = () => {
     setGeoError(null);
     setValidationError(null);
+
+    // Immediately close manual panel & transient search state
+    setManualExpanded(false);
+    setShowCountryDropdown(false);
+    setShowStateDropdown(false);
+    setShowDistrictDropdown(false);
+    setDistrictQuery('');
+    setDistrictResults([]);
+    setDistrictSearchHasRun(false);
+    setPlaceQuery('');
+    setSearchResults([]);
+    setSearchHasRun(false);
+
     setDetecting(true);
 
     if (!navigator.geolocation) {
@@ -137,10 +199,10 @@ export default function LocationSelector({
           if (detectedData) {
             notifyChange(detectedData);
           } else {
-            setGeoError("Could not detect location automatically. Please select manually.");
+            setGeoError("Could not detect location automatically. You can select your location manually.");
           }
         } catch (err) {
-          setGeoError("Could not detect location automatically. Please select manually.");
+          setGeoError("Could not detect location automatically. You can select your location manually.");
         } finally {
           setDetecting(false);
         }
@@ -159,40 +221,53 @@ export default function LocationSelector({
     );
   };
 
-  // Place Search Handler (No Form Submit, Policy-Safe)
-  const handleExecutePlaceSearch = async () => {
-    if (!placeQuery.trim()) return;
-
-    setSearchingPlaces(true);
-    setSearchHasRun(true);
+  // District Search Action
+  const handleExecuteDistrictSearch = async () => {
+    if (!districtQuery.trim()) return;
+    setSearchingDistricts(true);
+    setDistrictSearchHasRun(true);
     setValidationError(null);
+
     try {
-      const results = await searchPlaces(placeQuery, {
+      const results = await searchDistricts(districtQuery, {
         countryCode: countryCode || 'IN',
         state: state
       });
+      setDistrictResults(results);
+    } catch (err) {
+      console.warn('[LocationSelector] District search error:', err);
+      setDistrictResults([]);
+    } finally {
+      setSearchingDistricts(false);
+    }
+  };
+
+  // Locality Search Action
+  const handleExecutePlaceSearch = async () => {
+    if (!placeQuery.trim()) return;
+    setSearchingPlaces(true);
+    setSearchHasRun(true);
+    setValidationError(null);
+
+    try {
+      const results = await searchPlaces(placeQuery, {
+        countryCode: countryCode || 'IN',
+        state: state,
+        district: district
+      });
       setSearchResults(results);
     } catch (err) {
-      console.warn('[LocationSelector] Search error:', err);
+      console.warn('[LocationSelector] Locality search error:', err);
       setSearchResults([]);
     } finally {
       setSearchingPlaces(false);
     }
   };
 
-  const handleSelectSearchResult = (result: PlaceSearchResult) => {
-    notifyChange(result.data);
-    setSearchResults([]);
-    setPlaceQuery('');
-    setSearchHasRun(false);
-    setManualExpanded(false);
-  };
-
-  // Done button validation in manual mode
+  // Done button validation
   const handleDoneManual = () => {
-    // Require meaningful locality/state or valid selection
     if (!city && !district && !state) {
-      if (placeQuery.trim()) {
+      if (placeQuery.trim() || districtQuery.trim()) {
         setValidationError("Please select a location from the search results.");
         return;
       }
@@ -202,8 +277,6 @@ export default function LocationSelector({
 
   // Country-dependent region list
   const availableRegions = getRegionsForCountry(countryCode || country);
-
-  // Formatted Summary string (Only meaningful if city, district, or state is populated)
   const currentSummary = formatLocationSummary({ country, state, district, city });
   const hasSelectedLocation = Boolean((city || district || state) && country);
 
@@ -236,7 +309,7 @@ export default function LocationSelector({
           </button>
         </div>
 
-        {/* Selected location summary banner (ONLY rendered if locality/state/district is populated) */}
+        {/* Selected location summary banner */}
         {hasSelectedLocation && !manualExpanded && (
           <div className="flex items-center justify-between p-2.5 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-900/50 rounded-xl text-xs">
             <div className="flex items-center space-x-2 font-semibold text-indigo-950 dark:text-indigo-200 min-w-0 pr-2">
@@ -279,13 +352,13 @@ export default function LocationSelector({
         )}
       </div>
 
-      {/* ── 2. EXPANDED MANUAL LOCATION SECTION ──────────────────────── */}
+      {/* ── 2. EXPANDED MANUAL LOCATION HIERARCHY ────────────────────── */}
       {manualExpanded && (
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-4 shadow-sm text-left animate-fadeIn">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
             <span className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
               <Globe className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Manual Location Selection</span>
+              <span>Manual Location Hierarchy</span>
             </span>
             <button
               type="button"
@@ -297,7 +370,7 @@ export default function LocationSelector({
             </button>
           </div>
 
-          {/* Validation Error Notice */}
+          {/* Validation Notice */}
           {validationError && (
             <div className="flex items-center space-x-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-300 rounded-xl text-xs font-semibold">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -305,11 +378,11 @@ export default function LocationSelector({
             </div>
           )}
 
-          {/* Structured Country & State Dropdowns */}
+          {/* Step 1 & 2: Country & State */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Country Selector */}
             <div className="space-y-1">
-              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Country</label>
+              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">1. Country</label>
               <div className="relative">
                 <button
                   type="button"
@@ -337,9 +410,9 @@ export default function LocationSelector({
               </div>
             </div>
 
-            {/* State / Province Selector (Country-Dependent) */}
+            {/* State / Region Selector */}
             <div className="space-y-1">
-              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">State / Province / Region</label>
+              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">2. State / Province / Region</label>
               <div className="relative">
                 <button
                   type="button"
@@ -369,10 +442,82 @@ export default function LocationSelector({
             </div>
           </div>
 
-          {/* Place / Locality Search Bar (NO NESTED FORM, Policy-Safe) */}
-          <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            <label className="block font-bold text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wider font-mono">
-              Search City / Town / Locality / District
+          {/* Step 3: DEDICATED DISTRICT / COUNTY SELECTOR */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">
+              3. District / County
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                disabled={!state && availableRegions.length > 0}
+                onClick={() => setShowDistrictDropdown(!showDistrictDropdown)}
+                className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-left flex justify-between items-center text-xs font-semibold disabled:opacity-50"
+              >
+                <div className="flex items-center space-x-2 min-w-0 pr-2">
+                  <Building2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span className="truncate">{district ? `${district} District` : (state ? 'Select District / County' : 'Select State First')}</span>
+                </div>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              </button>
+
+              {/* District Search Panel */}
+              {showDistrictDropdown && (
+                <div className="absolute z-30 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-3 space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={districtQuery}
+                      onChange={(e) => setDistrictQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleExecuteDistrictSearch();
+                        }
+                      }}
+                      placeholder="Search district (e.g. Kottayam, Ernakulam...)"
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={searchingDistricts || !districtQuery.trim()}
+                      onClick={handleExecuteDistrictSearch}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg text-xs cursor-pointer flex items-center space-x-1"
+                    >
+                      {searchingDistricts ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                      <span>Search</span>
+                    </button>
+                  </div>
+
+                  {districtSearchHasRun && (
+                    <div className="max-h-40 overflow-y-auto space-y-1 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                      {districtResults.length > 0 ? (
+                        districtResults.map((res, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleSelectDistrictResult(res)}
+                            className="w-full p-2 text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-lg text-xs cursor-pointer"
+                          >
+                            <p className="font-bold text-slate-900 dark:text-white">{res.data.district} District</p>
+                            <p className="text-[10px] text-slate-500 truncate">{res.formatted_summary}</p>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="p-2 text-center text-slate-500 text-xs">No matching districts found.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Step 4: LOCALITY SELECTOR */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">
+              4. City / Town / Village / Locality
             </label>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -387,7 +532,7 @@ export default function LocationSelector({
                       handleExecutePlaceSearch();
                     }
                   }}
-                  placeholder="e.g. Kaduthuruthy, Kottayam, Whitefield..."
+                  placeholder="e.g. Kaduthuruthy, Pala, Whitefield..."
                   className="w-full h-10 px-3.5 pr-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold focus:outline-none focus:border-indigo-500"
                 />
                 {placeQuery && (
@@ -420,7 +565,7 @@ export default function LocationSelector({
               </button>
             </div>
 
-            {/* Search Results List (Provider Results) */}
+            {/* Locality Search Results */}
             {searchHasRun && (
               <div className="mt-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl max-h-52 overflow-y-auto p-1.5 space-y-1 shadow-md">
                 {searchResults.length > 0 ? (
@@ -428,7 +573,7 @@ export default function LocationSelector({
                     <button
                       key={i}
                       type="button"
-                      onClick={() => handleSelectSearchResult(res)}
+                      onClick={() => handleSelectLocalityResult(res)}
                       className="w-full p-2 text-left rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer border border-transparent hover:border-indigo-200 dark:hover:border-indigo-900"
                     >
                       <p className="font-bold text-slate-900 dark:text-white text-xs">{res.data.city || res.data.district}</p>
@@ -437,7 +582,7 @@ export default function LocationSelector({
                   ))
                 ) : (
                   <div className="p-3 text-center text-slate-500 dark:text-slate-400 text-xs">
-                    No matching places found. Try refining your search query.
+                    No matching localities found. Try refining your search query.
                   </div>
                 )}
               </div>

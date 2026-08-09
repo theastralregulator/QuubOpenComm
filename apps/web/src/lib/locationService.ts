@@ -1,7 +1,7 @@
 /**
  * Location Service Module — Provider Abstraction
  * Handles location formatting, country-specific region catalogs, languages,
- * policy-safe Nominatim place search, coordinate validation, and reverse geocoding.
+ * policy-safe Nominatim place search, district search, coordinate validation, and reverse geocoding.
  */
 
 import { COUNTRIES_DATA } from './locationsData';
@@ -18,6 +18,12 @@ export interface LocationData {
 }
 
 export interface PlaceSearchResult {
+  display_name: string;
+  formatted_summary: string;
+  data: LocationData;
+}
+
+export interface DistrictSearchResult {
   display_name: string;
   formatted_summary: string;
   data: LocationData;
@@ -44,7 +50,7 @@ export const INDIAN_STATES_AND_UTS: { code: string; name: string; isUT?: boolean
   { code: 'ML', name: 'Meghalaya' },
   { code: 'MZ', name: 'Mizoram' },
   { code: 'NL', name: 'Nagaland' },
-  { code: 'OR', name: 'Odisha' },
+  { code: 'OD', name: 'Odisha' },
   { code: 'PB', name: 'Punjab' },
   { code: 'RJ', name: 'Rajasthan' },
   { code: 'SK', name: 'Sikkim' },
@@ -160,6 +166,7 @@ export function formatLocationSummary(data?: Partial<LocationData> | null | stri
 
 // In-memory rate limiting and result caching for Nominatim API
 const searchCache = new Map<string, PlaceSearchResult[]>();
+const districtCache = new Map<string, DistrictSearchResult[]>();
 const reverseCache = new Map<string, LocationData>();
 let lastApiCallTimestamp = 0;
 
@@ -173,53 +180,141 @@ async function enforceRateLimit(): Promise<void> {
 }
 
 /**
- * Search places by query (e.g., "Kaduthuruthy", "Pala", "Whitefield")
- * Policy-safe: called on explicit user action (button click / Enter key), cached, rate-limited.
+ * Search Districts / Counties by query (e.g. "Kottayam", "Ernakulam", "Orange")
+ * Administrative level layer filtering to exclude POIs / shops.
  */
-export async function searchPlaces(
+export async function searchDistricts(
   query: string,
   options: { countryCode?: string; state?: string } = {}
-): Promise<PlaceSearchResult[]> {
+): Promise<DistrictSearchResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
   const countryCode = (options.countryCode || 'IN').toLowerCase();
-  const cacheKey = `${countryCode}:${options.state || ''}:${q.toLowerCase()}`;
+  const cacheKey = `district:${countryCode}:${options.state || ''}:${q.toLowerCase()}`;
 
-  if (searchCache.has(cacheKey)) {
-    return searchCache.get(cacheKey)!;
+  if (districtCache.has(cacheKey)) {
+    return districtCache.get(cacheKey)!;
   }
 
-  let searchQuery = q;
+  let searchQuery = `${q} District`;
   if (options.state && !q.toLowerCase().includes(options.state.toLowerCase())) {
-    searchQuery = `${q}, ${options.state}`;
+    searchQuery = `${q} District, ${options.state}`;
   }
 
   await enforceRateLimit();
 
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=10&accept-language=en&countrycodes=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(searchQuery)}`;
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=15&accept-language=en&layer=address&countrycodes=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(searchQuery)}`;
 
-    // Standard browser fetch
     const res = await fetch(url);
-
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const rawList = await res.json();
     if (!Array.isArray(rawList)) return [];
 
-    const results: PlaceSearchResult[] = rawList.map((item: any) => {
+    const uniqueKeys = new Set<string>();
+    const results: DistrictSearchResult[] = [];
+
+    for (const item of rawList) {
       const addr = item.address || {};
       const countryName = addr.country || (countryCode === 'in' ? 'India' : '');
       const stateName = addr.state || addr.province || addr.region || options.state || '';
-
-      // Deterministic extraction order
-      const districtName = addr.state_district || addr.county || addr.district || '';
-      const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || item.name || q;
-
+      const districtName = addr.state_district || addr.county || addr.district || item.name || q;
       const cCode = (addr.country_code || countryCode).toUpperCase();
 
-      // Derive region/state code automatically from country regions or INDIAN_STATES_AND_UTS
+      const countryRegions = getRegionsForCountry(cCode);
+      const matchedRegion = countryRegions.find(r =>
+        (stateName && r.name.toLowerCase() === stateName.toLowerCase()) ||
+        (options.state && r.name.toLowerCase() === options.state.toLowerCase())
+      );
+      const sCode = matchedRegion ? matchedRegion.code : '';
+
+      const cleanDistrict = districtName.replace(/ district$/i, '').trim();
+      const dedupeKey = `${cCode}:${sCode}:${cleanDistrict.toLowerCase()}`;
+
+      if (uniqueKeys.has(dedupeKey)) continue;
+      uniqueKeys.add(dedupeKey);
+
+      const lat = item.lat ? Math.round(parseFloat(item.lat) * 1000) / 1000 : undefined;
+      const lng = item.lon ? Math.round(parseFloat(item.lon) * 1000) / 1000 : undefined;
+
+      const data: LocationData = {
+        country: countryName,
+        country_code: cCode,
+        state: stateName,
+        state_code: sCode,
+        district: cleanDistrict,
+        city: '',
+        latitude: lat,
+        longitude: lng
+      };
+
+      const summary = formatLocationSummary({ country: countryName, state: stateName, district: cleanDistrict });
+
+      results.push({
+        display_name: item.display_name,
+        formatted_summary: summary,
+        data
+      });
+    }
+
+    districtCache.set(cacheKey, results);
+    return results;
+  } catch (err) {
+    console.warn('[LocationService] Nominatim district search error:', err);
+    return [];
+  }
+}
+
+/**
+ * Search places/localities by query with multi-pass fallback & settlement filtering.
+ * High-coverage for small towns, villages, and localities.
+ */
+export async function searchPlaces(
+  query: string,
+  options: { countryCode?: string; state?: string; district?: string } = {}
+): Promise<PlaceSearchResult[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+
+  const countryCode = (options.countryCode || 'IN').toLowerCase();
+  const cacheKey = `locality:${countryCode}:${options.state || ''}:${options.district || ''}:${q.toLowerCase()}`;
+
+  if (searchCache.has(cacheKey)) {
+    return searchCache.get(cacheKey)!;
+  }
+
+  // Pass 1: Query + District + State
+  let searchQuery = q;
+  const contextParts: string[] = [q];
+  if (options.district && !q.toLowerCase().includes(options.district.toLowerCase())) {
+    contextParts.push(options.district);
+  }
+  if (options.state && !q.toLowerCase().includes(options.state.toLowerCase())) {
+    contextParts.push(options.state);
+  }
+  searchQuery = contextParts.join(', ');
+
+  const executeQuery = async (queryStr: string): Promise<PlaceSearchResult[]> => {
+    await enforceRateLimit();
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=40&accept-language=en&layer=address&featureType=settlement&countrycodes=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(queryStr)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rawList = await res.json();
+    if (!Array.isArray(rawList)) return [];
+
+    const uniqueKeys = new Set<string>();
+    const results: PlaceSearchResult[] = [];
+
+    for (const item of rawList) {
+      const addr = item.address || {};
+      const countryName = addr.country || (countryCode === 'in' ? 'India' : '');
+      const stateName = addr.state || addr.province || addr.region || options.state || '';
+      const districtName = addr.state_district || addr.county || addr.district || options.district || '';
+      const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || item.name || q;
+      const cCode = (addr.country_code || countryCode).toUpperCase();
+
       const countryRegions = getRegionsForCountry(cCode);
       const matchedRegion = countryRegions.find(r =>
         (stateName && r.name.toLowerCase() === stateName.toLowerCase()) ||
@@ -230,12 +325,16 @@ export async function searchPlaces(
       const lat = item.lat ? Math.round(parseFloat(item.lat) * 1000) / 1000 : undefined;
       const lng = item.lon ? Math.round(parseFloat(item.lon) * 1000) / 1000 : undefined;
 
+      const dedupeKey = `${cCode}:${sCode}:${districtName.toLowerCase()}:${localityName.toLowerCase()}:${lat || 0}:${lng || 0}`;
+      if (uniqueKeys.has(dedupeKey)) continue;
+      uniqueKeys.add(dedupeKey);
+
       const data: LocationData = {
         country: countryName,
         country_code: cCode,
         state: stateName,
         state_code: sCode,
-        district: districtName,
+        district: districtName.replace(/ district$/i, '').trim(),
         city: localityName,
         latitude: lat,
         longitude: lng
@@ -243,12 +342,24 @@ export async function searchPlaces(
 
       const summary = formatLocationSummary(data);
 
-      return {
+      results.push({
         display_name: item.display_name,
         formatted_summary: summary,
         data
-      };
-    });
+      });
+    }
+
+    return results;
+  };
+
+  try {
+    let results = await executeQuery(searchQuery);
+
+    // Controlled Pass 2 Fallback (Query + State if Pass 1 yielded 0 results and district was specified)
+    if (results.length === 0 && options.district && options.state) {
+      const fallbackQuery = `${q}, ${options.state}`;
+      results = await executeQuery(fallbackQuery);
+    }
 
     searchCache.set(cacheKey, results);
     return results;
@@ -273,11 +384,9 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
   await enforceRateLimit();
 
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${approxLat}&lon=${approxLng}&accept-language=en&addressdetails=1`;
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${approxLat}&lon=${approxLng}&accept-language=en&addressdetails=1`;
 
-    // Standard browser fetch
     const res = await fetch(url);
-
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
@@ -287,8 +396,6 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
     const countryName = addr.country || '';
     const countryCode = (addr.country_code || '').toUpperCase();
     const stateName = addr.state || addr.province || addr.region || '';
-
-    // Deterministic extraction order
     const districtName = addr.state_district || addr.county || addr.district || '';
     const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || '';
 
@@ -300,7 +407,7 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
       country_code: countryCode,
       state: stateName,
       state_code: matchedStateCode,
-      district: districtName,
+      district: districtName.replace(/ district$/i, '').trim(),
       city: localityName,
       latitude: approxLat,
       longitude: approxLng
