@@ -19,18 +19,16 @@ export default function AdminNotifications() {
 
   const handleSearchUsers = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recipientSearch.trim() || !supabase) return;
+    if (!recipientSearch.trim()) return;
     setSearching(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
-        .from('profile_directory')
-        .select('id, full_name, email, avatar_url')
-        .or(`full_name.ilike.%${recipientSearch}%,email.ilike.%${recipientSearch}%`)
-        .limit(5);
-
-      if (err) throw err;
-      setSearchResults(data || []);
+      const res = await dbService.adminListUsers({
+        search: recipientSearch.trim(),
+        limit: 5,
+        offset: 0
+      });
+      setSearchResults(res.users || []);
     } catch (err: any) {
       console.error('Search user error:', err);
       setError(err.message || 'Failed to search users.');
@@ -103,7 +101,7 @@ export default function AdminNotifications() {
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search user name or email..."
+                placeholder="Search by name, email, or OpenComm ID..."
                 value={recipientSearch}
                 onChange={(e) => setRecipientSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-slate-900 dark:text-white"

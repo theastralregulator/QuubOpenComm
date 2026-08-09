@@ -69,7 +69,7 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, auth
+SET search_path TO public, auth, pg_temp
 AS $$
 DECLARE
   v_full_name text;
@@ -117,6 +117,20 @@ DECLARE
   r RECORD;
   v_max_seq bigint := 0;
 BEGIN
+  -- 1. Inspect existing assigned opencomm_id values prior to backfill
+  SELECT COALESCE(MAX(
+    CASE
+      WHEN opencomm_id ~ '^[A-Z0-9]+-[0-9]+$'
+      THEN split_part(opencomm_id, '-', 2)::bigint
+      ELSE 0
+    END
+  ), 0) INTO v_max_seq FROM public.profiles;
+
+  IF v_max_seq > 0 THEN
+    PERFORM setval('public.opencomm_member_number_seq', v_max_seq, true);
+  END IF;
+
+  -- 2. Assign missing opencomm_id values
   FOR r IN 
     SELECT id, full_name FROM public.profiles 
     WHERE opencomm_id IS NULL 
@@ -127,7 +141,7 @@ BEGIN
     WHERE id = r.id;
   END LOOP;
 
-  -- Calculate highest sequence number assigned
+  -- 3. Final sequence alignment check after backfill
   SELECT COALESCE(MAX(
     CASE
       WHEN opencomm_id ~ '^[A-Z0-9]+-[0-9]+$'

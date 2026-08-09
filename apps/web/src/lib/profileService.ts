@@ -212,7 +212,7 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
     if (stillMissing.length > 0) {
       const { data: profRows, error: profError } = await supabase
         .from('profile_directory')
-        .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, email_verified_for_actions')
+        .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, onboarding_completed')
         .in('id', stillMissing);
 
       if (profError) {
@@ -232,7 +232,7 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
             city: prof.city || null,
             state: prof.state || null,
             country: prof.country || null,
-            verified: Boolean(prof.email_verified_for_actions),
+            verified: Boolean(prof.onboarding_completed),
             profileType: prof.profile_type || null,
           };
           profileCache.set(prof.id, profile);
