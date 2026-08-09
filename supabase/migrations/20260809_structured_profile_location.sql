@@ -10,10 +10,11 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS latitude double precision,
   ADD COLUMN IF NOT EXISTS longitude double precision;
 
--- 2. Drop existing update_my_basic_profile to allow signature update
+-- 2. Drop existing update_my_basic_profile overload signatures to avoid PostgREST ambiguity
 DROP FUNCTION IF EXISTS public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean);
+DROP FUNCTION IF EXISTS public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision);
 
--- 3. Create updated update_my_basic_profile RPC supporting structured location parameters
+-- 3. Create updated update_my_basic_profile RPC with exact canonical logic + structured location parameters
 CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
   p_username text DEFAULT NULL,
   p_full_name text DEFAULT NULL,
@@ -36,7 +37,7 @@ CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, auth
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_user_id uuid;
@@ -77,19 +78,19 @@ BEGIN
   SET 
     username = COALESCE(v_username, username),
     full_name = COALESCE(v_full_name, full_name),
-    avatar_url = COALESCE(trim(p_avatar_url), avatar_url),
-    banner_url = COALESCE(trim(p_banner_url), banner_url),
-    phone = COALESCE(trim(p_phone), phone),
-    city = COALESCE(trim(p_city), city),
-    state = COALESCE(trim(p_state), state),
-    country = COALESCE(trim(p_country), country),
-    country_code = COALESCE(trim(p_country_code), country_code),
-    state_code = COALESCE(trim(p_state_code), state_code),
-    district = COALESCE(trim(p_district), district),
+    avatar_url = COALESCE(NULLIF(trim(p_avatar_url), ''), avatar_url),
+    banner_url = COALESCE(NULLIF(trim(p_banner_url), ''), banner_url),
+    phone = COALESCE(NULLIF(trim(p_phone), ''), phone),
+    city = COALESCE(NULLIF(trim(p_city), ''), city),
+    state = COALESCE(NULLIF(trim(p_state), ''), state),
+    country = COALESCE(NULLIF(trim(p_country), ''), country),
+    country_code = COALESCE(NULLIF(trim(p_country_code), ''), country_code),
+    state_code = COALESCE(NULLIF(trim(p_state_code), ''), state_code),
+    district = COALESCE(NULLIF(trim(p_district), ''), district),
     latitude = COALESCE(p_latitude, latitude),
     longitude = COALESCE(p_longitude, longitude),
-    preferred_language = COALESCE(trim(p_preferred_language), preferred_language),
-    bio = COALESCE(trim(p_bio), bio),
+    preferred_language = COALESCE(NULLIF(trim(p_preferred_language), ''), preferred_language),
+    bio = CASE WHEN p_bio IS NULL THEN bio ELSE trim(p_bio) END,
     show_location_publicly = COALESCE(p_show_location_publicly, show_location_publicly),
     onboarding_completed = COALESCE(p_onboarding_completed, onboarding_completed),
     updated_at = now()
@@ -110,5 +111,5 @@ END;
 $$;
 
 -- 4. Permissions management
-REVOKE EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) TO authenticated;

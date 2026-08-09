@@ -166,11 +166,8 @@ export async function searchPlaces(
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=10&accept-language=en&countrycodes=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(searchQuery)}`;
     
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'OpenComm-Applet/1.0 (https://quubopencomm.app)'
-      }
-    });
+    // Standard browser fetch (do not set custom forbidden User-Agent header)
+    const res = await fetch(url);
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -181,11 +178,19 @@ export async function searchPlaces(
       const addr = item.address || {};
       const countryName = addr.country || (countryCode === 'in' ? 'India' : '');
       const stateName = addr.state || addr.province || addr.region || options.state || '';
+
+      // Deterministic extraction order
       const districtName = addr.state_district || addr.county || addr.district || '';
       const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || item.name || q;
-      
+
       const cCode = (addr.country_code || countryCode).toUpperCase();
-      const sCode = options.state ? (INDIAN_STATES_AND_UTS.find(s => s.name.toLowerCase() === options.state?.toLowerCase())?.code || '') : '';
+
+      // Derive Indian state/UT code automatically from address stateName or options.state
+      const matchedState = INDIAN_STATES_AND_UTS.find(s =>
+        (stateName && s.name.toLowerCase() === stateName.toLowerCase()) ||
+        (options.state && s.name.toLowerCase() === options.state.toLowerCase())
+      );
+      const sCode = matchedState ? matchedState.code : '';
 
       const lat = item.lat ? Math.round(parseFloat(item.lat) * 1000) / 1000 : undefined;
       const lng = item.lon ? Math.round(parseFloat(item.lon) * 1000) / 1000 : undefined;
@@ -234,11 +239,9 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
 
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${approxLat}&lon=${approxLng}&accept-language=en&addressdetails=1`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'OpenComm-Applet/1.0 (https://quubopencomm.app)'
-      }
-    });
+
+    // Standard browser fetch (do not set custom forbidden User-Agent header)
+    const res = await fetch(url);
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -249,8 +252,10 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
     const countryName = addr.country || '';
     const countryCode = (addr.country_code || '').toUpperCase();
     const stateName = addr.state || addr.province || addr.region || '';
+
+    // Deterministic extraction order
     const districtName = addr.state_district || addr.county || addr.district || '';
-    const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || '';
+    const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || '';
 
     const matchedStateCode = INDIAN_STATES_AND_UTS.find(s => s.name.toLowerCase() === stateName.toLowerCase())?.code || '';
 
