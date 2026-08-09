@@ -3,7 +3,8 @@ import { MapPin, Search, ChevronDown, Check, RefreshCw, AlertCircle, X, Globe } 
 import { COUNTRIES_DATA } from '../../lib/locationsData';
 import {
   LocationData,
-  INDIAN_STATES_AND_UTS,
+  getRegionsForCountry,
+  isValidCoordinates,
   formatLocationSummary,
   searchPlaces,
   reverseGeocodeLocation,
@@ -39,8 +40,9 @@ export default function LocationSelector({
   const [manualExpanded, setManualExpanded] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Manual Place Search State (Policy-Safe)
+  // Manual Place Search State (Policy-Safe, No Nested Form)
   const [placeQuery, setPlaceQuery] = useState('');
   const [searchingPlaces, setSearchingPlaces] = useState(false);
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
@@ -54,15 +56,15 @@ export default function LocationSelector({
   useEffect(() => {
     if (value.country) setCountry(value.country);
     if (value.country_code) setCountryCode(value.country_code);
-    if (value.state) setState(value.state);
-    if (value.state_code) setStateCode(value.state_code);
+    if (value.state !== undefined) setState(value.state || '');
+    if (value.state_code !== undefined) setStateCode(value.state_code || '');
     if (value.district !== undefined) setDistrict(value.district || '');
     if (value.city !== undefined) setCity(value.city || '');
     if (value.latitude !== undefined) setLatitude(value.latitude);
     if (value.longitude !== undefined) setLongitude(value.longitude);
   }, [value.country, value.state, value.city, value.district]);
 
-  // Emit changes
+  // Emit normalized updates
   const notifyChange = (updated: LocationData) => {
     setCountry(updated.country);
     setCountryCode(updated.country_code);
@@ -72,12 +74,52 @@ export default function LocationSelector({
     setCity(updated.city);
     setLatitude(updated.latitude);
     setLongitude(updated.longitude);
+    setValidationError(null);
     onChange(updated);
+  };
+
+  // Country change resets subordinate location hierarchy
+  const handleCountryChange = (cName: string, cCode: string) => {
+    const updated: LocationData = {
+      country: cName,
+      country_code: cCode,
+      state: '',
+      state_code: '',
+      district: '',
+      city: '',
+      latitude: undefined,
+      longitude: undefined
+    };
+    setShowCountryDropdown(false);
+    setPlaceQuery('');
+    setSearchResults([]);
+    setSearchHasRun(false);
+    notifyChange(updated);
+  };
+
+  // State change handler
+  const handleStateChange = (sName: string, sCode: string) => {
+    const updated: LocationData = {
+      country,
+      country_code: countryCode,
+      state: sName,
+      state_code: sCode,
+      district: '',
+      city: '',
+      latitude: undefined,
+      longitude: undefined
+    };
+    setShowStateDropdown(false);
+    setPlaceQuery('');
+    setSearchResults([]);
+    setSearchHasRun(false);
+    notifyChange(updated);
   };
 
   // GPS Geolocation Handler
   const handleDetectLocation = () => {
     setGeoError(null);
+    setValidationError(null);
     setDetecting(true);
 
     if (!navigator.geolocation) {
@@ -117,13 +159,13 @@ export default function LocationSelector({
     );
   };
 
-  // Place Search Handler (Policy-Safe: explicitly triggered by user)
-  const handleExecutePlaceSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Place Search Handler (No Form Submit, Policy-Safe)
+  const handleExecutePlaceSearch = async () => {
     if (!placeQuery.trim()) return;
 
     setSearchingPlaces(true);
     setSearchHasRun(true);
+    setValidationError(null);
     try {
       const results = await searchPlaces(placeQuery, {
         countryCode: countryCode || 'IN',
@@ -146,14 +188,29 @@ export default function LocationSelector({
     setManualExpanded(false);
   };
 
-  // Formatted Summary string
+  // Done button validation in manual mode
+  const handleDoneManual = () => {
+    // Require meaningful locality/state or valid selection
+    if (!city && !district && !state) {
+      if (placeQuery.trim()) {
+        setValidationError("Please select a location from the search results.");
+        return;
+      }
+    }
+    setManualExpanded(false);
+  };
+
+  // Country-dependent region list
+  const availableRegions = getRegionsForCountry(countryCode || country);
+
+  // Formatted Summary string (Only meaningful if city, district, or state is populated)
   const currentSummary = formatLocationSummary({ country, state, district, city });
-  const hasSelectedLocation = Boolean(currentSummary);
+  const hasSelectedLocation = Boolean((city || district || state) && country);
 
   return (
     <div className={`space-y-3 text-xs text-slate-800 dark:text-slate-200 ${className}`}>
       {/* ── 1. DEFAULT COMPACT UI ────────────────────────────────────── */}
-      <div className="p-3.5 bg-slate-50 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl space-y-2.5">
+      <div className="p-3.5 bg-slate-50 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl space-y-2.5 text-left">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
             <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
@@ -179,7 +236,7 @@ export default function LocationSelector({
           </button>
         </div>
 
-        {/* Selected location summary banner */}
+        {/* Selected location summary banner (ONLY rendered if locality/state/district is populated) */}
         {hasSelectedLocation && !manualExpanded && (
           <div className="flex items-center justify-between p-2.5 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-900/50 rounded-xl text-xs">
             <div className="flex items-center space-x-2 font-semibold text-indigo-950 dark:text-indigo-200 min-w-0 pr-2">
@@ -212,6 +269,7 @@ export default function LocationSelector({
               onClick={() => {
                 setManualExpanded(true);
                 setGeoError(null);
+                setValidationError(null);
               }}
               className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-bold transition-all cursor-pointer flex items-center space-x-1"
             >
@@ -239,18 +297,97 @@ export default function LocationSelector({
             </button>
           </div>
 
-          {/* Place / Locality Search Bar (Policy-Safe: explicit Search action) */}
-          <div className="space-y-1.5">
+          {/* Validation Error Notice */}
+          {validationError && (
+            <div className="flex items-center space-x-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-300 rounded-xl text-xs font-semibold">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{validationError}</span>
+            </div>
+          )}
+
+          {/* Structured Country & State Dropdowns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Country Selector */}
+            <div className="space-y-1">
+              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Country</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowCountryDropdown(!showCountryDropdown)}
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-left flex justify-between items-center text-xs font-semibold"
+                >
+                  <span className="truncate">{country || 'Select Country'}</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+                {showCountryDropdown && (
+                  <div className="absolute z-30 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg max-h-48 overflow-y-auto p-1">
+                    {COUNTRIES_DATA.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleCountryChange(c.name, c.id)}
+                        className="w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium flex justify-between items-center cursor-pointer"
+                      >
+                        <span>{c.name}</span>
+                        {countryCode === c.id && <Check className="w-3.5 h-3.5 text-indigo-500" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* State / Province Selector (Country-Dependent) */}
+            <div className="space-y-1">
+              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">State / Province / Region</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  disabled={availableRegions.length === 0}
+                  onClick={() => setShowStateDropdown(!showStateDropdown)}
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-left flex justify-between items-center text-xs font-semibold disabled:opacity-50"
+                >
+                  <span className="truncate">{state || (availableRegions.length > 0 ? 'Select State / Region' : 'N/A')}</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+                {showStateDropdown && availableRegions.length > 0 && (
+                  <div className="absolute z-30 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg max-h-48 overflow-y-auto p-1">
+                    {availableRegions.map((s) => (
+                      <button
+                        key={s.code}
+                        type="button"
+                        onClick={() => handleStateChange(s.name, s.code)}
+                        className="w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium flex justify-between items-center cursor-pointer"
+                      >
+                        <span>{s.name}</span>
+                        {state === s.name && <Check className="w-3.5 h-3.5 text-indigo-500" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Place / Locality Search Bar (NO NESTED FORM, Policy-Safe) */}
+          <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <label className="block font-bold text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wider font-mono">
-              Search Town / Locality / Village / City
+              Search City / Town / Locality / District
             </label>
-            <form onSubmit={handleExecutePlaceSearch} className="flex gap-2">
+            <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
                   type="text"
                   value={placeQuery}
-                  onChange={(e) => setPlaceQuery(e.target.value)}
-                  placeholder="e.g. Kaduthuruthy, Pala, Whitefield..."
+                  onChange={(e) => { setPlaceQuery(e.target.value); setValidationError(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleExecutePlaceSearch();
+                    }
+                  }}
+                  placeholder="e.g. Kaduthuruthy, Kottayam, Whitefield..."
                   className="w-full h-10 px-3.5 pr-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold focus:outline-none focus:border-indigo-500"
                 />
                 {placeQuery && (
@@ -264,8 +401,9 @@ export default function LocationSelector({
                 )}
               </div>
               <button
-                type="submit"
+                type="button"
                 disabled={searchingPlaces || !placeQuery.trim()}
+                onClick={handleExecutePlaceSearch}
                 className="px-4 h-10 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5"
               >
                 {searchingPlaces ? (
@@ -280,11 +418,11 @@ export default function LocationSelector({
                   </>
                 )}
               </button>
-            </form>
+            </div>
 
-            {/* Search Results Dropdown List */}
+            {/* Search Results List (Provider Results) */}
             {searchHasRun && (
-              <div className="mt-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl max-h-48 overflow-y-auto p-1.5 space-y-1 shadow-md">
+              <div className="mt-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl max-h-52 overflow-y-auto p-1.5 space-y-1 shadow-md">
                 {searchResults.length > 0 ? (
                   searchResults.map((res, i) => (
                     <button
@@ -299,140 +437,11 @@ export default function LocationSelector({
                   ))
                 ) : (
                   <div className="p-3 text-center text-slate-500 dark:text-slate-400 text-xs">
-                    No matching places found. You can enter details manually below.
+                    No matching places found. Try refining your search query.
                   </div>
                 )}
               </div>
             )}
-          </div>
-
-          {/* Structured Dropdowns / Fallback Fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {/* Country Selector */}
-            <div className="space-y-1">
-              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Country</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-left flex justify-between items-center text-xs font-semibold"
-                >
-                  <span className="truncate">{country || 'Select Country'}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                </button>
-                {showCountryDropdown && (
-                  <div className="absolute z-30 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg max-h-40 overflow-y-auto p-1">
-                    {COUNTRIES_DATA.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          notifyChange({
-                            country: c.name,
-                            country_code: c.id,
-                            state: '',
-                            state_code: '',
-                            district: '',
-                            city: '',
-                            latitude: undefined,
-                            longitude: undefined
-                          });
-                          setShowCountryDropdown(false);
-                        }}
-                        className="w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium flex justify-between items-center"
-                      >
-                        <span>{c.name}</span>
-                        {countryCode === c.id && <Check className="w-3.5 h-3.5 text-indigo-500" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* State / UT Selector */}
-            <div className="space-y-1">
-              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">State / Union Territory</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowStateDropdown(!showStateDropdown)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-left flex justify-between items-center text-xs font-semibold"
-                >
-                  <span className="truncate">{state || 'Select State / UT'}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                </button>
-                {showStateDropdown && (
-                  <div className="absolute z-30 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg max-h-48 overflow-y-auto p-1">
-                    {INDIAN_STATES_AND_UTS.map((s) => (
-                      <button
-                        key={s.code}
-                        type="button"
-                        onClick={() => {
-                          notifyChange({
-                            country,
-                            country_code: countryCode,
-                            state: s.name,
-                            state_code: s.code,
-                            district,
-                            city,
-                            latitude,
-                            longitude
-                          });
-                          setShowStateDropdown(false);
-                        }}
-                        className="w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium flex justify-between items-center"
-                      >
-                        <span>{s.name}</span>
-                        {state === s.name && <Check className="w-3.5 h-3.5 text-indigo-500" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* District Input */}
-            <div className="space-y-1">
-              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">District / County</label>
-              <input
-                type="text"
-                placeholder="e.g. Kottayam"
-                value={district}
-                onChange={(e) => notifyChange({
-                  country,
-                  country_code: countryCode,
-                  state,
-                  state_code: stateCode,
-                  district: e.target.value,
-                  city,
-                  latitude,
-                  longitude
-                })}
-                className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* City / Locality Input */}
-            <div className="space-y-1">
-              <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">City / Town / Locality</label>
-              <input
-                type="text"
-                placeholder="e.g. Kaduthuruthy"
-                value={city}
-                onChange={(e) => notifyChange({
-                  country,
-                  country_code: countryCode,
-                  state,
-                  state_code: stateCode,
-                  district,
-                  city: e.target.value,
-                  latitude,
-                  longitude
-                })}
-                className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500"
-              />
-            </div>
           </div>
 
           {/* OpenStreetMap Attribution & Close Action */}
@@ -440,8 +449,8 @@ export default function LocationSelector({
             <span>Location search powered by OpenStreetMap contributors</span>
             <button
               type="button"
-              onClick={() => setManualExpanded(false)}
-              className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+              onClick={handleDoneManual}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition-all cursor-pointer"
             >
               Done
             </button>

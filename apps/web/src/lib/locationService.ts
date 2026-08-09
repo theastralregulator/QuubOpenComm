@@ -1,8 +1,10 @@
 /**
  * Location Service Module — Provider Abstraction
- * Handles location formatting, Indian states/UTs catalog, languages, 
- * policy-safe Nominatim place search, and reverse geocoding.
+ * Handles location formatting, country-specific region catalogs, languages,
+ * policy-safe Nominatim place search, coordinate validation, and reverse geocoding.
  */
+
+import { COUNTRIES_DATA } from './locationsData';
 
 export interface LocationData {
   country: string;
@@ -92,6 +94,38 @@ export const MAJOR_LANGUAGES = [
 ];
 
 /**
+ * Get country-specific administrative regions (states, provinces, emirates)
+ */
+export function getRegionsForCountry(countryCodeOrName: string): { code: string; name: string }[] {
+  if (!countryCodeOrName) return [];
+  const code = countryCodeOrName.trim().toUpperCase();
+
+  const foundCountry = COUNTRIES_DATA.find(c =>
+    c.id === code ||
+    c.id.toUpperCase() === code ||
+    c.name.toLowerCase() === countryCodeOrName.trim().toLowerCase()
+  );
+
+  if (foundCountry && foundCountry.states && foundCountry.states.length > 0) {
+    return foundCountry.states.map(s => ({ code: s.id, name: s.name }));
+  }
+
+  if (code === 'IN' || countryCodeOrName.trim().toLowerCase() === 'india') {
+    return INDIAN_STATES_AND_UTS.map(s => ({ code: s.code, name: s.name }));
+  }
+
+  return [];
+}
+
+/**
+ * Validate numeric coordinates
+ */
+export function isValidCoordinates(lat?: number, lng?: number): boolean {
+  if (lat === undefined || lng === undefined || lat === null || lng === null) return false;
+  return !isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+/**
  * Format clean, non-repetitive location summary:
  * "locality, district, state, country"
  * e.g., "Kaduthuruthy, Kottayam, Kerala, India"
@@ -165,8 +199,8 @@ export async function searchPlaces(
 
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=10&accept-language=en&countrycodes=${encodeURIComponent(countryCode)}&q=${encodeURIComponent(searchQuery)}`;
-    
-    // Standard browser fetch (do not set custom forbidden User-Agent header)
+
+    // Standard browser fetch
     const res = await fetch(url);
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -185,12 +219,13 @@ export async function searchPlaces(
 
       const cCode = (addr.country_code || countryCode).toUpperCase();
 
-      // Derive Indian state/UT code automatically from address stateName or options.state
-      const matchedState = INDIAN_STATES_AND_UTS.find(s =>
-        (stateName && s.name.toLowerCase() === stateName.toLowerCase()) ||
-        (options.state && s.name.toLowerCase() === options.state.toLowerCase())
+      // Derive region/state code automatically from country regions or INDIAN_STATES_AND_UTS
+      const countryRegions = getRegionsForCountry(cCode);
+      const matchedRegion = countryRegions.find(r =>
+        (stateName && r.name.toLowerCase() === stateName.toLowerCase()) ||
+        (options.state && r.name.toLowerCase() === options.state.toLowerCase())
       );
-      const sCode = matchedState ? matchedState.code : '';
+      const sCode = matchedRegion ? matchedRegion.code : '';
 
       const lat = item.lat ? Math.round(parseFloat(item.lat) * 1000) / 1000 : undefined;
       const lng = item.lon ? Math.round(parseFloat(item.lon) * 1000) / 1000 : undefined;
@@ -240,7 +275,7 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${approxLat}&lon=${approxLng}&accept-language=en&addressdetails=1`;
 
-    // Standard browser fetch (do not set custom forbidden User-Agent header)
+    // Standard browser fetch
     const res = await fetch(url);
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -257,7 +292,8 @@ export async function reverseGeocodeLocation(lat: number, lng: number): Promise<
     const districtName = addr.state_district || addr.county || addr.district || '';
     const localityName = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.neighbourhood || addr.hamlet || addr.quarter || addr.subdistrict || '';
 
-    const matchedStateCode = INDIAN_STATES_AND_UTS.find(s => s.name.toLowerCase() === stateName.toLowerCase())?.code || '';
+    const countryRegions = getRegionsForCountry(countryCode);
+    const matchedStateCode = countryRegions.find(r => r.name.toLowerCase() === stateName.toLowerCase())?.code || '';
 
     const locData: LocationData = {
       country: countryName,

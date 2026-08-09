@@ -2319,6 +2319,7 @@ export default function App() {
       workers_needed: Math.max(1, Math.min(100, Math.floor(Number(newJobWorkersNeeded || 1)))),
       salary: newJobSalary.includes('₹') ? newJobSalary : `₹${newJobSalary}`,
       location: newJobLocation.trim(),
+      locationData: newJobLocationData,
       category: newJobCategory,
       jobType: newJobType,
       applicationDeadline: newJobDeadline.trim(),

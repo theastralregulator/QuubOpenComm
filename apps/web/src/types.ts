@@ -22,6 +22,15 @@ export interface Job {
   closed_at?: string | null;
   archive_after?: string | null;
   created_at?: string;
+  country?: string;
+  country_code?: string;
+  state?: string;
+  state_code?: string;
+  district?: string;
+  city?: string;
+  latitude?: number;
+  longitude?: number;
+  locationData?: any;
 }
 
 export interface Worker {

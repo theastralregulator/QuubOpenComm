@@ -1492,6 +1492,15 @@ export const dbService = {
 
         const rawJobType = job.jobType || job.job_type;
         const normalizedType = normalizeJobType(rawJobType) || rawJobType || 'full_time';
+        const locData = job.locationData || {};
+        const country = locData.country || job.country || null;
+        const countryCode = locData.country_code || job.country_code || null;
+        const state = locData.state || job.state || null;
+        const stateCode = locData.state_code || job.state_code || null;
+        const district = locData.district || job.district || null;
+        const city = locData.city || job.city || null;
+        const lat = locData.latitude !== undefined ? locData.latitude : (job.latitude !== undefined ? job.latitude : null);
+        const lng = locData.longitude !== undefined ? locData.longitude : (job.longitude !== undefined ? job.longitude : null);
 
         const { data, error } = await supabase.from('jobs').insert({
           title: job.title,
@@ -1503,7 +1512,15 @@ export const dbService = {
           application_deadline: job.applicationDeadline || job.application_deadline || null,
           requirements: job.requirements || [],
           posted_by: authenticatedUserId,
-          is_active: true
+          is_active: true,
+          country,
+          country_code: countryCode,
+          state,
+          state_code: stateCode,
+          district,
+          city,
+          latitude: lat,
+          longitude: lng
         }).select().single();
         if (!error && data) {
           analytics.trackJobPosted({
@@ -1558,6 +1575,15 @@ export const dbService = {
     if (updatedJob.description) payload.description = updatedJob.description;
     if (updatedJob.salary) payload.salary_range = updatedJob.salary;
     if (updatedJob.location) payload.location = updatedJob.location;
+    const locData = updatedJob.locationData || updatedJob;
+    if (locData.country !== undefined) payload.country = locData.country;
+    if (locData.country_code !== undefined) payload.country_code = locData.country_code;
+    if (locData.state !== undefined) payload.state = locData.state;
+    if (locData.state_code !== undefined) payload.state_code = locData.state_code;
+    if (locData.district !== undefined) payload.district = locData.district;
+    if (locData.city !== undefined) payload.city = locData.city;
+    if (locData.latitude !== undefined) payload.latitude = locData.latitude;
+    if (locData.longitude !== undefined) payload.longitude = locData.longitude;
     if (updatedJob.category) payload.category = updatedJob.category;
     if (updatedJob.requirements) payload.requirements = updatedJob.requirements;
     if (updatedJob.jobType || updatedJob.job_type) {
