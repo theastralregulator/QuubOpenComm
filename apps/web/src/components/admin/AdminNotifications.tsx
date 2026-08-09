@@ -24,7 +24,7 @@ export default function AdminNotifications() {
     setError(null);
     try {
       const { data, error: err } = await supabase
-        .from('profiles')
+        .from('profile_directory')
         .select('id, full_name, email, avatar_url')
         .or(`full_name.ilike.%${recipientSearch}%,email.ilike.%${recipientSearch}%`)
         .limit(5);

@@ -19,7 +19,7 @@ export default function AdminSystemHealth() {
     setLoading(true);
     try {
       // Test DB Query
-      const { error: dbErr } = await supabase.from('profiles').select('id').limit(1);
+      const { error: dbErr } = await supabase.from('profile_directory').select('id').limit(1);
       if (dbErr) {
         setDbStatus('error');
       } else {

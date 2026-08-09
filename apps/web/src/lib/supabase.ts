@@ -2894,6 +2894,23 @@ export const dbService = {
     }
   },
 
+  async checkEmailExists(email: string): Promise<boolean> {
+    if (!email || !email.trim()) return false;
+    const cleanEmail = email.trim().toLowerCase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('check_email_exists', { p_email: cleanEmail });
+        if (!error && typeof data === 'boolean') {
+          return data;
+        }
+      } catch (err) {
+        console.error('checkEmailExists RPC error:', err);
+      }
+    }
+    const local = openCommDb.getProfiles().find(p => p.email?.toLowerCase() === cleanEmail);
+    return !!local;
+  },
+
   async adminListUsers(params?: { search?: string; limit?: number; offset?: number }): Promise<{ total: number; limit: number; offset: number; users: any[] }> {
     const search = params?.search || '';
     const limit = params?.limit || 50;

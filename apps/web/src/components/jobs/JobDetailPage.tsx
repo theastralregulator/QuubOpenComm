@@ -277,7 +277,7 @@ export default function JobDetailPage({
             .eq('posted_by', job.posted_by)
             .eq('is_active', true),
           supabase
-            .from('profiles')
+            .from('profile_directory')
             .select('created_at')
             .eq('id', job.posted_by)
             .maybeSingle(),

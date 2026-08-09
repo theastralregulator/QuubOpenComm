@@ -59,8 +59,8 @@ export default function WorkContractPage({ triggerToast }: WorkContractPageProps
 
         // Fetch client and worker profiles for avatars and full names
         if (supabase) {
-          const { data: cp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.client_id).maybeSingle();
-          const { data: wp } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', data.worker_id).maybeSingle();
+          const { data: cp } = await supabase.from('profile_directory').select('id, full_name, avatar_url').eq('id', data.client_id).maybeSingle();
+          const { data: wp } = await supabase.from('profile_directory').select('id, full_name, avatar_url').eq('id', data.worker_id).maybeSingle();
           setClientProfile(cp);
           setWorkerProfile(wp);
         }

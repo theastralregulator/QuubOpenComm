@@ -289,7 +289,7 @@ export default function AdminUsers() {
                           </button>
 
                           <Link
-                            to={`/profile/${user.id}`}
+                            to={`/profile/${user.username || user.id}`}
                             className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                             title="View Public Profile"
                           >

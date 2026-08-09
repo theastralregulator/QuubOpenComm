@@ -107,9 +107,9 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
       return profile;
     }
 
-    // 2. Query profiles as fallback with ONLY existing valid schema columns
+    // 2. Query profile_directory as fallback with ONLY existing valid schema columns
     const { data: profData, error: profError } = await supabase
-      .from('profiles')
+      .from('profile_directory')
       .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
       .eq('id', userId)
       .maybeSingle();
@@ -207,11 +207,11 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
       });
     }
 
-    // 2. Batched fallback lookup from profiles for any remaining missing IDs
+    // 2. Batched fallback lookup from profile_directory for any remaining missing IDs
     const stillMissing = missingFromCache.filter(id => !result.has(id));
     if (stillMissing.length > 0) {
       const { data: profRows, error: profError } = await supabase
-        .from('profiles')
+        .from('profile_directory')
         .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, email_verified_for_actions')
         .in('id', stillMissing);
 

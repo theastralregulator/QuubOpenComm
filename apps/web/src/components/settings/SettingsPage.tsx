@@ -563,7 +563,7 @@ export default function SettingsPage() {
   };
 
   const renderAccount = () => {
-    const openCommIdValue = profile?.opencomm_id || '—';
+    const openCommIdValue = profile?.opencomm_id || 'Not assigned yet';
     return (
       <div>
         <SectionHeader icon={User} title="Account" description="Your account details and identity" />

@@ -1673,13 +1673,9 @@ export default function App() {
     // Case 2: Logged-out user signing up
     try {
       // Check if email already exists
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', signupForm.email.trim().toLowerCase())
-        .maybeSingle();
+      const emailExists = await dbService.checkEmailExists(signupForm.email.trim().toLowerCase());
 
-      if (existingProfile) {
+      if (emailExists) {
         setIsAuthSubmitting(false);
         setAuthError("This email address is already registered. Please sign in instead.");
         return;
