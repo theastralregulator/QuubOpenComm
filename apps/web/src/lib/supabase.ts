@@ -129,6 +129,7 @@ export interface LocalProfile {
   updated_at: string;
   email_verified_for_actions?: boolean;
   onboarding_completed?: boolean;
+  basic_account_intro_seen?: boolean;
   banner_id?: string;
   banner_url?: string;
   show_location_publicly?: boolean;

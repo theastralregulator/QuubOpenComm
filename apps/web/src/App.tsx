@@ -61,6 +61,7 @@ import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE } from './data/countryCodes';
 import RouteTracker from './components/common/RouteTracker';
 import NotFoundPage from './components/common/NotFoundPage';
 import ReactivateAccountModal from './components/auth/ReactivateAccountModal';
+import BasicAccountWorkerIntroModal from './components/auth/BasicAccountWorkerIntroModal';
 
 // Import our new legal pages and footer
 import TermsPage from './components/legal/TermsPage';
@@ -197,6 +198,24 @@ export default function App() {
   // UI Modals & Menus
   const [showPostJob, setShowPostJob] = useState(false);
   const [showCreateProfile, setShowCreateProfile] = useState(false);
+  const [showBasicWorkerIntroModal, setShowBasicWorkerIntroModal] = useState(false);
+
+  const handleBecomeWorkerFromIntro = () => {
+    setShowBasicWorkerIntroModal(false);
+    if (userIdState) {
+      localStorage.setItem(`opencomm_basic_intro_seen_${userIdState}`, 'true');
+      dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
+    }
+    setShowCreateProfile(true);
+  };
+
+  const handleContinueBasicFromIntro = () => {
+    setShowBasicWorkerIntroModal(false);
+    if (userIdState) {
+      localStorage.setItem(`opencomm_basic_intro_seen_${userIdState}`, 'true');
+      dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
+    }
+  };
 
   // Prevent background scroll when Worker Modal is open
   useEffect(() => {
@@ -1031,6 +1050,15 @@ export default function App() {
         dbService.updateProfile(userId, { onboarding_completed: true });
         profile.onboarding_completed = true;
       }
+      if (
+        profile &&
+        profile.profile_type === 'basic' &&
+        !profile.is_worker_listed &&
+        profile.basic_account_intro_seen === false &&
+        localStorage.getItem(`opencomm_basic_intro_seen_${userId}`) !== 'true'
+      ) {
+        setShowBasicWorkerIntroModal(true);
+      }
     }
 
     // Parallel load authenticated user's saved jobs and saved workers
@@ -1553,6 +1581,7 @@ export default function App() {
           account_status: 'active' as const,
           email_verified_for_actions: true,
           onboarding_completed: true,
+          basic_account_intro_seen: isWorker ? true : false,
           whatsapp_preference: whatsappSameNumber,
           telegram_username: telegramUsername
         };
@@ -1610,6 +1639,10 @@ export default function App() {
         setLockedFeature(null);
         setIsAuthSubmitting(false);
         triggerToast("Profile onboarding completed successfully!");
+
+        if (!isWorker) {
+          setShowBasicWorkerIntroModal(true);
+        }
 
       } catch (err: any) {
         setIsAuthSubmitting(false);
@@ -1908,7 +1941,8 @@ export default function App() {
         is_worker_listed: isWorker,
         account_status: 'active' as const,
         email_verified_for_actions: true,
-        onboarding_completed: true
+        onboarding_completed: true,
+        basic_account_intro_seen: isWorker ? true : false
       };
 
       const savedProfile = await dbService.updateProfile(verifiedUser.id, profilePayload);
@@ -1971,7 +2005,6 @@ export default function App() {
       localStorage.setItem('opencomm_username', formFullName);
       localStorage.setItem(`opencomm_user_photo_${verifiedUser.id}`, resolvedPhoto);
       setUserIdState(verifiedUser.id);
-      setUserIdState(verifiedUser.id);
       localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
       localStorage.setItem('opencomm_onboarding_completed', 'true');
 
@@ -1984,6 +2017,10 @@ export default function App() {
       isSavingProfileRef.current = false;
 
       triggerToast("Verification successful! Welcome to OpenComm.");
+
+      if (!isWorker) {
+        setShowBasicWorkerIntroModal(true);
+      }
       navigate('/', { replace: true });
 
       // 10. Replace navigation to home
@@ -3816,6 +3853,13 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Basic Account -> Worker Profile Conversion Education Modal */}
+      <BasicAccountWorkerIntroModal
+        isOpen={showBasicWorkerIntroModal && !showCreateProfile && showAuthModal === null}
+        onBecomeWorker={handleBecomeWorkerFromIntro}
+        onContinueBasic={handleContinueBasicFromIntro}
+      />
 
       {/* ====================================================
           MODAL 3: HIRE WORKER / CANONICAL HIRE REQUEST FORM
