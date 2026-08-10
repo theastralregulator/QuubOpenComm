@@ -271,10 +271,10 @@ AS $$
 DECLARE
   v_caller_role text := public.get_admin_role();
   v_p RECORD;
-  v_w RECORD;
   v_has_worker boolean := false;
   v_has_prof_dir boolean := false;
   v_has_work_dir boolean := false;
+  v_worker_summary jsonb := NULL;
   v_logins jsonb := '[]'::jsonb;
   v_admin_role text;
   v_masked_phone text;
@@ -296,8 +296,21 @@ BEGIN
   SELECT EXISTS(SELECT 1 FROM public.profile_directory WHERE id = p_user_id) INTO v_has_prof_dir;
   SELECT EXISTS(SELECT 1 FROM public.worker_directory WHERE id = p_user_id) INTO v_has_work_dir;
 
+  -- Safely build worker_summary jsonb ONLY if worker profile exists
   IF v_has_worker THEN
-    SELECT * INTO v_w FROM public.worker_profiles WHERE id = p_user_id;
+    SELECT jsonb_build_object(
+      'profession', wp.profession,
+      'skills', wp.skills,
+      'experience_years', wp.experience_years,
+      'availability', wp.availability,
+      'hourly_rate', wp.hourly_rate,
+      'expected_salary', wp.expected_salary,
+      'portfolio_url', wp.portfolio_url,
+      'is_visible', COALESCE(wp.is_visible, true)
+    )
+    INTO v_worker_summary
+    FROM public.worker_profiles wp
+    WHERE wp.id = p_user_id;
   END IF;
 
   -- Phone masking for support/moderator roles
@@ -368,16 +381,7 @@ BEGIN
       'show_location_publicly', COALESCE(v_p.show_location_publicly, true),
       'coordinates', CASE WHEN v_caller_role IN ('super_admin', 'admin') THEN jsonb_build_object('latitude', v_p.latitude, 'longitude', v_p.longitude) ELSE NULL END
     ),
-    'worker_summary', CASE WHEN v_has_worker THEN jsonb_build_object(
-      'profession', v_w.profession,
-      'skills', v_w.skills,
-      'experience_years', v_w.experience_years,
-      'availability', v_w.availability,
-      'hourly_rate', v_w.hourly_rate,
-      'expected_salary', v_w.expected_salary,
-      'portfolio_url', v_w.portfolio_url,
-      'is_visible', COALESCE(v_w.is_visible, true)
-    ) ELSE NULL END,
+    'worker_summary', v_worker_summary,
     'recent_logins', v_logins
   );
 END;

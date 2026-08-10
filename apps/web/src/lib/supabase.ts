@@ -2940,17 +2940,17 @@ export const dbService = {
   async adminGetUserDetails(userId: string): Promise<any> {
     if (!userId) throw new Error('User ID required');
     if (supabase) {
-      try {
-        const { data, error } = await supabase.rpc('admin_get_user_details', {
-          p_user_id: userId
-        });
-        if (!error && data) {
-          return data;
-        }
-        if (error) throw error;
-      } catch (err) {
-        console.error('adminGetUserDetails RPC error:', err);
+      const { data, error } = await supabase.rpc('admin_get_user_details', {
+        p_user_id: userId
+      });
+      if (error) {
+        console.error('admin_get_user_details RPC error:', error);
+        throw new Error(error.message || 'Unable to load user identity details.');
       }
+      if (!data) {
+        throw new Error('User identity details were not returned.');
+      }
+      return data;
     }
 
     const p = await this.getProfile(userId);

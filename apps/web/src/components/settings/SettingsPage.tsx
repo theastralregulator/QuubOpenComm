@@ -200,6 +200,8 @@ export default function SettingsPage() {
 
   // ── Data ──────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<LocalProfile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [copiedOpenCommId, setCopiedOpenCommId] = useState(false);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences | null>(null);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -411,6 +413,7 @@ export default function SettingsPage() {
   // ── Fetch all data ─────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    setProfileError(null);
     try {
       const [profileData, settingsData, notifData, ticketsData] = await Promise.allSettled([
         (async () => {
@@ -433,7 +436,12 @@ export default function SettingsPage() {
         dbService.getMySupportTickets(),
       ]);
 
-      if (profileData.status === 'fulfilled') setProfile(profileData.value);
+      if (profileData.status === 'fulfilled' && profileData.value) {
+        setProfile(profileData.value);
+      } else if (profileData.status === 'rejected' || !profileData.value) {
+        setProfileError("We couldn't load your account details. Please retry.");
+      }
+
       if (settingsData.status === 'fulfilled' && settingsData.value) {
         setSettings(settingsData.value);
         setSettingsEdit(settingsData.value);
@@ -445,6 +453,7 @@ export default function SettingsPage() {
       if (ticketsData.status === 'fulfilled') setTickets(ticketsData.value);
     } catch (err) {
       console.error('SettingsPage load error:', err);
+      setProfileError("We couldn't load your account details. Please retry.");
     } finally {
       setLoading(false);
     }
@@ -553,20 +562,34 @@ export default function SettingsPage() {
 
   const currentTheme = settingsEdit.themePreference || 'system';
 
-  const [copiedOpenCommId, setCopiedOpenCommId] = useState(false);
-
   const handleCopyOpenCommId = (idString: string) => {
-    if (!idString || idString === '—') return;
+    if (!idString) return;
     navigator.clipboard.writeText(idString);
     setCopiedOpenCommId(true);
     setTimeout(() => setCopiedOpenCommId(false), 2000);
   };
 
   const renderAccount = () => {
+    const hasOpenCommId = Boolean(profile?.opencomm_id);
     const openCommIdValue = profile?.opencomm_id || 'Not assigned yet';
     return (
       <div>
         <SectionHeader icon={User} title="Account" description="Your account details and identity" />
+        {profileError && (
+          <div className="mb-4 p-3.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{profileError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => fetchAll()}
+              className="px-3 py-1 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors cursor-pointer shrink-0"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         <Card>
           <div className="space-y-0">
             {/* Full Name */}
@@ -585,7 +608,7 @@ export default function SettingsPage() {
                 <span className="font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
                   {openCommIdValue}
                 </span>
-                {openCommIdValue !== '—' && (
+                {hasOpenCommId && (
                   <button
                     type="button"
                     onClick={() => handleCopyOpenCommId(openCommIdValue)}

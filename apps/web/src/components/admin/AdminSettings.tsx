@@ -27,15 +27,21 @@ export default function AdminSettings() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from('site_settings')
-        .select('setting_value')
-        .eq('setting_key', 'system.maintenance_mode')
+        .select('value')
+        .eq('key', 'system.maintenance_mode')
         .maybeSingle();
 
-      if (data?.setting_value) {
-        setMaintenanceMode(!!data.setting_value.enabled);
-        setMaintenanceMsg(data.setting_value.message || 'Scheduled platform maintenance in progress.');
+      if (fetchErr) {
+        console.error('Fetch settings error:', fetchErr);
+        setError(fetchErr.message || 'Failed to load site settings.');
+      } else if (data && data.value) {
+        setMaintenanceMode(Boolean(data.value.enabled));
+        setMaintenanceMsg(data.value.message || 'Scheduled platform maintenance in progress.');
+      } else {
+        setMaintenanceMode(false);
+        setMaintenanceMsg('Scheduled platform maintenance in progress.');
       }
     } catch (err: any) {
       console.error('Fetch settings error:', err);

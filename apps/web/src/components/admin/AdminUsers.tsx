@@ -84,7 +84,12 @@ export default function AdminUsers() {
       setUserDetails(details);
     } catch (err: any) {
       console.error('Fetch user details error:', err);
-      setDetailsError(err.message || 'Failed to load user details.');
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('not found') || msg.includes('p0002')) {
+        setDetailsError('User account could not be found.');
+      } else {
+        setDetailsError('Unable to load user details. Please try again.');
+      }
     } finally {
       setLoadingDetails(false);
     }
