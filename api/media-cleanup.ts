@@ -20,7 +20,7 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
-  // Requirement 4: Canonical Admin Authorization Check for manual trigger
+  // Canonical Admin Authorization Check for manual trigger
   if (!authorized && authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     const userAuthHeader = authHeader.substring(7).trim();
     if (userAuthHeader) {
@@ -34,7 +34,7 @@ export default async function handler(req: any, res: any) {
             .eq('is_active', true)
             .maybeSingle();
 
-          if (adminMember && ['super_admin', 'admin', 'system_admin', 'moderator', 'support_agent'].includes(adminMember.role)) {
+          if (adminMember && ['super_admin', 'admin', 'moderator', 'content_admin', 'support'].includes(adminMember.role)) {
             authorized = true;
           }
         }
@@ -78,7 +78,7 @@ export default async function handler(req: any, res: any) {
             mediaType: item.media_type
           });
         } else {
-          // Requirement 5: Increment cleanup attempts atomically via DB RPC
+          // Increment cleanup attempts atomically via DB RPC
           await adminClient.rpc('record_media_cleanup_failure', {
             p_media_id: item.id,
             p_error: 'Provider object deletion failed or object not found'
@@ -95,7 +95,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // 2. Requirement 3: Process Expired Unfinalized Upload Intents (pending, uploaded, or stale finalizing)
+    // 2. Process Expired Unfinalized Upload Intents (pending, uploaded, or stale finalizing)
     // NEVER delete an intent that already has final_message_id or final_media_id!
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const nowIso = new Date().toISOString();

@@ -648,7 +648,7 @@ BEGIN
 END;
 $$;
 
--- 13. Admin Media Health RPC (Uses canonical public.get_admin_role())
+-- 13. Admin Media Health RPC (Uses canonical public.get_admin_role() & exact live roles)
 CREATE OR REPLACE FUNCTION public.admin_get_media_storage_health()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -665,7 +665,7 @@ DECLARE
   v_events_24h jsonb;
 BEGIN
   v_caller_role := public.get_admin_role();
-  IF v_caller_role IS NULL OR v_caller_role NOT IN ('super_admin', 'admin', 'system_admin', 'moderator', 'support_agent') THEN
+  IF v_caller_role IS NULL OR v_caller_role NOT IN ('super_admin', 'admin', 'moderator', 'content_admin', 'support') THEN
     RAISE EXCEPTION 'Admin authorization required.';
   END IF;
 
