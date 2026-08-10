@@ -3,7 +3,7 @@ import { deleteStorageObject, StorageProviderType } from './_lib/media/providers
 import { recordStorageEvent } from './_lib/media/telemetry';
 
 export default async function handler(req: any, res: any) {
-  // Authorization check: Vercel Cron or MEDIA_CRON_SECRET
+  // Authorization check: Vercel Cron, MEDIA_CRON_SECRET, or Canonical Admin Member
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
   const cronSecret = process.env.MEDIA_CRON_SECRET;
   const isVercelCron = req.headers['x-vercel-cron'] === '1';
@@ -20,18 +20,26 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
-  if (!authorized) {
-    // Check if user is authenticated admin
-    const userAuthHeader = authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+  // Requirement 4: Canonical Admin Authorization Check for manual trigger
+  if (!authorized && authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    const userAuthHeader = authHeader.substring(7).trim();
     if (userAuthHeader) {
       try {
         const { data: { user } } = await adminClient.auth.getUser(userAuthHeader);
         if (user) {
-          const { data: isAdmin } = await adminClient.rpc('is_admin', { p_user_id: user.id });
-          if (isAdmin) authorized = true;
+          const { data: adminMember } = await adminClient
+            .from('admin_members')
+            .select('id, role, is_active')
+            .or(`user_id.eq.${user.id},id.eq.${user.id}`)
+            .eq('is_active', true)
+            .maybeSingle();
+
+          if (adminMember && ['super_admin', 'admin', 'system_admin', 'moderator', 'support_agent'].includes(adminMember.role)) {
+            authorized = true;
+          }
         }
       } catch (err) {
-        // ignore
+        // ignore auth error
       }
     }
   }
@@ -70,15 +78,11 @@ export default async function handler(req: any, res: any) {
             mediaType: item.media_type
           });
         } else {
-          // Requirement 15: Sanitized error category only (no credentials or private keys in logs/errors)
-          await adminClient
-            .from('message_media')
-            .update({
-              cleanup_attempts: (item.cleanup_attempts || 0) + 1,
-              last_cleanup_error: 'Provider object deletion failed or object not found',
-              last_cleanup_attempt_at: new Date().toISOString()
-            })
-            .eq('id', item.id);
+          // Requirement 5: Increment cleanup attempts atomically via DB RPC
+          await adminClient.rpc('record_media_cleanup_failure', {
+            p_media_id: item.id,
+            p_error: 'Provider object deletion failed or object not found'
+          });
 
           errors.push(`Deletion attempt failed for media item ${item.id}`);
           void recordStorageEvent({
@@ -91,23 +95,33 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // 2. Process Orphan Upload Intents (> 24 hours old and unfinalized)
+    // 2. Requirement 3: Process Expired Unfinalized Upload Intents (pending, uploaded, or stale finalizing)
+    // NEVER delete an intent that already has final_message_id or final_media_id!
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
+
     const { data: orphanIntents } = await adminClient
       .from('media_upload_intents')
-      .select('id, provider, object_key, media_type')
-      .eq('status', 'pending')
-      .lte('expires_at', new Date().toISOString())
+      .select('id, provider, object_key, media_type, finalizing_at')
+      .in('status', ['pending', 'uploaded', 'finalizing'])
+      .is('final_message_id', null)
+      .is('final_media_id', null)
+      .lte('expires_at', nowIso)
+      .or(`finalizing_at.is.null,finalizing_at.lte.${fiveMinutesAgo}`)
       .limit(50);
 
     if (orphanIntents && orphanIntents.length > 0) {
       for (const intent of orphanIntents) {
         const success = await deleteStorageObject(intent.provider as StorageProviderType, intent.object_key);
 
-        // Requirement 16: Only mark status 'expired' if provider delete succeeds (or object already gone)
+        // Mark expired only when provider deletion succeeds or object is absent
         if (success) {
           await adminClient
             .from('media_upload_intents')
-            .update({ status: 'expired' })
+            .update({
+              status: 'expired',
+              finalizing_at: null
+            })
             .eq('id', intent.id);
 
           deletedOrphanCount++;

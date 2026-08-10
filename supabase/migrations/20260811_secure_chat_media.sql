@@ -17,7 +17,7 @@ BEGIN
   END IF;
 END $$;
 
--- 2. Create public.media_upload_intents table
+-- 2. Create public.media_upload_intents table with finalizing_at lease timestamp
 CREATE TABLE IF NOT EXISTS public.media_upload_intents (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS public.media_upload_intents (
   mime_type text NOT NULL,
   file_size_bytes bigint NOT NULL,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalizing', 'finalized', 'expired', 'failed')),
+  finalizing_at timestamptz NULL,
   final_message_id uuid NULL REFERENCES public.messages(id) ON DELETE SET NULL,
   final_media_id uuid NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -93,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_message_media_message_id ON public.message_media(
 CREATE INDEX IF NOT EXISTS idx_message_media_conversation_id ON public.message_media(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_message_media_upload_intent_id ON public.message_media(upload_intent_id);
 CREATE INDEX IF NOT EXISTS idx_message_media_delete_after ON public.message_media(delete_after) WHERE status IN ('active', 'cleanup_pending');
-CREATE INDEX IF NOT EXISTS idx_media_upload_intents_expires_at ON public.media_upload_intents(expires_at) WHERE status IN ('pending', 'uploaded');
+CREATE INDEX IF NOT EXISTS idx_media_upload_intents_expires_at ON public.media_upload_intents(expires_at) WHERE status IN ('pending', 'uploaded', 'finalizing');
 CREATE INDEX IF NOT EXISTS idx_media_storage_events_created_at ON public.media_storage_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_media_storage_events_provider_created_at ON public.media_storage_events(provider, created_at);
 
@@ -126,7 +127,7 @@ CREATE TRIGGER trg_schedule_media_retention
   FOR EACH ROW
   EXECUTE FUNCTION public.schedule_media_retention_on_conversation_archive();
 
--- 7. Server-Only Intent Claiming RPC with Strict State Validation & Guarded Transitions
+-- 7. Server-Only Intent Claiming RPC with 5-Minute Stale Finalizing Lease Recovery
 CREATE OR REPLACE FUNCTION public.claim_media_upload_intent_for_finalize(
   p_intent_id uuid,
   p_user_id uuid,
@@ -141,7 +142,7 @@ DECLARE
   v_intent RECORD;
 BEGIN
   -- Atomic row lock on upload intent
-  SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id
+  SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, finalizing_at, expires_at, final_message_id, final_media_id
   INTO v_intent
   FROM public.media_upload_intents
   WHERE id = p_intent_id
@@ -173,8 +174,8 @@ BEGIN
     );
   END IF;
 
-  -- 2. If finalizing without final IDs, return finalizing_in_progress
-  IF v_intent.status = 'finalizing' THEN
+  -- 2. If finalizing without final IDs and finalizing lease is active (<= 5 minutes old)
+  IF v_intent.status = 'finalizing' AND v_intent.finalizing_at IS NOT NULL AND v_intent.finalizing_at > (now() - interval '5 minutes') THEN
     RETURN jsonb_build_object('status', 'finalizing_in_progress');
   END IF;
 
@@ -191,24 +192,24 @@ BEGIN
     RETURN jsonb_build_object('status', 'failed');
   END IF;
 
-  IF v_intent.status NOT IN ('pending', 'uploaded') THEN
-    RETURN jsonb_build_object('status', 'invalid_status', 'current_status', v_intent.status);
+  -- 4. Guarded claim transition: pending, uploaded, OR stale finalizing (> 5 min lease expired)
+  IF v_intent.status IN ('pending', 'uploaded') OR (v_intent.status = 'finalizing' AND (v_intent.finalizing_at IS NULL OR v_intent.finalizing_at <= (now() - interval '5 minutes'))) THEN
+    UPDATE public.media_upload_intents
+    SET status = 'finalizing',
+        finalizing_at = now()
+    WHERE id = p_intent_id;
+
+    RETURN jsonb_build_object(
+      'status', 'claimed',
+      'provider', v_intent.provider,
+      'object_key', v_intent.object_key,
+      'media_type', v_intent.media_type,
+      'mime_type', v_intent.mime_type,
+      'file_size_bytes', v_intent.file_size_bytes
+    );
   END IF;
 
-  -- 4. Guarded transition ONLY from pending/uploaded to finalizing
-  UPDATE public.media_upload_intents
-  SET status = 'finalizing'
-  WHERE id = p_intent_id
-    AND status IN ('pending', 'uploaded');
-
-  RETURN jsonb_build_object(
-    'status', 'claimed',
-    'provider', v_intent.provider,
-    'object_key', v_intent.object_key,
-    'media_type', v_intent.media_type,
-    'mime_type', v_intent.mime_type,
-    'file_size_bytes', v_intent.file_size_bytes
-  );
+  RETURN jsonb_build_object('status', 'invalid_status', 'current_status', v_intent.status);
 END;
 $$;
 
@@ -500,6 +501,7 @@ BEGIN
   -- 3. Update upload_intent to finalized atomically in the SAME transaction!
   UPDATE public.media_upload_intents
   SET status = 'finalized',
+      finalizing_at = NULL,
       final_message_id = v_msg_id,
       final_media_id = v_media_id
   WHERE id = p_upload_intent_id;
@@ -572,13 +574,14 @@ BEGIN
 END;
 $$;
 
--- 10. Atomic Claim RPC for Concurrency Safety in Cleanup Worker (Clamped Limit)
+-- 10. Atomic Claim RPC for Concurrency Safety in Cleanup Worker (Clamped Limit & Returns cleanup_attempts)
 CREATE OR REPLACE FUNCTION public.claim_due_media_for_cleanup(p_limit integer DEFAULT 50)
 RETURNS TABLE (
   id uuid,
   storage_provider text,
   object_key text,
-  media_type text
+  media_type text,
+  cleanup_attempts integer
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -605,11 +608,30 @@ BEGIN
       last_cleanup_attempt_at = now()
   FROM target_rows
   WHERE mm.id = target_rows.id
-  RETURNING mm.id, mm.storage_provider, mm.object_key, mm.media_type;
+  RETURNING mm.id, mm.storage_provider, mm.object_key, mm.media_type, mm.cleanup_attempts;
 END;
 $$;
 
--- 11. Telemetry 30-Day Cleanup RPC
+-- 11. Atomic Cleanup Failure Recording RPC
+CREATE OR REPLACE FUNCTION public.record_media_cleanup_failure(
+  p_media_id uuid,
+  p_error text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+BEGIN
+  UPDATE public.message_media
+  SET cleanup_attempts = cleanup_attempts + 1,
+      last_cleanup_error = substring(trim(p_error) from 1 for 255),
+      last_cleanup_attempt_at = now()
+  WHERE id = p_media_id;
+END;
+$$;
+
+-- 12. Telemetry 30-Day Cleanup RPC
 CREATE OR REPLACE FUNCTION public.cleanup_old_media_storage_events()
 RETURNS integer
 LANGUAGE plpgsql
@@ -626,7 +648,7 @@ BEGIN
 END;
 $$;
 
--- 12. Admin Media Health RPC (Uses canonical public.get_admin_role())
+-- 13. Admin Media Health RPC (Uses canonical public.get_admin_role())
 CREATE OR REPLACE FUNCTION public.admin_get_media_storage_health()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -678,7 +700,7 @@ BEGIN
 END;
 $$;
 
--- 13. RLS Lockdown & Strict Function Revokes
+-- 14. RLS Lockdown & Strict Function Revokes
 ALTER TABLE public.message_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_upload_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_storage_events ENABLE ROW LEVEL SECURITY;
@@ -692,18 +714,20 @@ CREATE POLICY media_upload_intents_select_policy ON public.media_upload_intents
   TO authenticated
   USING (user_id = auth.uid());
 
--- Requirement 1: REVOKE direct execution on internal finalization & intent claim from PUBLIC, anon, authenticated
+-- REVOKE direct execution on internal finalization & intent claim from PUBLIC, anon, authenticated
 REVOKE EXECUTE ON FUNCTION public.finalize_media_message_internal(uuid, uuid, uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.claim_media_upload_intent_for_finalize(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.claim_due_media_for_cleanup(integer) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.record_media_cleanup_failure(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.cleanup_old_media_storage_events() FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.admin_get_media_storage_health() FROM PUBLIC, anon;
 
--- Grants: ONLY service_role can execute internal finalization and claim RPCs
+-- Grants: ONLY service_role can execute internal finalization, claim, and cleanup failure RPCs
 GRANT EXECUTE ON FUNCTION public.finalize_media_message_internal(uuid, uuid, uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.claim_media_upload_intent_for_finalize(uuid, uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.claim_due_media_for_cleanup(integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_media_cleanup_failure(uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.cleanup_old_media_storage_events() TO service_role;
 
 -- Grants: Authenticated users can only read upload intents, read sanitized media, and call admin health (if admin)
