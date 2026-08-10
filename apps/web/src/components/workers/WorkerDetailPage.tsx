@@ -57,14 +57,13 @@ export default function WorkerDetailPage({
   const [preferredLanguage, setPreferredLanguage] = useState<string>('English');
   const [isBioExpanded, setIsBioExpanded] = useState(false);
 
-  // Hire / Message Form State
+  // Hire Form State
   const [copied, setCopied] = useState(false);
   const [showHireForm, setShowHireForm] = useState(false);
   const [projectTitle, setProjectTitle] = useState('');
   const [projectDesc, setProjectDesc] = useState('');
   const [budget, setBudget] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMessaging, setIsMessaging] = useState(false);
   const [loggedInId, setLoggedInId] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -243,27 +242,6 @@ export default function WorkerDetailPage({
       } catch (err) {
         console.error('Clipboard copy failed:', err);
       }
-    }
-  };
-
-  const handleMessageClick = async () => {
-    if (!worker) return;
-
-    if (!isLoggedIn) {
-      onOpenAuth('locked');
-      return;
-    }
-
-    setIsMessaging(true);
-    try {
-      const convId = await dbService.getOrCreateWorkerConversation(worker.id);
-      if (convId) {
-        navigate(`/messages/${convId}`);
-      }
-    } catch (err: any) {
-      triggerToast(err.message || 'Failed to start conversation.');
-    } finally {
-      setIsMessaging(false);
     }
   };
 
@@ -483,25 +461,19 @@ export default function WorkerDetailPage({
                 <span>Edit Profile</span>
               </button>
             ) : (
-              <>
-                {loggedInId && (
-                  <button
-                    onClick={handleMessageClick}
-                    disabled={isMessaging}
-                    className="h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs disabled:opacity-70"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                    <span>{isMessaging ? 'Starting...' : 'Message'}</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowHireForm(!showHireForm)}
-                  className="h-10 px-5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs transition-all hover:scale-102"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Hire / Send Enquiry</span>
-                </button>
-              </>
+              <button
+                onClick={() => {
+                  if (!isLoggedIn) {
+                    onOpenAuth('locked');
+                    return;
+                  }
+                  setShowHireForm(!showHireForm);
+                }}
+                className="h-10 px-5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 flex-1 sm:flex-initial cursor-pointer shadow-xs transition-all hover:scale-102"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Hire</span>
+              </button>
             )}
           </div>
         </div>

@@ -69,7 +69,10 @@ export default function SavedWorkersPage({
               saved={true}
               onSave={toggleWorkerBookmark}
               onViewProfile={() => navigate(`/workers/${worker.id}`)}
-              onMessage={() => onOpenMessage(worker.name)}
+              onMessage={() => navigate(`/workers/${worker.id}`)}
+              onHire={() => navigate(`/workers/${worker.id}`)}
+              showHireButton={true}
+              showMessageButton={false}
             />
           ))}
         </div>

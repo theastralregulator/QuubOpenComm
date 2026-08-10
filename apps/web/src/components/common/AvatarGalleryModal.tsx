@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Search, Check, Sparkles, User } from 'lucide-react';
 import { PRESET_AVATARS, PresetAvatar } from '../../data/presetAvatars';
 
@@ -18,6 +18,12 @@ export default function AvatarGalleryModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all');
   const [tempSelected, setTempSelected] = useState<string>(selectedAvatarUrl || PRESET_AVATARS[0].url);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTempSelected(selectedAvatarUrl || PRESET_AVATARS[0].url);
+    }
+  }, [isOpen, selectedAvatarUrl]);
 
   if (!isOpen) return null;
 

@@ -58,8 +58,8 @@ export default function WorkerCard({
   onViewProfile,
   onMessage,
   onHire,
-  showHireButton = false,
-  showMessageButton = true,
+  showHireButton = true,
+  showMessageButton = false,
   isMessaging = false,
   className = '',
   currentUserId,
@@ -225,7 +225,7 @@ export default function WorkerCard({
         </div>
       </div>
 
-      {/* Actions: View Profile & Message / Manage */}
+      {/* Actions: View Profile & Hire / Manage */}
       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#273449]/30 grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onViewProfile}
@@ -233,7 +233,15 @@ export default function WorkerCard({
         >
           <span>{isSelf ? 'Manage Worker Profile' : 'View Profile'}</span>
         </button>
-        {!isSelf && showMessageButton && (
+        {!isSelf && showHireButton && onHire && (
+          <button
+            onClick={onHire}
+            className="h-11 sm:h-9 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"
+          >
+            <span>Hire</span>
+          </button>
+        )}
+        {!isSelf && showMessageButton && !showHireButton && (
           <button
             onClick={onMessage}
             disabled={isMessaging}
@@ -241,14 +249,6 @@ export default function WorkerCard({
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>{isMessaging ? 'Loading...' : 'Message'}</span>
-          </button>
-        )}
-        {!isSelf && showHireButton && onHire && !showMessageButton && (
-          <button
-            onClick={onHire}
-            className="h-11 sm:h-9 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1 hover:scale-102"
-          >
-            <span>Hire</span>
           </button>
         )}
       </div>

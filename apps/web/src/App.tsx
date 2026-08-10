@@ -56,6 +56,7 @@ import { MAJOR_LANGUAGES, formatLocationSummary } from './lib/locationService';
 import AvatarGalleryModal from './components/common/AvatarGalleryModal';
 import { PRESET_AVATARS, DEFAULT_AVATAR_URL } from './data/presetAvatars';
 import { resolveProfileImage } from './lib/avatarResolver';
+import { clearProfileCache } from './lib/profileService';
 import { useUnreadCounts } from './lib/unreadService';
 import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE } from './data/countryCodes';
 import RouteTracker from './components/common/RouteTracker';
@@ -766,21 +767,26 @@ export default function App() {
   useEffect(() => {
     initializeRuntimeSupabase().then(() => {
       if (supabase) {
-        const isResetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-password';
-        const hasRecoveryMarker = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('opencomm_is_recovery') === 'true';
+        const isRecoveryContext = () => {
+          const resetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-password';
+          const marker = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('opencomm_is_recovery') === 'true';
+          return resetPath || marker;
+        };
 
         // Fetch current session
         supabase.auth.getSession().then(({ data: { session } }: any) => {
           if (session?.user) {
-            if (isResetPath || hasRecoveryMarker) {
+            if (isRecoveryContext()) {
               // We are in password recovery flow. Keep recovery session active for updateUser, but DO NOT run syncUserSession!
               setIsPasswordRecovery(true);
               setIsLoggedIn(false);
               setIsAuthLoading(false);
             } else {
+              setIsPasswordRecovery(false);
               syncUserSession(session).finally(() => setIsAuthLoading(false));
             }
           } else {
+            setIsPasswordRecovery(false);
             setIsAuthLoading(false);
           }
         }).catch(() => setIsAuthLoading(false));
@@ -798,11 +804,17 @@ export default function App() {
             return;
           }
 
-          if (isResetPath || hasRecoveryMarker) {
+          if (isRecoveryContext()) {
             setIsPasswordRecovery(true);
             setIsLoggedIn(false);
             setIsAuthLoading(false);
             return;
+          }
+
+          // Normal auth event outside recovery context
+          setIsPasswordRecovery(false);
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.removeItem('opencomm_is_recovery');
           }
 
           if (session?.user) {
@@ -1729,8 +1741,12 @@ export default function App() {
       localStorage.setItem('opencomm_pending_signup_name', signupForm.name);
       localStorage.setItem('opencomm_pending_signup_phone', signupForm.phone);
       localStorage.setItem('opencomm_pending_signup_worker_dir', listInWorkerDirectory ? 'true' : 'false');
+      const signupAvatar = selectedAvatar || workerForm.avatarUrl || '';
+      if (signupAvatar) {
+        localStorage.setItem('opencomm_pending_signup_avatar', signupAvatar);
+      }
+
       if (isWorker) {
-        localStorage.setItem('opencomm_pending_signup_avatar', workerForm.avatarUrl || '');
         localStorage.setItem('opencomm_pending_signup_city', workerForm.city || '');
         localStorage.setItem('opencomm_pending_signup_state', workerForm.state || '');
         localStorage.setItem('opencomm_pending_signup_country', workerForm.country || '');
@@ -1887,15 +1903,12 @@ export default function App() {
         } catch (e) {
           console.warn("Avatar upload warning:", e);
         }
-      } else if (workerForm.avatarUrl || selectedAvatar) {
-        const urlToMatch = selectedAvatar || workerForm.avatarUrl;
-        const presetMatch = PRESET_AVATARS.find(p => p.url === urlToMatch);
-        if (presetMatch) {
-          finalAvatarId = presetMatch.id;
-        } else {
-          finalAvatarUrl = urlToMatch || '';
-        }
+      } else {
+        const pendingAvatar = localStorage.getItem('opencomm_pending_signup_avatar') || '';
+        finalAvatarUrl = selectedAvatar || workerForm.avatarUrl || pendingAvatar || '';
       }
+
+      const resolvedAvatarUrl = finalAvatarUrl || selectedAvatar || workerForm.avatarUrl || localStorage.getItem('opencomm_pending_signup_avatar') || DEFAULT_AVATAR_URL;
 
       // 4. Upload resume file if present
       if (resumeFile) {
@@ -1940,9 +1953,7 @@ export default function App() {
         preferred_language: workerForm.preferredLanguage,
         bio: formBio || signupForm.bio,
         short_bio: signupForm.bio || formBio,
-        avatar_url: '',
-        profile_image_url: finalAvatarUrl || undefined,
-        avatar_id: finalAvatarId || undefined,
+        avatar_url: resolvedAvatarUrl,
         profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
         is_worker_listed: isWorker,
         account_status: 'active' as const,
@@ -1955,6 +1966,11 @@ export default function App() {
       if (!savedProfile) {
         throw new Error("Failed to save user profile. Please try again.");
       }
+
+      setUserPhoto(resolvedAvatarUrl);
+      localStorage.setItem('opencomm_user_photo', resolvedAvatarUrl);
+      clearProfileCache();
+      localStorage.removeItem('opencomm_pending_signup_avatar');
 
       // 6. Create worker profile if selected
       if (isWorker) {

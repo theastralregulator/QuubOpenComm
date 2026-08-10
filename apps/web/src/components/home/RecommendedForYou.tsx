@@ -171,7 +171,10 @@ export default function RecommendedForYou({
                       saved={(worker as any).bookmarked}
                       onSave={toggleWorkerBookmark}
                       onViewProfile={onViewWorkers}
-                      onMessage={() => onOpenMessage(worker.name)}
+                      onMessage={onViewWorkers}
+                      onHire={onViewWorkers}
+                      showHireButton={true}
+                      showMessageButton={false}
                     />
                   </div>
                 ))}

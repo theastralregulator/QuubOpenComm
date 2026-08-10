@@ -607,7 +607,7 @@ export default function WorkersPage({
                       requireAuthGuard('Hire Worker', () => onOpenHire(worker, e));
                     }}
                     showHireButton={true}
-                    showMessageButton={isLoggedIn && loggedInId !== worker.id}
+                    showMessageButton={false}
                     isMessaging={submittingId === worker.id}
                     currentUserId={loggedInId}
                   />
@@ -1008,19 +1008,6 @@ export default function WorkersPage({
                 </div>
 
                 <div className="flex space-x-3">
-                  <button 
-                    onClick={() => {
-                      requireAuthGuard('Message Worker', () => {
-                        setSelectedWorkerProfile(null);
-                        onOpenMessage(selectedWorkerProfile.name);
-                      });
-                    }}
-                    className="px-4 py-3 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition-all flex items-center space-x-1 cursor-pointer"
-                  >
-                    <MessageSquare className="w-4 h-4 text-slate-400" />
-                    <span>Send Message</span>
-                  </button>
-
                   <button 
                     onClick={(e) => {
                       requireAuthGuard('Hire Worker', () => {

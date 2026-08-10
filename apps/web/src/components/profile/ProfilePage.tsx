@@ -515,8 +515,11 @@ export default function ProfilePage({
     }
   }, [location.pathname, isOwner]);
 
+  const profileLoadRequestRef = useRef(0);
+
   // Load All Profile & Supplemental Data
   const loadProfileData = async () => {
+    const requestId = ++profileLoadRequestRef.current;
     setLoading(true);
     setErrorState(null);
     try {
@@ -524,6 +527,8 @@ export default function ProfilePage({
       let isOwnerCheck = false;
       const { data: authData } = await supabase.auth.getUser();
       const authUser = authData?.user;
+
+      if (requestId !== profileLoadRequestRef.current) return;
 
       if (authUser) {
         setLoggedInId(authUser.id);
@@ -559,15 +564,19 @@ export default function ProfilePage({
         }
       } else {
         if (!isLoggedIn || !authUser) {
-          setProfile(null);
-          setWorkerProfile(null);
-          setCompanyProfile(null);
-          setLoading(false);
+          if (requestId === profileLoadRequestRef.current) {
+            setProfile(null);
+            setWorkerProfile(null);
+            setCompanyProfile(null);
+            setLoading(false);
+          }
           return;
         }
         p = await dbService.getProfile(authUser.id);
         isOwnerCheck = true;
       }
+
+      if (requestId !== profileLoadRequestRef.current) return;
 
       if (p) {
         setProfile(p);
@@ -585,6 +594,8 @@ export default function ProfilePage({
           dbService.getPortfolioItemsFromDb(targetUserId),
         ]);
 
+        if (requestId !== profileLoadRequestRef.current) return;
+
         setMyJobPostsCount(jobCount);
         setSavedJobsCount(sJobsCount);
         setSavedWorkersCount(sWorkersCount);
@@ -599,6 +610,8 @@ export default function ProfilePage({
               .select('id, title, created_at, job_applications(id, status)')
               .eq('posted_by', authUser.id)
               .order('created_at', { ascending: false });
+
+            if (requestId !== profileLoadRequestRef.current) return;
 
             if (!statsError && jobStatsData) {
               const stats = jobStatsData.map((job: any) => {
@@ -619,7 +632,7 @@ export default function ProfilePage({
               setEmployerJobStats([]);
             }
           } catch (err) {
-            setEmployerJobStats([]);
+            if (requestId === profileLoadRequestRef.current) setEmployerJobStats([]);
           }
 
           // Fetch Direct Hire Requests stats for owner
@@ -627,6 +640,8 @@ export default function ProfilePage({
             setLoadingWorkerHireStats(true);
             const hireList = await dbService.getCurrentUserHiringRequests();
             const uid = authUser.id;
+
+            if (requestId !== profileLoadRequestRef.current) return;
 
             const pendingRec = hireList.filter((r: any) => r.worker_id === uid && r.status === 'pending').length;
             const activeNeg = hireList.filter((r: any) =>
@@ -646,18 +661,22 @@ export default function ProfilePage({
             });
           } catch (hireErr) {
             console.warn('Failed to load hiring stats in ProfilePage.tsx:', hireErr);
-            setWorkerHireStats({
-              pendingReceived: 0,
-              activeNegotiations: 0,
-              confirmedWorks: 0,
-              sentRequests: 0,
-            });
+            if (requestId === profileLoadRequestRef.current) {
+              setWorkerHireStats({
+                pendingReceived: 0,
+                activeNegotiations: 0,
+                confirmedWorks: 0,
+                sentRequests: 0,
+              });
+            }
           } finally {
-            setLoadingWorkerHireStats(false);
+            if (requestId === profileLoadRequestRef.current) setLoadingWorkerHireStats(false);
           }
         } else {
           setEmployerJobStats([]);
         }
+
+        if (requestId !== profileLoadRequestRef.current) return;
 
         // Sync global app header states for owner
         if (isOwnerCheck) {
@@ -667,20 +686,29 @@ export default function ProfilePage({
           if (p.avatar_url && p.avatar_url !== userPhoto) {
             setUserPhoto(p.avatar_url);
           }
-          if (setUserType && p.profile_type !== userType) {
-            setUserType(p.profile_type as any || 'normal');
+          const appUserType: 'normal' | 'worker' | 'company' =
+            p.profile_type === 'worker'
+              ? 'worker'
+              : p.profile_type === 'company'
+                ? 'company'
+                : 'normal';
+          if (setUserType && appUserType !== userType) {
+            setUserType(appUserType);
           }
         }
 
         if (p.profile_type === 'worker') {
           const w = await dbService.getWorkerProfile(p.id);
+          if (requestId !== profileLoadRequestRef.current) return;
           setWorkerProfile(w);
 
           // Fetch Job Application Documents
           const docs = await dbService.getWorkerDocumentsFromDb(p.id, isOwnerCheck);
+          if (requestId !== profileLoadRequestRef.current) return;
           setWorkerDocs(docs || []);
         } else if (p.profile_type === 'company') {
           const c = await dbService.getCompanyProfile(p.id);
+          if (requestId !== profileLoadRequestRef.current) return;
           setCompanyProfile(c);
         }
       } else {
@@ -712,16 +740,16 @@ export default function ProfilePage({
       }
     } catch (err: any) {
       console.error("Error fetching profiles:", err);
-      setErrorState(err.message || "Failed to load profile data.");
+      if (requestId === profileLoadRequestRef.current) setErrorState(err.message || "Failed to load profile data.");
     } finally {
-      setLoading(false);
+      if (requestId === profileLoadRequestRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadProfileData();
     analytics.trackProfileViewed(usernameParam ? 'public' : 'own', loggedInId, usernameParam || username || 'User');
-  }, [isLoggedIn, loggedInId, usernameParam, userType]);
+  }, [isLoggedIn, usernameParam]);
 
   useEffect(() => {
     if (profile && (searchParams.get('edit') === 'true' || location.state?.openEdit)) {
