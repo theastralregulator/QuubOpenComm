@@ -2893,7 +2893,7 @@ export const dbService = {
   async getLoginActivity(): Promise<UserLoginActivity[]> {
     if (supabase) {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      if (!user) throw new Error("Authentication required.");
       const { data, error } = await supabase
         .from('user_login_activity')
         .select('*')
@@ -2901,8 +2901,8 @@ export const dbService = {
         .order('logged_in_at', { ascending: false })
         .limit(20);
       if (error) {
-        console.error('getLoginActivity error:', error);
-        return [];
+        console.error('getLoginActivity query error:', error);
+        throw new Error(error.message || "Failed to load login activity history.");
       }
       return (data || []) as UserLoginActivity[];
     }

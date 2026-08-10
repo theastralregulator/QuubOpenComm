@@ -229,6 +229,7 @@ export default function SettingsPage() {
   // ── Login Activity & Deactivation State ─────────────────────────────
   const [loginActivities, setLoginActivities] = useState<UserLoginActivity[]>([]);
   const [loadingLogins, setLoadingLogins] = useState(false);
+  const [loginActivityError, setLoginActivityError] = useState<string | null>(null);
   const [signingOutOthers, setSigningOutOthers] = useState(false);
 
   const [deactivationModalOpen, setDeactivationModalOpen] = useState(false);
@@ -350,15 +351,24 @@ export default function SettingsPage() {
 
   const fetchLogins = useCallback(async () => {
     setLoadingLogins(true);
+    setLoginActivityError(null);
     try {
       const logs = await dbService.getLoginActivity();
       setLoginActivities(logs);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load login activity:', err);
+      setLoginActivityError(err?.message || 'Failed to load login activity history.');
     } finally {
       setLoadingLogins(false);
     }
   }, []);
+
+  useEffect(() => {
+    const isSecurityVisible = active === 'security' || mobileSection === 'security';
+    if (isSecurityVisible) {
+      fetchLogins();
+    }
+  }, [active, mobileSection, fetchLogins]);
 
   const handleSignOutOthers = async () => {
     setSigningOutOthers(true);
@@ -366,7 +376,7 @@ export default function SettingsPage() {
       if (supabase) {
         await supabase.auth.signOut({ scope: 'others' });
       }
-      alert('Successfully signed out of all other active sessions.');
+      fetchLogins();
     } catch (err: any) {
       console.error('Sign out other sessions error:', err);
     } finally {
@@ -1023,28 +1033,53 @@ export default function SettingsPage() {
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Login Activity</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Recent successful OpenComm login sessions</p>
           </div>
-          <button
-            type="button"
-            onClick={handleSignOutOthers}
-            disabled={signingOutOthers}
-            className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] border border-[#2563EB]/30 hover:bg-[#2563EB]/5 px-3.5 py-1.5 rounded-xl transition-all disabled:opacity-50 cursor-pointer"
-          >
-            {signingOutOthers ? 'Revoking…' : 'Sign out other sessions'}
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => fetchLogins()}
+              disabled={loadingLogins}
+              className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50 cursor-pointer"
+              title="Refresh Login Activity"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingLogins ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOutOthers}
+              disabled={signingOutOthers}
+              className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] border border-[#2563EB]/30 hover:bg-[#2563EB]/5 px-3.5 py-1.5 rounded-xl transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {signingOutOthers ? 'Revoking…' : 'Sign out other sessions'}
+            </button>
+          </div>
         </div>
 
         {loadingLogins ? (
           <div className="flex justify-center py-6">
             <Loader2 className="w-5 h-5 animate-spin text-[#2563EB]" />
           </div>
+        ) : loginActivityError ? (
+          <div className="p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{loginActivityError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => fetchLogins()}
+              className="px-3 py-1 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors cursor-pointer shrink-0"
+            >
+              Retry
+            </button>
+          </div>
         ) : loginActivities.length === 0 ? (
           <div className="text-center py-6 text-xs text-slate-500 dark:text-slate-400">
-            Current session recorded. Activity history will populate as logins occur.
+            No login history has been recorded yet.
           </div>
         ) : (
           <div className="space-y-2.5">
             {loginActivities.map((act, idx) => {
-              const isCurrent = idx === 0 || act.is_current_hint === true;
+              const isCurrent = act.is_current_hint === true || (idx === 0 && act.is_current_hint !== false);
               const DeviceIcon = act.device_type === 'Mobile' ? Smartphone : act.device_type === 'Tablet' ? Tablet : Laptop;
               return (
                 <div key={act.id || idx} className="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-[#0d1524]/40">
@@ -1055,9 +1090,13 @@ export default function SettingsPage() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold text-slate-900 dark:text-white truncate">{formatDeviceTitle(act)}</span>
-                        {isCurrent && (
+                        {isCurrent ? (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                             Current
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                            Recent
                           </span>
                         )}
                       </div>
@@ -1460,6 +1499,169 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── CHANGE PASSWORD MODAL ───────────────────────────────────── */}
+      {changePasswordModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="change-password-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs"
+          onClick={() => {
+            if (!submittingChangePass) {
+              setChangePasswordModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-[#111827] rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 text-left relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 id="change-password-title" className="text-base font-bold text-slate-900 dark:text-white">
+                    Change Password
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Update your OpenComm account password
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={submittingChangePass}
+                onClick={() => setChangePasswordModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {changePassError && (
+              <div className="p-3.5 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-semibold text-rose-700 dark:text-rose-400 flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span>{changePassError}</span>
+              </div>
+            )}
+
+            {changePassSuccess && (
+              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-start space-x-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+                <span>{changePassSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleChangePasswordSubmit} className="space-y-3.5">
+              {/* Current Password */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showCurrentPass ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required
+                    disabled={submittingChangePass || Boolean(changePassSuccess)}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-colors pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPass(!showCurrentPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* New Password */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPass ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    disabled={submittingChangePass || Boolean(changePassSuccess)}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 8 chars (1 upper, 1 lower, 1 number)"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-colors pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPass(!showNewPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm New Password */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Confirm New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPass ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    disabled={submittingChangePass || Boolean(changePassSuccess)}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-colors pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPass(!showConfirmPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    {showConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  disabled={submittingChangePass || Boolean(changePassSuccess)}
+                  onClick={() => setChangePasswordModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingChangePass || Boolean(changePassSuccess)}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
+                >
+                  {submittingChangePass ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating…</span>
+                    </>
+                  ) : (
+                    <span>Change Password</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
