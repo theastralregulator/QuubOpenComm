@@ -3,7 +3,7 @@ import { analytics } from './analytics';
 import { ConversationViewModel, DbMessage, UserLoginActivity, DeactivationStatusResponse } from '../types';
 import { normalizeJobType } from './jobType';
 import { UserSettings } from '../types';
-import { clearProfileCache } from './profileService';
+import { clearProfileCache, getPublicProfilesByIds, CanonicalPublicProfile } from './profileService';
 import { notificationService } from './notificationService';
 
 // Retrieve public environment variables
@@ -1654,9 +1654,6 @@ export const dbService = {
     }
 
     const updatedJob = data[0];
-    if (updatedJob.id !== jobId || updatedJob.is_active !== false) {
-      throw new Error("Job deletion state could not be verified.");
-    }
 
     return true;
   },
@@ -1664,44 +1661,65 @@ export const dbService = {
   async getJobsFromDb(): Promise<any[]> {
     if (supabase) {
       try {
-        let { data, error } = await supabase
+        const { data, error } = await supabase
           .from('jobs')
-          .select('*, companies(*), poster:profiles!posted_by(full_name, avatar_url)')
+          .select('*, companies(*)')
           .eq('is_active', true)
           .order('created_at', { ascending: false });
 
-        if (error) {
-          console.warn('Primary jobs query error, attempting simple query:', error.message);
-          const fallbackRes = await supabase
-            .from('jobs')
-            .select('*, companies(*)')
-            .eq('is_active', true)
-            .order('created_at', { ascending: false });
-          data = fallbackRes.data;
-          error = fallbackRes.error;
-        }
-
         if (!error && data) {
+          // Collect unique posted_by user IDs for profile hydration
+          const userIdsToFetch: string[] = Array.from(
+            new Set(data.map((j: any) => j.posted_by).filter((id): id is string => typeof id === 'string' && id.length > 0))
+          );
+
+          // Batched hydration from profile_directory via getPublicProfilesByIds
+          let profileMap = new Map<string, CanonicalPublicProfile>();
+          if (userIdsToFetch.length > 0) {
+            try {
+              profileMap = await getPublicProfilesByIds(userIdsToFetch);
+            } catch (pErr) {
+              console.error('Error fetching job poster public profiles:', pErr);
+            }
+          }
+
           const nowTime = Date.now();
           const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
 
           const mapped = data.map(job => {
-            const posterObj = job.poster || job.profiles;
-            const companyName = job.companies?.name || posterObj?.full_name || 'Individual Employer';
-            const companyLogo = job.companies?.logo_url || posterObj?.avatar_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80';
+            const hasCompany = Boolean(job.companies?.name);
+            const pubProf = job.posted_by ? profileMap.get(job.posted_by) : null;
+
+            const posterName = hasCompany
+              ? job.companies.name
+              : (pubProf?.name || pubProf?.fullName || 'OpenComm User');
+
+            const posterAvatar = hasCompany
+              ? (job.companies.logo_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80')
+              : (pubProf?.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80');
+
+            const posterRole = hasCompany ? 'Company Employer' : 'Individual Employer';
+            const posterVerified = hasCompany
+              ? Boolean(job.companies.is_verified ?? job.companies.verified ?? false)
+              : false;
 
             return {
               id: job.id,
               title: job.title,
-              company: companyName,
-              companyLogo: companyLogo,
+              company: posterName,
+              companyLogo: posterAvatar,
+              posterName,
+              posterAvatar,
+              posterRole,
+              posterType: hasCompany ? 'company' : 'individual',
+              posterVerified,
+              verified: posterVerified,
               salary: job.salary_range || 'Contract',
               location: job.location || 'Remote',
               category: job.category || 'Professional',
               jobType: job.job_type || null,
               description: job.description || '',
               requirements: Array.isArray(job.requirements) ? job.requirements : [],
-              verified: true,
               bookmarked: false,
               applied: false,
               datePosted: new Date(job.created_at).toLocaleDateString(),
@@ -1923,10 +1941,33 @@ export const dbService = {
       try {
         const { data, error } = await supabase
           .from('reviews')
-          .select('*, reviewer:profiles!reviewer_id(full_name, avatar_url)')
+          .select('*')
           .eq('reviewee_id', userId)
           .order('created_at', { ascending: false });
-        if (!error && data) return data;
+
+        if (!error && data) {
+          const reviewerIds: string[] = Array.from(
+            new Set(data.map((r: any) => r.reviewer_id).filter((id): id is string => typeof id === 'string' && id.length > 0))
+          );
+          let profileMap = new Map<string, CanonicalPublicProfile>();
+          if (reviewerIds.length > 0) {
+            try {
+              profileMap = await getPublicProfilesByIds(reviewerIds);
+            } catch (pErr) {
+              console.error('Error fetching reviewer profiles:', pErr);
+            }
+          }
+          return data.map(r => {
+            const pubProf = profileMap.get(r.reviewer_id);
+            return {
+              ...r,
+              reviewer: {
+                full_name: pubProf?.name || pubProf?.fullName || 'OpenComm User',
+                avatar_url: pubProf?.avatarUrl || null
+              }
+            };
+          });
+        }
       } catch (err) {
         console.error('getReviewsFromDb Supabase error:', err);
       }

@@ -13,6 +13,7 @@ export interface JobCardProps {
   companyName: string;
   companyLogo: string;
   companyVerified: boolean;
+  posterRole?: string;
   title: string;
   shortDescription: string;
   location: string;
@@ -43,6 +44,7 @@ export default function JobCard({
   companyName,
   companyLogo,
   companyVerified,
+  posterRole,
   title,
   shortDescription,
   location,
@@ -224,9 +226,14 @@ export default function JobCard({
               className="w-9 h-9 rounded-xl object-cover bg-slate-50 border border-slate-100 dark:border-slate-800 shrink-0" 
             />
             <div className="min-w-0 text-left">
-              <h4 className="text-xs font-bold text-[#475569] dark:text-slate-300 truncate">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                 {companyName}
               </h4>
+              {posterRole && (
+                <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 block truncate">
+                  {posterRole}
+                </span>
+              )}
               {companyVerified && (
                 <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[#ECFDF5] dark:bg-emerald-950/40 border border-[#A7F3D0] dark:border-emerald-800/60 text-[#059669] dark:text-emerald-400 text-[10px] font-bold mt-0.5">
                   <CheckCircle2 className="w-3 h-3 text-[#059669] dark:text-emerald-400 shrink-0" />

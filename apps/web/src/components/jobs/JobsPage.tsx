@@ -109,6 +109,7 @@ export default function JobsPage({
       const matchesSearch = !searchQuery || 
         job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (job.posterName && job.posterName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         job.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (job.requirements && job.requirements.some(r => r.toLowerCase().includes(searchQuery.toLowerCase())));
 
@@ -416,6 +417,7 @@ export default function JobsPage({
                       companyName={job.company}
                       companyLogo={job.companyLogo}
                       companyVerified={job.verified}
+                      posterRole={job.posterRole}
                       title={job.title}
                       shortDescription={job.description}
                       location={job.location}

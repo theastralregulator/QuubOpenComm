@@ -176,7 +176,7 @@ export default function JobDetailPage({
               jobType: data.job_type || 'Full-time',
               description: data.description || '',
               requirements: Array.isArray(data.requirements) ? data.requirements : [],
-              verified: data.verified !== undefined ? data.verified : true,
+              verified: Boolean(data.companies?.is_verified ?? data.companies?.verified ?? false),
               bookmarked: false,
               applied: dbApplied,
               datePosted: new Date(data.created_at).toLocaleDateString(),

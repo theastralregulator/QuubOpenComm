@@ -106,38 +106,11 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
       profileCache.set(userId, profile);
       return profile;
     }
-
-    // 2. Query profile_directory as fallback with ONLY existing valid schema columns
-    const { data: profData, error: profError } = await supabase
-      .from('profile_directory')
-      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (profData) {
-      const name = resolveDisplayName(profData);
-      const isLocPublic = profData.show_location_publicly !== false;
-      const profile: CanonicalPublicProfile = {
-        id: profData.id,
-        name,
-        fullName: profData.full_name || name,
-        avatarUrl: profData.avatar_url || null,
-        bannerUrl: profData.banner_url || null,
-        bio: profData.bio || null,
-        city: isLocPublic ? (profData.city || null) : null,
-        state: isLocPublic ? (profData.state || null) : null,
-        country: isLocPublic ? (profData.country || null) : null,
-        verified: false,
-        profileType: profData.profile_type || null,
-      };
-      profileCache.set(userId, profile);
-      return profile;
-    }
   } catch (err) {
     console.error(`[Employer Identity Debug] Unexpected error fetching public profile for ${userId}:`, err);
   }
 
-  // 3. Robust fallback profile
+  // Fallback profile if record not found in directory
   const fallback: CanonicalPublicProfile = {
     id: userId,
     name: 'OpenComm User',
@@ -175,7 +148,7 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
   }
 
   try {
-    // 1. Batched lookup from profile_directory (using only valid columns!)
+    // Single clean batched lookup from profile_directory
     const { data: pdRows, error: pdError } = await supabase
       .from('profile_directory')
       .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
@@ -207,47 +180,9 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
       });
     }
 
-    // 2. Batched fallback lookup from profile_directory for any remaining missing IDs
-    const stillMissing = missingFromCache.filter(id => !result.has(id));
-    if (stillMissing.length > 0) {
-      const { data: profRows, error: profError } = await supabase
-        .from('profile_directory')
-        .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, onboarding_completed')
-        .in('id', stillMissing);
-
-      if (profError) {
-        console.error('[Employer Identity Debug] profiles batch query error:', profError);
-      }
-
-      if (profRows) {
-        profRows.forEach((prof: any) => {
-          const name = resolveDisplayName(prof);
-          const profile: CanonicalPublicProfile = {
-            id: prof.id,
-            name,
-            fullName: prof.full_name || name,
-            avatarUrl: prof.avatar_url || null,
-            bannerUrl: prof.banner_url || null,
-            bio: prof.bio || null,
-            city: prof.city || null,
-            state: prof.state || null,
-            country: prof.country || null,
-            verified: Boolean(prof.onboarding_completed),
-            profileType: prof.profile_type || null,
-          };
-          profileCache.set(prof.id, profile);
-          result.set(prof.id, profile);
-        });
-      }
-    }
-
     const unmappedIds = missingFromCache.filter(id => !result.has(id));
     if (unmappedIds.length > 0) {
-      console.warn(`[Employer Identity Debug]
-canonical table: profile_directory & profiles
-canonical key column: id
-unmapped profile IDs count: ${unmappedIds.length}
-unmapped IDs: ${unmappedIds.join(', ')}`);
+      console.warn(`[Employer Identity Debug] profile_directory unmapped profile IDs count: ${unmappedIds.length}`);
     }
 
   } catch (err) {
