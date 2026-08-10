@@ -126,7 +126,7 @@ CREATE TRIGGER trg_schedule_media_retention
   FOR EACH ROW
   EXECUTE FUNCTION public.schedule_media_retention_on_conversation_archive();
 
--- 7. Atomic Intent Claiming RPC with Strict State Validation & Guarded Transitions
+-- 7. Server-Only Intent Claiming RPC with Strict State Validation & Guarded Transitions
 CREATE OR REPLACE FUNCTION public.claim_media_upload_intent_for_finalize(
   p_intent_id uuid,
   p_user_id uuid,
@@ -173,7 +173,7 @@ BEGIN
     );
   END IF;
 
-  -- 2. If finalizing without final IDs, return finalizing_in_progress (Do NOT re-claim!)
+  -- 2. If finalizing without final IDs, return finalizing_in_progress
   IF v_intent.status = 'finalizing' THEN
     RETURN jsonb_build_object('status', 'finalizing_in_progress');
   END IF;
@@ -212,8 +212,10 @@ BEGIN
 END;
 $$;
 
--- 8. Atomic Database Finalization RPC (Binds directly to Canonical Upload Intent)
-CREATE OR REPLACE FUNCTION public.create_media_message(
+-- 8. Server-Only Atomic Database Finalization RPC (EXECUTABLE ONLY BY service_role)
+CREATE OR REPLACE FUNCTION public.finalize_media_message_internal(
+  p_user_id uuid,
+  p_upload_intent_id uuid,
   p_conversation_id uuid,
   p_message_type text,
   p_preview_text text,
@@ -226,8 +228,7 @@ CREATE OR REPLACE FUNCTION public.create_media_message(
   p_width integer DEFAULT NULL,
   p_height integer DEFAULT NULL,
   p_original_filename text DEFAULT NULL,
-  p_provider_asset_id text DEFAULT NULL,
-  p_upload_intent_id uuid DEFAULT NULL
+  p_provider_asset_id text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -235,27 +236,29 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
-  v_caller_id uuid;
   v_sender_name text;
   v_sender_avatar text;
+  v_user_status text;
   v_conv RECORD;
   v_intent RECORD;
   v_msg_id uuid;
   v_media_id uuid;
 BEGIN
-  v_caller_id := auth.uid();
-  IF v_caller_id IS NULL THEN
-    RAISE EXCEPTION 'Authentication required.';
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'User ID is required.';
   END IF;
 
-  -- Requirement 3: Mandate p_upload_intent_id
   IF p_upload_intent_id IS NULL THEN
     RAISE EXCEPTION 'Upload intent is required.';
   END IF;
 
-  -- Enforce active account
-  IF NOT public.is_current_user_active() THEN
-    RAISE EXCEPTION 'Account is inactive or suspended.';
+  -- Enforce active account for p_user_id
+  SELECT account_status INTO v_user_status
+  FROM public.profiles
+  WHERE id = p_user_id;
+
+  IF v_user_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'User account is inactive or suspended.';
   END IF;
 
   -- Lock and fetch canonical upload intent row
@@ -269,8 +272,8 @@ BEGIN
     RAISE EXCEPTION 'Upload intent not found.';
   END IF;
 
-  -- Requirement 2: Strict Binding & Validation against Canonical Intent Metadata
-  IF v_intent.user_id <> v_caller_id THEN
+  -- Strict Binding & Validation against Canonical Intent Metadata
+  IF v_intent.user_id <> p_user_id THEN
     RAISE EXCEPTION 'Upload intent ownership mismatch.';
   END IF;
 
@@ -302,8 +305,7 @@ BEGIN
     RAISE EXCEPTION 'Upload intent has expired.';
   END IF;
 
-  -- Requirement 4: State Flow Validation
-  -- If intent is already finalized with a message ID, return existing IDs (Idempotence)
+  -- State Flow Validation
   IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
     RETURN jsonb_build_object(
       'message_id', v_intent.final_message_id,
@@ -312,7 +314,6 @@ BEGIN
     );
   END IF;
 
-  -- Allow atomic finalization ONLY when status is 'finalizing' (or 'finalized' without return)
   IF v_intent.status NOT IN ('finalizing', 'finalized') THEN
     IF v_intent.status IN ('pending', 'uploaded') THEN
       RAISE EXCEPTION 'Upload intent must be claimed and verified before finalization.';
@@ -413,11 +414,11 @@ BEGIN
     RAISE EXCEPTION 'Cannot send media to an archived conversation.';
   END IF;
 
-  IF v_conv.creator_id <> v_caller_id
-     AND v_conv.member_id <> v_caller_id
+  IF v_conv.creator_id <> p_user_id
+     AND v_conv.member_id <> p_user_id
      AND NOT EXISTS (
        SELECT 1 FROM public.conversation_members cm
-       WHERE cm.conversation_id = p_conversation_id AND cm.user_id = v_caller_id
+       WHERE cm.conversation_id = p_conversation_id AND cm.user_id = p_user_id
      ) THEN
     RAISE EXCEPTION 'Not authorized to send messages in this conversation.';
   END IF;
@@ -426,7 +427,7 @@ BEGIN
   SELECT COALESCE(full_name, username, 'OpenComm User'), avatar_url
   INTO v_sender_name, v_sender_avatar
   FROM public.profile_directory
-  WHERE id = v_caller_id;
+  WHERE id = p_user_id;
 
   IF v_sender_name IS NULL THEN
     v_sender_name := 'OpenComm User';
@@ -446,7 +447,7 @@ BEGIN
   )
   VALUES (
     p_conversation_id,
-    v_caller_id,
+    p_user_id,
     v_sender_name,
     v_sender_avatar,
     p_preview_text,
@@ -479,7 +480,7 @@ BEGIN
   VALUES (
     v_msg_id,
     p_conversation_id,
-    v_caller_id,
+    p_user_id,
     p_upload_intent_id,
     p_media_type,
     p_storage_provider,
@@ -677,7 +678,7 @@ BEGIN
 END;
 $$;
 
--- 13. RLS Lockdown & Policy Idempotency
+-- 13. RLS Lockdown & Strict Function Revokes
 ALTER TABLE public.message_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_upload_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_storage_events ENABLE ROW LEVEL SECURITY;
@@ -691,16 +692,21 @@ CREATE POLICY media_upload_intents_select_policy ON public.media_upload_intents
   TO authenticated
   USING (user_id = auth.uid());
 
--- Explicit identity argument signatures for REVOKE/GRANT
-REVOKE EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text, uuid) FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) FROM PUBLIC, anon;
+-- Requirement 1: REVOKE direct execution on internal finalization & intent claim from PUBLIC, anon, authenticated
+REVOKE EXECUTE ON FUNCTION public.finalize_media_message_internal(uuid, uuid, uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.claim_media_upload_intent_for_finalize(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.claim_due_media_for_cleanup(integer) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.cleanup_old_media_storage_events() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.admin_get_media_storage_health() FROM PUBLIC, anon;
 
--- Grants
+-- Grants: ONLY service_role can execute internal finalization and claim RPCs
+GRANT EXECUTE ON FUNCTION public.finalize_media_message_internal(uuid, uuid, uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_media_upload_intent_for_finalize(uuid, uuid, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_due_media_for_cleanup(integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.cleanup_old_media_storage_events() TO service_role;
+
+-- Grants: Authenticated users can only read upload intents, read sanitized media, and call admin health (if admin)
 GRANT SELECT ON public.media_upload_intents TO authenticated;
-GRANT EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_get_media_storage_health() TO authenticated;

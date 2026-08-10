@@ -1,4 +1,4 @@
-import { verifyUserAuth, getUserSupabase, getServiceRoleSupabase } from './_lib/media/auth';
+import { verifyUserAuth, getServiceRoleSupabase } from './_lib/media/auth';
 import { verifyUploadedObject, StorageProviderType } from './_lib/media/providers';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry';
 
@@ -31,7 +31,7 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
-  // 1. Guarded Intent Claiming & Race Condition Protection
+  // 1. Guarded Intent Claiming via Server-Only RPC
   const { data: claimResult, error: claimErr } = await adminClient.rpc('claim_media_upload_intent_for_finalize', {
     p_intent_id: intentId,
     p_user_id: authUser.userId,
@@ -150,20 +150,16 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // 3. Single Atomic Database Finalization via create_media_message RPC (bound to canonical intent)
-  const userClient = getUserSupabase(authUser.jwtToken);
-  if (!userClient) {
-    await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
-    return res.status(500).json({ error: 'Database connection failed' });
-  }
-
+  // 3. Single Atomic Database Finalization via Server-Only finalize_media_message_internal RPC
   try {
     const previewText = (
       mediaType === 'audio' ? 'Voice message' :
       mediaType === 'image' ? 'Photo' : 'Video'
     );
 
-    const { data: rpcResult, error: rpcError } = await userClient.rpc('create_media_message', {
+    const { data: rpcResult, error: rpcError } = await adminClient.rpc('finalize_media_message_internal', {
+      p_user_id: authUser.userId,
+      p_upload_intent_id: intentId,
       p_conversation_id: conversationId,
       p_message_type: mediaType,
       p_preview_text: previewText,
@@ -175,12 +171,11 @@ export default async function handler(req: any, res: any) {
       p_duration_ms: durationMs ? Number(durationMs) : null,
       p_width: width ? Number(width) : null,
       p_height: height ? Number(height) : null,
-      p_original_filename: originalFilename ? String(originalFilename).substring(0, 255) : null,
-      p_upload_intent_id: intentId
+      p_original_filename: originalFilename ? String(originalFilename).substring(0, 255) : null
     });
 
     if (rpcError) {
-      console.error('Error in create_media_message RPC:', rpcError);
+      console.error('Error in finalize_media_message_internal RPC:', rpcError);
       await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
 
       void recordStorageEvent({
