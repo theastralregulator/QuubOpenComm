@@ -20,7 +20,7 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing required upload parameters' });
   }
 
-  // 1. Verify conversation authorization & archive status
+  // 1. Verify conversation authorization (supports creator_id, member_id, conversation_members) & archive status
   const check = await verifyConversationParticipant(authUser.userId, conversationId);
   if (!check.allowed) {
     return res.status(403).json({ error: check.errorMsg || 'Forbidden' });
@@ -39,11 +39,12 @@ export default async function handler(req: any, res: any) {
     // 3. Create upload target using Storage Provider Router (R2 primary, B2 fallback)
     const target = await createUploadTarget(conversationId, mediaType as MediaType, mimeType, Number(fileSizeBytes));
 
-    // 4. Save upload intent in database using Service Role client
+    // 4. Save upload intent in database with 24-hour retention window for orphan cleanup
     const adminClient = getServiceRoleSupabase();
     let intentId: string | null = null;
 
     if (adminClient) {
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       const { data: intent, error: intentErr } = await adminClient
         .from('media_upload_intents')
         .insert({
@@ -54,7 +55,8 @@ export default async function handler(req: any, res: any) {
           media_type: mediaType,
           mime_type: mimeType,
           file_size_bytes: Number(fileSizeBytes),
-          status: 'pending'
+          status: 'pending',
+          expires_at: expiresAt
         })
         .select('id')
         .single();

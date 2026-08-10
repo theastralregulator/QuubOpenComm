@@ -64,7 +64,22 @@ export async function verifyConversationParticipant(
       return { allowed: false, archived: false, errorMsg: 'Conversation not found' };
     }
 
-    const isParticipant = conv.creator_id === userId || conv.member_id === userId;
+    let isParticipant = conv.creator_id === userId || conv.member_id === userId;
+
+    if (!isParticipant) {
+      // Check conversation_members table for canonical multi-participant support
+      const { data: cm } = await adminClient
+        .from('conversation_members')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (cm) {
+        isParticipant = true;
+      }
+    }
+
     if (!isParticipant) {
       return { allowed: false, archived: false, errorMsg: 'Not authorized for this conversation' };
     }

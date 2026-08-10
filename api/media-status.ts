@@ -1,4 +1,3 @@
-import type { Request, Response } from 'express';
 import { checkStorageProvidersConfig } from './_lib/media/providers';
 
 export default async function handler(req: any, res: any) {
@@ -14,6 +13,9 @@ export default async function handler(req: any, res: any) {
     voiceEnabled: mediaMessagingEnabled,
     imageEnabled: mediaMessagingEnabled,
     videoEnabled: mediaMessagingEnabled,
-    activeProviderRole: config.activePrimaryProvider ? 'active' : 'unconfigured'
+    activePrimaryProvider: config.activePrimaryProvider,
+    r2Configured: config.r2Configured,
+    b2Configured: config.b2Configured,
+    cloudinaryConfigured: config.cloudinaryConfigured
   });
 }

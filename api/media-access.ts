@@ -41,13 +41,13 @@ export default async function handler(req: any, res: any) {
       return res.status(404).json({ error: 'Media record not found' });
     }
 
-    // 2. Verify caller is conversation participant
+    // 2. Verify caller is conversation participant (supports creator_id, member_id, conversation_members)
     const check = await verifyConversationParticipant(authUser.userId, media.conversation_id);
     if (!check.allowed) {
       return res.status(403).json({ error: 'Not authorized to access media for this conversation' });
     }
 
-    // 3. Check media status
+    // 3. Requirement 24: Check delete_after expiration (do not generate signed URL if delete_after <= now())
     if (media.status === 'deleted' || (media.delete_after && new Date(media.delete_after) <= new Date())) {
       return res.status(410).json({ error: 'Media has expired', expired: true });
     }

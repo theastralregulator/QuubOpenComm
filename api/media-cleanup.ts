@@ -3,7 +3,7 @@ import { deleteStorageObject, StorageProviderType } from './_lib/media/providers
 import { recordStorageEvent } from './_lib/media/telemetry';
 
 export default async function handler(req: any, res: any) {
-  // Authorization check: Vercel Cron or MEDIA_CRON_SECRET or query token
+  // Authorization check: Vercel Cron or MEDIA_CRON_SECRET
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
   const cronSecret = process.env.MEDIA_CRON_SECRET;
   const isVercelCron = req.headers['x-vercel-cron'] === '1';
@@ -15,7 +15,6 @@ export default async function handler(req: any, res: any) {
     authorized = true;
   }
 
-  // Allow admin trigger from admin session if service role available
   const adminClient = getServiceRoleSupabase();
   if (!adminClient) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
@@ -43,29 +42,15 @@ export default async function handler(req: any, res: any) {
 
   let deletedMediaCount = 0;
   let deletedOrphanCount = 0;
+  let deletedTelemetryCount = 0;
   const errors: string[] = [];
 
   try {
-    // 1. Process 15-day Post-Archive Expired Media
-    const { data: dueMedia } = await adminClient
-      .from('message_media')
-      .select('id, storage_provider, object_key, media_type, status, delete_after, cleanup_attempts')
-      .in('status', ['active', 'cleanup_pending'])
-      .not('delete_after', 'is', null)
-      .lte('delete_after', new Date().toISOString())
-      .limit(50);
+    // 1. Atomic Claim of 15-day Post-Archive Expired Media using claim_due_media_for_cleanup RPC (FOR UPDATE SKIP LOCKED)
+    const { data: dueMedia, error: claimErr } = await adminClient.rpc('claim_due_media_for_cleanup', { p_limit: 50 });
 
-    if (dueMedia && dueMedia.length > 0) {
+    if (!claimErr && dueMedia && dueMedia.length > 0) {
       for (const item of dueMedia) {
-        // Atomically mark cleanup_pending
-        await adminClient
-          .from('message_media')
-          .update({
-            status: 'cleanup_pending',
-            last_cleanup_attempt_at: new Date().toISOString()
-          })
-          .eq('id', item.id);
-
         const success = await deleteStorageObject(item.storage_provider as StorageProviderType, item.object_key);
 
         if (success) {
@@ -85,17 +70,17 @@ export default async function handler(req: any, res: any) {
             mediaType: item.media_type
           });
         } else {
-          const attempts = (item.cleanup_attempts || 0) + 1;
+          // Requirement 15: Sanitized error category only (no credentials or private keys in logs/errors)
           await adminClient
             .from('message_media')
             .update({
-              cleanup_attempts: attempts,
+              cleanup_attempts: (item.cleanup_attempts || 0) + 1,
               last_cleanup_error: 'Provider object deletion failed or object not found',
               last_cleanup_attempt_at: new Date().toISOString()
             })
             .eq('id', item.id);
 
-          errors.push(`Failed to delete object ${item.object_key} on ${item.storage_provider}`);
+          errors.push(`Deletion attempt failed for media item ${item.id}`);
           void recordStorageEvent({
             provider: item.storage_provider as StorageProviderType,
             operation: 'delete',
@@ -107,30 +92,40 @@ export default async function handler(req: any, res: any) {
     }
 
     // 2. Process Orphan Upload Intents (> 24 hours old and unfinalized)
-    const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: orphanIntents } = await adminClient
       .from('media_upload_intents')
       .select('id, provider, object_key, media_type')
       .eq('status', 'pending')
-      .lte('created_at', cutoff24h)
+      .lte('expires_at', new Date().toISOString())
       .limit(50);
 
     if (orphanIntents && orphanIntents.length > 0) {
       for (const intent of orphanIntents) {
-        await deleteStorageObject(intent.provider as StorageProviderType, intent.object_key);
-        await adminClient
-          .from('media_upload_intents')
-          .update({ status: 'expired' })
-          .eq('id', intent.id);
+        const success = await deleteStorageObject(intent.provider as StorageProviderType, intent.object_key);
 
-        deletedOrphanCount++;
+        // Requirement 16: Only mark status 'expired' if provider delete succeeds (or object already gone)
+        if (success) {
+          await adminClient
+            .from('media_upload_intents')
+            .update({ status: 'expired' })
+            .eq('id', intent.id);
+
+          deletedOrphanCount++;
+        }
       }
+    }
+
+    // 3. Telemetry 30-Day Retention Cleanup
+    const { data: tDeleted } = await adminClient.rpc('cleanup_old_media_storage_events');
+    if (typeof tDeleted === 'number') {
+      deletedTelemetryCount = tDeleted;
     }
 
     return res.status(200).json({
       success: true,
       deletedMediaCount,
       deletedOrphanCount,
+      deletedTelemetryCount,
       errors
     });
 

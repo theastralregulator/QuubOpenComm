@@ -53,9 +53,11 @@ CREATE TABLE IF NOT EXISTS public.media_upload_intents (
   media_type text NOT NULL CHECK (media_type IN ('image', 'video', 'audio')),
   mime_type text NOT NULL,
   file_size_bytes bigint NOT NULL,
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalized', 'expired')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalized', 'expired', 'failed')),
+  final_message_id uuid NULL REFERENCES public.messages(id) ON DELETE SET NULL,
+  final_media_id uuid NULL REFERENCES public.message_media(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  expires_at timestamptz NOT NULL DEFAULT (now() + interval '1 hour')
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
 );
 
 -- 4. Create public.media_storage_events table
@@ -144,7 +146,32 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  -- 1. Check conversation exists & caller is participant & not archived
+  -- 1. Enforce active account
+  IF NOT public.is_current_user_active() THEN
+    RAISE EXCEPTION 'Account is inactive or suspended.';
+  END IF;
+
+  -- 2. Input Validations
+  IF p_message_type NOT IN ('image', 'video', 'audio') THEN
+    RAISE EXCEPTION 'Invalid message_type.';
+  END IF;
+  IF p_media_type <> p_message_type THEN
+    RAISE EXCEPTION 'Mismatch between media_type and message_type.';
+  END IF;
+  IF p_storage_provider NOT IN ('r2', 'b2') THEN
+    RAISE EXCEPTION 'Invalid storage_provider.';
+  END IF;
+  IF p_preview_text NOT IN ('Voice message', 'Photo', 'Video') THEN
+    RAISE EXCEPTION 'Invalid preview_text.';
+  END IF;
+  IF p_file_size_bytes <= 0 OR p_file_size_bytes > 52428800 THEN
+    RAISE EXCEPTION 'File size out of permitted range.';
+  END IF;
+  IF p_object_key IS NULL OR length(trim(p_object_key)) = 0 OR length(p_object_key) > 512 THEN
+    RAISE EXCEPTION 'Invalid object_key.';
+  END IF;
+
+  -- 3. Check conversation authorization (supports creator_id, member_id, conversation_members)
   SELECT id, creator_id, member_id, archived_at
   INTO v_conv
   FROM public.conversations
@@ -158,7 +185,12 @@ BEGIN
     RAISE EXCEPTION 'Cannot send media to an archived conversation.';
   END IF;
 
-  IF v_conv.creator_id <> v_caller_id AND v_conv.member_id <> v_caller_id THEN
+  IF v_conv.creator_id <> v_caller_id
+     AND v_conv.member_id <> v_caller_id
+     AND NOT EXISTS (
+       SELECT 1 FROM public.conversation_members cm
+       WHERE cm.conversation_id = p_conversation_id AND cm.user_id = v_caller_id
+     ) THEN
     RAISE EXCEPTION 'Not authorized to send messages in this conversation.';
   END IF;
 
@@ -172,7 +204,7 @@ BEGIN
     v_sender_name := 'OpenComm User';
   END IF;
 
-  -- 2. Insert into messages table
+  -- 4. Insert into messages table
   INSERT INTO public.messages (
     conversation_id,
     sender_id,
@@ -189,7 +221,7 @@ BEGIN
     v_caller_id,
     v_sender_name,
     v_sender_avatar,
-    COALESCE(p_preview_text, 'Media'),
+    p_preview_text,
     p_message_type,
     true,
     'user',
@@ -197,7 +229,7 @@ BEGIN
   )
   RETURNING id INTO v_msg_id;
 
-  -- 3. Insert into message_media table
+  -- 5. Insert into message_media table
   INSERT INTO public.message_media (
     message_id,
     conversation_id,
@@ -228,17 +260,16 @@ BEGIN
     p_duration_ms,
     p_width,
     p_height,
-    p_original_filename,
+    substring(trim(p_original_filename) from 1 for 255),
     'active',
     now()
   )
   RETURNING id INTO v_media_id;
 
-  -- 4. Update last message info on conversation
+  -- 6. Update last message info on conversation using canonical column names
   UPDATE public.conversations
-  SET last_message_text = COALESCE(p_preview_text, 'Media'),
-      last_message_at = now(),
-      updated_at = now()
+  SET last_message_text = p_preview_text,
+      last_message_time = now()
   WHERE id = p_conversation_id;
 
   RETURN jsonb_build_object(
@@ -248,7 +279,57 @@ BEGIN
 END;
 $$;
 
--- 8. Admin Media Health RPC
+-- 8. Atomic Claim RPC for Concurrency Safety in Cleanup Worker
+CREATE OR REPLACE FUNCTION public.claim_due_media_for_cleanup(p_limit integer DEFAULT 50)
+RETURNS TABLE (
+  id uuid,
+  storage_provider text,
+  object_key text,
+  media_type text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+BEGIN
+  RETURN QUERY
+  WITH target_rows AS (
+    SELECT mm.id
+    FROM public.message_media mm
+    WHERE mm.status IN ('active', 'cleanup_pending')
+      AND mm.delete_after IS NOT NULL
+      AND mm.delete_after <= now()
+    ORDER BY mm.delete_after ASC
+    LIMIT p_limit
+    FOR UPDATE SKIP LOCKED
+  )
+  UPDATE public.message_media mm
+  SET status = 'cleanup_pending',
+      last_cleanup_attempt_at = now()
+  FROM target_rows
+  WHERE mm.id = target_rows.id
+  RETURNING mm.id, mm.storage_provider, mm.object_key, mm.media_type;
+END;
+$$;
+
+-- 9. Telemetry 30-Day Cleanup RPC
+CREATE OR REPLACE FUNCTION public.cleanup_old_media_storage_events()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_deleted_count integer;
+BEGIN
+  DELETE FROM public.media_storage_events
+  WHERE created_at < (now() - interval '30 days');
+  GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+  RETURN v_deleted_count;
+END;
+$$;
+
+-- 10. Admin Media Health RPC
 CREATE OR REPLACE FUNCTION public.admin_get_media_storage_health()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -257,13 +338,11 @@ SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
   v_caller_id uuid;
-  v_active_media count_type;
   v_active_count bigint;
   v_cleanup_pending bigint;
   v_cleanup_overdue bigint;
   v_deleted_count bigint;
   v_orphan_intents bigint;
-  v_events_1h jsonb;
   v_events_24h jsonb;
 BEGIN
   v_caller_id := auth.uid();
@@ -303,12 +382,12 @@ BEGIN
 END;
 $$;
 
--- 9. RLS & Grants
+-- 11. RLS Policies & Grants (Idempotent)
 ALTER TABLE public.message_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_upload_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_storage_events ENABLE ROW LEVEL SECURITY;
 
--- SELECT policy on message_media: allowed for participants of conversation
+DROP POLICY IF EXISTS message_media_select_policy ON public.message_media;
 CREATE POLICY message_media_select_policy ON public.message_media
   FOR SELECT
   TO authenticated
@@ -316,19 +395,31 @@ CREATE POLICY message_media_select_policy ON public.message_media
     EXISTS (
       SELECT 1 FROM public.conversations c
       WHERE c.id = message_media.conversation_id
-        AND (c.creator_id = auth.uid() OR c.member_id = auth.uid())
+        AND (
+          c.creator_id = auth.uid()
+          OR c.member_id = auth.uid()
+          OR EXISTS (
+            SELECT 1 FROM public.conversation_members cm
+            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
+          )
+        )
     )
   );
 
--- media_upload_intents policy
-CREATE POLICY media_upload_intents_user_policy ON public.media_upload_intents
-  FOR ALL
+DROP POLICY IF EXISTS media_upload_intents_select_policy ON public.media_upload_intents;
+CREATE POLICY media_upload_intents_select_policy ON public.media_upload_intents
+  FOR SELECT
   TO authenticated
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (user_id = auth.uid());
+
+-- Revoke execute from PUBLIC on SECURITY DEFINER functions
+REVOKE EXECUTE ON FUNCTION public.create_media_message FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.admin_get_media_storage_health FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.claim_due_media_for_cleanup FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.cleanup_old_media_storage_events FROM PUBLIC, anon, authenticated;
 
 -- Grants
 GRANT SELECT ON public.message_media TO authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.media_upload_intents TO authenticated;
+GRANT SELECT ON public.media_upload_intents TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_media_message TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_get_media_storage_health TO authenticated;

@@ -1,5 +1,6 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import crypto from 'crypto';
 
 export type StorageProviderType = 'r2' | 'b2' | 'cloudinary';
 export type MediaType = 'image' | 'video' | 'audio';
@@ -19,18 +20,27 @@ export interface StorageProviderConfig {
   activePrimaryProvider: StorageProviderType | null;
 }
 
+export interface ObjectVerificationResult {
+  exists: boolean;
+  contentLengthBytes?: number;
+  contentType?: string;
+  error?: string;
+}
+
 // 1. Check server environment variables configuration
 export function checkStorageProvidersConfig(): StorageProviderConfig {
   const r2Configured = Boolean(
     process.env.R2_ACCESS_KEY_ID &&
     process.env.R2_SECRET_ACCESS_KEY &&
-    process.env.R2_BUCKET_NAME
+    process.env.R2_BUCKET_NAME &&
+    (process.env.R2_ACCOUNT_ID || process.env.R2_ENDPOINT)
   );
 
   const b2Configured = Boolean(
     process.env.B2_KEY_ID &&
     process.env.B2_APPLICATION_KEY &&
-    process.env.B2_BUCKET_NAME
+    process.env.B2_BUCKET_NAME &&
+    process.env.B2_ENDPOINT
   );
 
   const cloudinaryConfigured = Boolean(
@@ -39,13 +49,12 @@ export function checkStorageProvidersConfig(): StorageProviderConfig {
     process.env.CLOUDINARY_API_SECRET
   );
 
+  // Requirement 10: activePrimaryProvider must be r2, b2, or null. NEVER cloudinary!
   let activePrimaryProvider: StorageProviderType | null = null;
   if (r2Configured) {
     activePrimaryProvider = 'r2';
   } else if (b2Configured) {
     activePrimaryProvider = 'b2';
-  } else if (cloudinaryConfigured) {
-    activePrimaryProvider = 'cloudinary';
   }
 
   return {
@@ -82,14 +91,15 @@ function getB2Client(): { client: S3Client; bucket: string } | null {
   const keyId = process.env.B2_KEY_ID;
   const applicationKey = process.env.B2_APPLICATION_KEY;
   const bucket = process.env.B2_BUCKET_NAME;
-  const endpoint = process.env.B2_ENDPOINT || 'https://s3.us-west-004.backblazeb2.com';
+  const endpoint = process.env.B2_ENDPOINT;
+  const region = process.env.B2_REGION || 'us-west-004';
 
-  if (!keyId || !applicationKey || !bucket) {
+  if (!keyId || !applicationKey || !bucket || !endpoint) {
     return null;
   }
 
   const client = new S3Client({
-    region: 'us-west-004', // B2 standard or endpoint region
+    region,
     endpoint,
     credentials: { accessKeyId: keyId, secretAccessKey: applicationKey },
   });
@@ -97,7 +107,7 @@ function getB2Client(): { client: S3Client; bucket: string } | null {
   return { client, bucket };
 }
 
-// Generate random object key
+// Generate strong object key using crypto.randomUUID()
 export function generateObjectKey(conversationId: string, mediaType: MediaType, mimeType: string): string {
   const extensionMap: Record<string, string> = {
     'audio/webm': 'webm',
@@ -116,8 +126,8 @@ export function generateObjectKey(conversationId: string, mediaType: MediaType, 
 
   const ext = extensionMap[mimeType] || (mediaType === 'audio' ? 'webm' : mediaType === 'image' ? 'jpg' : 'mp4');
   const datePrefix = new Date().toISOString().substring(0, 7); // YYYY-MM
-  const randomHex = Math.random().toString(36).substring(2, 12);
-  return `opencomm_media/${datePrefix}/${conversationId}/${Date.now()}_${randomHex}.${ext}`;
+  const randomUuid = crypto.randomUUID();
+  return `opencomm_media/${datePrefix}/${conversationId}/${Date.now()}_${randomUuid}.${ext}`;
 }
 
 // Create Upload Target (Presigned PUT URL)
@@ -184,6 +194,48 @@ export async function createUploadTarget(
   }
 
   throw new Error('No media storage provider is currently configured or available.');
+}
+
+// Verify Uploaded Object Exists (HEAD request)
+export async function verifyUploadedObject(
+  provider: StorageProviderType,
+  objectKey: string
+): Promise<ObjectVerificationResult> {
+  if (provider === 'r2') {
+    const r2 = getR2Client();
+    if (!r2) return { exists: false, error: 'R2 provider not configured' };
+    try {
+      const command = new HeadObjectCommand({ Bucket: r2.bucket, Key: objectKey });
+      const res = await r2.client.send(command);
+      return {
+        exists: true,
+        contentLengthBytes: res.ContentLength,
+        contentType: res.ContentType
+      };
+    } catch (err: any) {
+      console.warn(`[Storage HEAD] R2 object verification failed for ${objectKey}:`, err);
+      return { exists: false, error: err.message || 'Object HEAD request failed' };
+    }
+  }
+
+  if (provider === 'b2') {
+    const b2 = getB2Client();
+    if (!b2) return { exists: false, error: 'B2 provider not configured' };
+    try {
+      const command = new HeadObjectCommand({ Bucket: b2.bucket, Key: objectKey });
+      const res = await b2.client.send(command);
+      return {
+        exists: true,
+        contentLengthBytes: res.ContentLength,
+        contentType: res.ContentType
+      };
+    } catch (err: any) {
+      console.warn(`[Storage HEAD] B2 object verification failed for ${objectKey}:`, err);
+      return { exists: false, error: err.message || 'Object HEAD request failed' };
+    }
+  }
+
+  return { exists: false, error: `Unsupported provider for verification: ${provider}` };
 }
 
 // Create Download Access URL (Presigned GET URL)
