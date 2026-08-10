@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS public.media_upload_intents (
   media_type text NOT NULL CHECK (media_type IN ('image', 'video', 'audio')),
   mime_type text NOT NULL,
   file_size_bytes bigint NOT NULL,
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalized', 'expired', 'failed')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalizing', 'finalized', 'expired', 'failed')),
   final_message_id uuid NULL REFERENCES public.messages(id) ON DELETE SET NULL,
   final_media_id uuid NULL REFERENCES public.message_media(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -112,7 +112,7 @@ CREATE TRIGGER trg_schedule_media_retention
   FOR EACH ROW
   EXECUTE FUNCTION public.schedule_media_retention_on_conversation_archive();
 
--- 7. Secure RPC to create a media message atomically
+-- 7. Secure RPC to create a media message atomically with strict media-type validations
 CREATE OR REPLACE FUNCTION public.create_media_message(
   p_conversation_id uuid,
   p_message_type text,
@@ -146,32 +146,90 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
-  -- 1. Enforce active account
+  -- Enforce active account
   IF NOT public.is_current_user_active() THEN
     RAISE EXCEPTION 'Account is inactive or suspended.';
   END IF;
 
-  -- 2. Input Validations
+  -- Media-Type & Storage Provider Validations
   IF p_message_type NOT IN ('image', 'video', 'audio') THEN
     RAISE EXCEPTION 'Invalid message_type.';
   END IF;
+
   IF p_media_type <> p_message_type THEN
     RAISE EXCEPTION 'Mismatch between media_type and message_type.';
   END IF;
+
   IF p_storage_provider NOT IN ('r2', 'b2') THEN
     RAISE EXCEPTION 'Invalid storage_provider.';
   END IF;
-  IF p_preview_text NOT IN ('Voice message', 'Photo', 'Video') THEN
-    RAISE EXCEPTION 'Invalid preview_text.';
-  END IF;
-  IF p_file_size_bytes <= 0 OR p_file_size_bytes > 52428800 THEN
-    RAISE EXCEPTION 'File size out of permitted range.';
-  END IF;
+
   IF p_object_key IS NULL OR length(trim(p_object_key)) = 0 OR length(p_object_key) > 512 THEN
-    RAISE EXCEPTION 'Invalid object_key.';
+    RAISE EXCEPTION 'Invalid object_key length.';
   END IF;
 
-  -- 3. Check conversation authorization (supports creator_id, member_id, conversation_members)
+  IF p_file_size_bytes IS NULL OR p_file_size_bytes <= 0 THEN
+    RAISE EXCEPTION 'File size must be positive.';
+  END IF;
+
+  IF p_duration_ms IS NOT NULL AND p_duration_ms < 0 THEN
+    RAISE EXCEPTION 'Duration cannot be negative.';
+  END IF;
+
+  IF p_width IS NOT NULL AND (p_width <= 0 OR p_width > 10000) THEN
+    RAISE EXCEPTION 'Invalid image/video width.';
+  END IF;
+
+  IF p_height IS NOT NULL AND (p_height <= 0 OR p_height > 10000) THEN
+    RAISE EXCEPTION 'Invalid image/video height.';
+  END IF;
+
+  -- Audio Specific Validation (Max 10MB, Max 5 min duration, exact preview mapping)
+  IF p_media_type = 'audio' THEN
+    IF p_mime_type NOT IN ('audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/aac') THEN
+      RAISE EXCEPTION 'Unsupported audio MIME type.';
+    END IF;
+    IF p_file_size_bytes > 10485760 THEN
+      RAISE EXCEPTION 'Audio exceeds maximum size limit of 10MB.';
+    END IF;
+    IF p_duration_ms IS NOT NULL AND p_duration_ms > 300000 THEN
+      RAISE EXCEPTION 'Voice note exceeds maximum duration limit of 5 minutes.';
+    END IF;
+    IF p_preview_text <> 'Voice message' THEN
+      RAISE EXCEPTION 'Invalid preview_text for audio media.';
+    END IF;
+  END IF;
+
+  -- Image Specific Validation (Max 10MB, exact preview mapping, JPEG/PNG/WEBP only - reject SVG & GIF)
+  IF p_media_type = 'image' THEN
+    IF p_mime_type NOT IN ('image/jpeg', 'image/png', 'image/webp') THEN
+      RAISE EXCEPTION 'Unsupported image MIME type. Only JPEG, PNG, and WEBP are permitted.';
+    END IF;
+    IF p_file_size_bytes > 10485760 THEN
+      RAISE EXCEPTION 'Image exceeds maximum size limit of 10MB.';
+    END IF;
+    IF p_preview_text <> 'Photo' THEN
+      RAISE EXCEPTION 'Invalid preview_text for image media.';
+    END IF;
+  END IF;
+
+  -- Video Specific Validation (Max 50MB, Max 5 min duration, exact preview mapping)
+  IF p_media_type = 'video' THEN
+    IF p_mime_type NOT IN ('video/mp4', 'video/webm') THEN
+      RAISE EXCEPTION 'Unsupported video MIME type. Only MP4 and WebM are permitted.';
+    END IF;
+    IF p_file_size_bytes > 52428800 THEN
+      RAISE EXCEPTION 'Video exceeds maximum size limit of 50MB.';
+    END IF;
+    IF p_duration_ms IS NOT NULL AND p_duration_ms > 300000 THEN
+      RAISE EXCEPTION 'Video exceeds maximum duration limit of 5 minutes.';
+    END IF;
+    IF p_preview_text <> 'Video' THEN
+      RAISE EXCEPTION 'Invalid preview_text for video media.';
+    END IF;
+  END IF;
+
+  -- Check conversation authorization (supports creator_id, member_id, conversation_members)
   SELECT id, creator_id, member_id, archived_at
   INTO v_conv
   FROM public.conversations
@@ -204,7 +262,7 @@ BEGIN
     v_sender_name := 'OpenComm User';
   END IF;
 
-  -- 4. Insert into messages table
+  -- Insert into messages table
   INSERT INTO public.messages (
     conversation_id,
     sender_id,
@@ -229,7 +287,7 @@ BEGIN
   )
   RETURNING id INTO v_msg_id;
 
-  -- 5. Insert into message_media table
+  -- Insert into message_media table
   INSERT INTO public.message_media (
     message_id,
     conversation_id,
@@ -266,7 +324,7 @@ BEGIN
   )
   RETURNING id INTO v_media_id;
 
-  -- 6. Update last message info on conversation using canonical column names
+  -- Update last message info on conversation using canonical column names
   UPDATE public.conversations
   SET last_message_text = p_preview_text,
       last_message_time = now()
@@ -279,7 +337,129 @@ BEGIN
 END;
 $$;
 
--- 8. Atomic Claim RPC for Concurrency Safety in Cleanup Worker
+-- 8. SECURITY DEFINER RPC to get sanitized media metadata without exposing object_key
+CREATE OR REPLACE FUNCTION public.get_conversation_message_media(p_conversation_id uuid)
+RETURNS TABLE (
+  id uuid,
+  message_id uuid,
+  conversation_id uuid,
+  media_type text,
+  mime_type text,
+  file_size_bytes bigint,
+  duration_ms integer,
+  width integer,
+  height integer,
+  status text,
+  created_at timestamptz,
+  delete_after timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+BEGIN
+  -- Verify conversation authorization
+  IF NOT EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE c.id = p_conversation_id
+      AND (
+        c.creator_id = auth.uid()
+        OR c.member_id = auth.uid()
+        OR EXISTS (
+          SELECT 1 FROM public.conversation_members cm
+          WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to view media for this conversation.';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    mm.id,
+    mm.message_id,
+    mm.conversation_id,
+    mm.media_type,
+    mm.mime_type,
+    mm.file_size_bytes,
+    mm.duration_ms,
+    mm.width,
+    mm.height,
+    mm.status,
+    mm.created_at,
+    mm.delete_after
+  FROM public.message_media mm
+  WHERE mm.conversation_id = p_conversation_id;
+END;
+$$;
+
+-- 9. SECURITY DEFINER RPC for atomic finalize intent claiming (concurrency & race condition protection)
+CREATE OR REPLACE FUNCTION public.claim_media_upload_intent_for_finalize(
+  p_intent_id uuid,
+  p_user_id uuid,
+  p_conversation_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_intent RECORD;
+BEGIN
+  -- Atomic row lock on upload intent
+  SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id
+  INTO v_intent
+  FROM public.media_upload_intents
+  WHERE id = p_intent_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found');
+  END IF;
+
+  IF v_intent.user_id <> p_user_id THEN
+    RETURN jsonb_build_object('status', 'user_mismatch');
+  END IF;
+
+  IF v_intent.conversation_id <> p_conversation_id THEN
+    RETURN jsonb_build_object('status', 'conversation_mismatch');
+  END IF;
+
+  IF v_intent.expires_at IS NOT NULL AND v_intent.expires_at <= now() THEN
+    RETURN jsonb_build_object('status', 'expired');
+  END IF;
+
+  -- If already finalized, return existing message/media IDs (Idempotence)
+  IF v_intent.status = 'finalized' THEN
+    RETURN jsonb_build_object(
+      'status', 'finalized',
+      'final_message_id', v_intent.final_message_id,
+      'final_media_id', v_intent.final_media_id
+    );
+  END IF;
+
+  IF v_intent.status = 'finalizing' THEN
+    RETURN jsonb_build_object('status', 'finalizing_in_progress');
+  END IF;
+
+  -- Transition status atomically from pending/uploaded -> finalizing
+  UPDATE public.media_upload_intents
+  SET status = 'finalizing'
+  WHERE id = p_intent_id;
+
+  RETURN jsonb_build_object(
+    'status', 'claimed',
+    'provider', v_intent.provider,
+    'object_key', v_intent.object_key,
+    'media_type', v_intent.media_type,
+    'mime_type', v_intent.mime_type,
+    'file_size_bytes', v_intent.file_size_bytes
+  );
+END;
+$$;
+
+-- 10. Atomic Claim RPC for Concurrency Safety in Cleanup Worker (Clamped Limit)
 CREATE OR REPLACE FUNCTION public.claim_due_media_for_cleanup(p_limit integer DEFAULT 50)
 RETURNS TABLE (
   id uuid,
@@ -291,7 +471,12 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
+DECLARE
+  v_effective_limit integer;
 BEGIN
+  -- Requirement 7: Server-side clamped limit (between 1 and 100)
+  v_effective_limit := GREATEST(1, LEAST(COALESCE(p_limit, 50), 100));
+
   RETURN QUERY
   WITH target_rows AS (
     SELECT mm.id
@@ -300,7 +485,7 @@ BEGIN
       AND mm.delete_after IS NOT NULL
       AND mm.delete_after <= now()
     ORDER BY mm.delete_after ASC
-    LIMIT p_limit
+    LIMIT v_effective_limit
     FOR UPDATE SKIP LOCKED
   )
   UPDATE public.message_media mm
@@ -312,7 +497,7 @@ BEGIN
 END;
 $$;
 
--- 9. Telemetry 30-Day Cleanup RPC
+-- 11. Telemetry 30-Day Cleanup RPC
 CREATE OR REPLACE FUNCTION public.cleanup_old_media_storage_events()
 RETURNS integer
 LANGUAGE plpgsql
@@ -329,7 +514,7 @@ BEGIN
 END;
 $$;
 
--- 10. Admin Media Health RPC
+-- 12. Admin Media Health RPC (Uses canonical public.get_admin_role())
 CREATE OR REPLACE FUNCTION public.admin_get_media_storage_health()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -337,7 +522,7 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
-  v_caller_id uuid;
+  v_caller_role text;
   v_active_count bigint;
   v_cleanup_pending bigint;
   v_cleanup_overdue bigint;
@@ -345,8 +530,9 @@ DECLARE
   v_orphan_intents bigint;
   v_events_24h jsonb;
 BEGIN
-  v_caller_id := auth.uid();
-  IF v_caller_id IS NULL OR NOT public.is_admin(v_caller_id) THEN
+  -- Requirement 4: Canonical admin role check
+  v_caller_role := public.get_admin_role();
+  IF v_caller_role IS NULL OR v_caller_role NOT IN ('super_admin', 'admin', 'system_admin', 'moderator', 'support_agent') THEN
     RAISE EXCEPTION 'Admin authorization required.';
   END IF;
 
@@ -382,29 +568,14 @@ BEGIN
 END;
 $$;
 
--- 11. RLS Policies & Grants (Idempotent)
+-- 13. RLS Lockdown & Policy Idempotency
 ALTER TABLE public.message_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_upload_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_storage_events ENABLE ROW LEVEL SECURITY;
 
+-- Requirement 3: REVOKE direct client access on public.message_media table
+REVOKE ALL ON public.message_media FROM PUBLIC, anon, authenticated;
 DROP POLICY IF EXISTS message_media_select_policy ON public.message_media;
-CREATE POLICY message_media_select_policy ON public.message_media
-  FOR SELECT
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.conversations c
-      WHERE c.id = message_media.conversation_id
-        AND (
-          c.creator_id = auth.uid()
-          OR c.member_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM public.conversation_members cm
-            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-          )
-        )
-    )
-  );
 
 DROP POLICY IF EXISTS media_upload_intents_select_policy ON public.media_upload_intents;
 CREATE POLICY media_upload_intents_select_policy ON public.media_upload_intents
@@ -412,14 +583,16 @@ CREATE POLICY media_upload_intents_select_policy ON public.media_upload_intents
   TO authenticated
   USING (user_id = auth.uid());
 
--- Revoke execute from PUBLIC on SECURITY DEFINER functions
-REVOKE EXECUTE ON FUNCTION public.create_media_message FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.admin_get_media_storage_health FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.claim_due_media_for_cleanup FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.cleanup_old_media_storage_events FROM PUBLIC, anon, authenticated;
+-- Requirement 6: Explicit identity argument signatures for REVOKE/GRANT
+REVOKE EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.claim_media_upload_intent_for_finalize(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.claim_due_media_for_cleanup(integer) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.cleanup_old_media_storage_events() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.admin_get_media_storage_health() FROM PUBLIC, anon;
 
 -- Grants
-GRANT SELECT ON public.message_media TO authenticated;
 GRANT SELECT ON public.media_upload_intents TO authenticated;
-GRANT EXECUTE ON FUNCTION public.create_media_message TO authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_get_media_storage_health TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_get_media_storage_health() TO authenticated;

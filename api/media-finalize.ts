@@ -32,80 +32,147 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
-  // 1. Fetch canonical intent record from database
-  const { data: intent, error: intentErr } = await adminClient
-    .from('media_upload_intents')
-    .select('id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id')
-    .eq('id', intentId)
-    .maybeSingle();
+  // 1. Atomic Intent Claiming & Race Condition Protection
+  const { data: claimResult, error: claimErr } = await adminClient.rpc('claim_media_upload_intent_for_finalize', {
+    p_intent_id: intentId,
+    p_user_id: authUser.userId,
+    p_conversation_id: conversationId
+  });
 
-  if (intentErr || !intent) {
-    return res.status(404).json({ error: 'Upload intent record not found' });
+  if (claimErr || !claimResult) {
+    console.error('Error claiming upload intent:', claimErr);
+    return res.status(500).json({ error: 'Failed to process upload intent authorization' });
   }
 
-  // 2. Strict validation against canonical intent data
-  if (intent.user_id !== authUser.userId) {
-    return res.status(403).json({ error: 'Upload intent ownership mismatch' });
-  }
+  const status = claimResult.status;
 
-  if (intent.conversation_id !== conversationId) {
-    return res.status(400).json({ error: 'Conversation ID mismatch for this upload intent' });
-  }
-
-  if (intent.expires_at && new Date(intent.expires_at) <= new Date()) {
-    return res.status(410).json({ error: 'Upload intent has expired. Please request a new upload.' });
-  }
-
-  // Requirement 7: Idempotent finalize check
-  if (intent.status === 'finalized' && intent.final_message_id && intent.final_media_id) {
+  // Requirement 5: Idempotent return if already finalized
+  if (status === 'finalized') {
     return res.status(200).json({
       success: true,
-      messageId: intent.final_message_id,
-      mediaId: intent.final_media_id,
+      messageId: claimResult.final_message_id,
+      mediaId: claimResult.final_media_id,
       idempotent: true
     });
   }
 
-  if (intent.status !== 'pending' && intent.status !== 'uploaded') {
-    return res.status(400).json({ error: `Invalid intent status '${intent.status}' for finalization.` });
+  if (status === 'finalizing_in_progress') {
+    return res.status(409).json({ error: 'Upload finalization is already in progress' });
   }
 
-  // Requirement 6: Verify external object HEAD before creating DB records
-  const verification = await verifyUploadedObject(intent.provider as StorageProviderType, intent.object_key);
+  if (status === 'not_found') {
+    return res.status(404).json({ error: 'Upload intent record not found' });
+  }
+
+  if (status === 'user_mismatch' || status === 'conversation_mismatch') {
+    return res.status(403).json({ error: 'Authorization mismatch for this upload intent' });
+  }
+
+  if (status === 'expired') {
+    return res.status(410).json({ error: 'Upload intent has expired. Please request a new upload target.' });
+  }
+
+  if (status !== 'claimed') {
+    return res.status(400).json({ error: `Invalid intent status '${status}' for finalization.` });
+  }
+
+  const provider = claimResult.provider as StorageProviderType;
+  const objectKey = claimResult.object_key;
+  const mediaType = claimResult.media_type;
+  const mimeType = claimResult.mime_type;
+  const fileSizeBytes = Number(claimResult.file_size_bytes);
+
+  // 2. Requirement 1: HEAD verification of Object Exists, File Size, and MIME Type
+  const verification = await verifyUploadedObject(provider, objectKey);
   if (!verification.exists) {
-    console.warn(`Object HEAD verification failed for key ${intent.object_key} on provider ${intent.provider}: ${verification.error}`);
+    console.warn(`Object HEAD verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
+    // Revert intent status to pending on verification failure
+    await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+
     void recordStorageEvent({
-      provider: intent.provider as StorageProviderType,
+      provider,
       operation: 'upload_finalize',
       eventType: 'failure',
       httpStatus: 404,
       latencyMs: Date.now() - startTime,
-      mediaType: intent.media_type
+      mediaType
     });
-    return res.status(400).json({ error: 'Uploaded object was not found in storage bucket or upload failed.' });
+    return res.status(400).json({ error: 'Uploaded object was not found in storage bucket.' });
   }
 
-  // 3. Call user Supabase client with user's JWT token to execute create_media_message RPC
+  // Size Validation against intent metadata
+  if (verification.contentLengthBytes !== undefined && verification.contentLengthBytes !== null) {
+    const sizeDiff = Math.abs(verification.contentLengthBytes - fileSizeBytes);
+    if (sizeDiff > 512) {
+      console.warn(`Object size mismatch for key ${objectKey}: expected ${fileSizeBytes}, found ${verification.contentLengthBytes}`);
+      await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+
+      void recordStorageEvent({
+        provider,
+        operation: 'upload_finalize',
+        eventType: 'failure',
+        httpStatus: 400,
+        latencyMs: Date.now() - startTime,
+        mediaType,
+        sizeBucket: getSizeBucket(fileSizeBytes)
+      });
+      return res.status(400).json({ error: 'Uploaded file size does not match authorization intent.' });
+    }
+  }
+
+  // MIME Type Validation against intent metadata (with normalization for parameters like ;charset=)
+  if (verification.contentType) {
+    const headMime = verification.contentType.split(';')[0].trim().toLowerCase();
+    const intentMime = mimeType.split(';')[0].trim().toLowerCase();
+
+    const isMimeCompatible = (
+      headMime === intentMime ||
+      (intentMime === 'audio/mp4' && (headMime === 'audio/x-m4a' || headMime === 'audio/m4a')) ||
+      (intentMime === 'audio/mpeg' && headMime === 'audio/mp3') ||
+      (headMime === 'application/octet-stream') // S3 default fallback when ContentType isn't sent by browser
+    );
+
+    if (!isMimeCompatible) {
+      console.warn(`Object MIME type mismatch for key ${objectKey}: expected ${intentMime}, found ${headMime}`);
+      await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+
+      void recordStorageEvent({
+        provider,
+        operation: 'upload_finalize',
+        eventType: 'failure',
+        httpStatus: 400,
+        latencyMs: Date.now() - startTime,
+        mediaType
+      });
+      return res.status(400).json({ error: 'Uploaded file type does not match authorization intent.' });
+    }
+  } else {
+    // Documented Fallback: If provider HEAD response omits ContentType header, rely on size verification
+    console.warn(`[Storage HEAD] Provider ${provider} omitted ContentType header for ${objectKey}. Proceeding with size-verified validation.`);
+  }
+
+  // 3. Call user Supabase client with user JWT to execute create_media_message RPC
   const userClient = getUserSupabase(authUser.jwtToken);
   if (!userClient) {
+    await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
     return res.status(500).json({ error: 'Database connection failed' });
   }
 
   try {
     const previewText = (
-      intent.media_type === 'audio' ? 'Voice message' :
-      intent.media_type === 'image' ? 'Photo' : 'Video'
+      mediaType === 'audio' ? 'Voice message' :
+      mediaType === 'image' ? 'Photo' : 'Video'
     );
 
     const { data: rpcResult, error: rpcError } = await userClient.rpc('create_media_message', {
       p_conversation_id: conversationId,
-      p_message_type: intent.media_type,
+      p_message_type: mediaType,
       p_preview_text: previewText,
-      p_media_type: intent.media_type,
-      p_storage_provider: intent.provider,
-      p_object_key: intent.object_key,
-      p_mime_type: intent.mime_type,
-      p_file_size_bytes: intent.file_size_bytes,
+      p_media_type: mediaType,
+      p_storage_provider: provider,
+      p_object_key: objectKey,
+      p_mime_type: mimeType,
+      p_file_size_bytes: fileSizeBytes,
       p_duration_ms: durationMs ? Number(durationMs) : null,
       p_width: width ? Number(width) : null,
       p_height: height ? Number(height) : null,
@@ -114,14 +181,16 @@ export default async function handler(req: any, res: any) {
 
     if (rpcError) {
       console.error('Error in create_media_message RPC:', rpcError);
+      await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+
       void recordStorageEvent({
-        provider: intent.provider as StorageProviderType,
+        provider,
         operation: 'upload_finalize',
         eventType: 'failure',
         httpStatus: 400,
         latencyMs: Date.now() - startTime,
-        mediaType: intent.media_type,
-        sizeBucket: getSizeBucket(intent.file_size_bytes)
+        mediaType,
+        sizeBucket: getSizeBucket(fileSizeBytes)
       });
       return res.status(400).json({ error: rpcError.message || 'Failed to create media message record' });
     }
@@ -140,13 +209,13 @@ export default async function handler(req: any, res: any) {
       .eq('id', intentId);
 
     void recordStorageEvent({
-      provider: intent.provider as StorageProviderType,
+      provider,
       operation: 'upload_finalize',
       eventType: 'success',
       httpStatus: 200,
       latencyMs: Date.now() - startTime,
-      mediaType: intent.media_type,
-      sizeBucket: getSizeBucket(intent.file_size_bytes)
+      mediaType,
+      sizeBucket: getSizeBucket(fileSizeBytes)
     });
 
     return res.status(200).json({
@@ -157,14 +226,16 @@ export default async function handler(req: any, res: any) {
 
   } catch (err: any) {
     console.error('Error finalizing media upload:', err);
+    await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+
     void recordStorageEvent({
-      provider: intent.provider as StorageProviderType,
+      provider,
       operation: 'upload_finalize',
       eventType: 'failure',
       httpStatus: 500,
       latencyMs: Date.now() - startTime,
-      mediaType: intent.media_type,
-      sizeBucket: getSizeBucket(intent.file_size_bytes)
+      mediaType,
+      sizeBucket: getSizeBucket(fileSizeBytes)
     });
     return res.status(500).json({ error: err.message || 'Failed to finalize media message.' });
   }
