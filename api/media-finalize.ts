@@ -31,7 +31,7 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
-  // 1. Atomic Intent Claiming & Race Condition Protection
+  // 1. Guarded Intent Claiming & Race Condition Protection
   const { data: claimResult, error: claimErr } = await adminClient.rpc('claim_media_upload_intent_for_finalize', {
     p_intent_id: intentId,
     p_user_id: authUser.userId,
@@ -45,7 +45,7 @@ export default async function handler(req: any, res: any) {
 
   const status = claimResult.status;
 
-  // Requirement 4 & 5: Idempotent return if already finalized (or finalizing with existing final message ID)
+  // Idempotent return if already finalized (or finalizing with existing final message ID)
   if (status === 'finalized') {
     return res.status(200).json({
       success: true,
@@ -85,7 +85,7 @@ export default async function handler(req: any, res: any) {
   const mimeType = claimResult.mime_type;
   const fileSizeBytes = Number(claimResult.file_size_bytes);
 
-  // 2. Requirement 5: Server-side HEAD verification of Object Exists, File Size, and MIME Type
+  // 2. Server-side HEAD verification of Object Exists, File Size, and MIME Type against canonical intent
   const verification = await verifyUploadedObject(provider, objectKey);
   if (!verification.exists) {
     console.warn(`Object HEAD verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
@@ -150,7 +150,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // 3. Requirement 2: Single Atomic Database Finalization via create_media_message RPC
+  // 3. Single Atomic Database Finalization via create_media_message RPC (bound to canonical intent)
   const userClient = getUserSupabase(authUser.jwtToken);
   if (!userClient) {
     await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);

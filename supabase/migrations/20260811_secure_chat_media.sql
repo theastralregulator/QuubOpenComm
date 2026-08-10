@@ -126,7 +126,7 @@ CREATE TRIGGER trg_schedule_media_retention
   FOR EACH ROW
   EXECUTE FUNCTION public.schedule_media_retention_on_conversation_archive();
 
--- 7. Atomic Intent Claiming RPC with strict State Validation
+-- 7. Atomic Intent Claiming RPC with Strict State Validation & Guarded Transitions
 CREATE OR REPLACE FUNCTION public.claim_media_upload_intent_for_finalize(
   p_intent_id uuid,
   p_user_id uuid,
@@ -159,8 +159,8 @@ BEGIN
     RETURN jsonb_build_object('status', 'conversation_mismatch');
   END IF;
 
-  -- 1. If already finalized, return existing message/media IDs (Idempotent response)
-  IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
+  -- 1. If finalized (or finalizing with final IDs), return existing message/media IDs (Idempotent response)
+  IF (v_intent.status = 'finalized' OR v_intent.status = 'finalizing') AND v_intent.final_message_id IS NOT NULL THEN
     RETURN jsonb_build_object(
       'status', 'finalized',
       'final_message_id', v_intent.final_message_id,
@@ -173,18 +173,9 @@ BEGIN
     );
   END IF;
 
-  -- 2. If finalizing with existing final message ID (Recovery of finalized state)
-  IF v_intent.status = 'finalizing' AND v_intent.final_message_id IS NOT NULL THEN
-    RETURN jsonb_build_object(
-      'status', 'finalized',
-      'final_message_id', v_intent.final_message_id,
-      'final_media_id', v_intent.final_media_id,
-      'provider', v_intent.provider,
-      'object_key', v_intent.object_key,
-      'media_type', v_intent.media_type,
-      'mime_type', v_intent.mime_type,
-      'file_size_bytes', v_intent.file_size_bytes
-    );
+  -- 2. If finalizing without final IDs, return finalizing_in_progress (Do NOT re-claim!)
+  IF v_intent.status = 'finalizing' THEN
+    RETURN jsonb_build_object('status', 'finalizing_in_progress');
   END IF;
 
   -- 3. Explicit State Validation: Reject expired, failed, or unexpected states
@@ -200,14 +191,15 @@ BEGIN
     RETURN jsonb_build_object('status', 'failed');
   END IF;
 
-  IF v_intent.status NOT IN ('pending', 'uploaded', 'finalizing') THEN
+  IF v_intent.status NOT IN ('pending', 'uploaded') THEN
     RETURN jsonb_build_object('status', 'invalid_status', 'current_status', v_intent.status);
   END IF;
 
-  -- 4. Transition status ONLY from pending/uploaded to finalizing
+  -- 4. Guarded transition ONLY from pending/uploaded to finalizing
   UPDATE public.media_upload_intents
   SET status = 'finalizing'
-  WHERE id = p_intent_id;
+  WHERE id = p_intent_id
+    AND status IN ('pending', 'uploaded');
 
   RETURN jsonb_build_object(
     'status', 'claimed',
@@ -220,7 +212,7 @@ BEGIN
 END;
 $$;
 
--- 8. Atomic Database Finalization RPC (Creates message + message_media and marks intent finalized in ONE transaction)
+-- 8. Atomic Database Finalization RPC (Binds directly to Canonical Upload Intent)
 CREATE OR REPLACE FUNCTION public.create_media_message(
   p_conversation_id uuid,
   p_message_type text,
@@ -256,42 +248,75 @@ BEGIN
     RAISE EXCEPTION 'Authentication required.';
   END IF;
 
+  -- Requirement 3: Mandate p_upload_intent_id
+  IF p_upload_intent_id IS NULL THEN
+    RAISE EXCEPTION 'Upload intent is required.';
+  END IF;
+
   -- Enforce active account
   IF NOT public.is_current_user_active() THEN
     RAISE EXCEPTION 'Account is inactive or suspended.';
   END IF;
 
-  -- If upload_intent_id supplied, lock and verify upload intent in this transaction
-  IF p_upload_intent_id IS NOT NULL THEN
-    SELECT id, user_id, conversation_id, status, final_message_id, final_media_id
-    INTO v_intent
-    FROM public.media_upload_intents
-    WHERE id = p_upload_intent_id
-    FOR UPDATE;
+  -- Lock and fetch canonical upload intent row
+  SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id
+  INTO v_intent
+  FROM public.media_upload_intents
+  WHERE id = p_upload_intent_id
+  FOR UPDATE;
 
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'Upload intent not found.';
-    END IF;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Upload intent not found.';
+  END IF;
 
-    IF v_intent.user_id <> v_caller_id THEN
-      RAISE EXCEPTION 'Upload intent ownership mismatch.';
-    END IF;
+  -- Requirement 2: Strict Binding & Validation against Canonical Intent Metadata
+  IF v_intent.user_id <> v_caller_id THEN
+    RAISE EXCEPTION 'Upload intent ownership mismatch.';
+  END IF;
 
-    IF v_intent.conversation_id <> p_conversation_id THEN
-      RAISE EXCEPTION 'Upload intent conversation mismatch.';
-    END IF;
+  IF v_intent.conversation_id <> p_conversation_id THEN
+    RAISE EXCEPTION 'Upload intent conversation mismatch.';
+  END IF;
 
-    -- If intent is already finalized with a message ID, return existing IDs (Idempotence)
-    IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
-      RETURN jsonb_build_object(
-        'message_id', v_intent.final_message_id,
-        'media_id', v_intent.final_media_id,
-        'idempotent', true
-      );
-    END IF;
+  IF v_intent.provider <> p_storage_provider THEN
+    RAISE EXCEPTION 'Upload intent provider mismatch.';
+  END IF;
 
-    -- Reject expired or failed intents
-    IF v_intent.status IN ('expired', 'failed') THEN
+  IF v_intent.object_key <> p_object_key THEN
+    RAISE EXCEPTION 'Upload intent object_key mismatch.';
+  END IF;
+
+  IF v_intent.media_type <> p_media_type THEN
+    RAISE EXCEPTION 'Upload intent media_type mismatch.';
+  END IF;
+
+  IF split_part(trim(v_intent.mime_type), ';', 1) <> split_part(trim(p_mime_type), ';', 1) THEN
+    RAISE EXCEPTION 'Upload intent mime_type mismatch.';
+  END IF;
+
+  IF v_intent.file_size_bytes <> p_file_size_bytes THEN
+    RAISE EXCEPTION 'Upload intent file_size_bytes mismatch.';
+  END IF;
+
+  IF v_intent.expires_at IS NOT NULL AND v_intent.expires_at <= now() THEN
+    RAISE EXCEPTION 'Upload intent has expired.';
+  END IF;
+
+  -- Requirement 4: State Flow Validation
+  -- If intent is already finalized with a message ID, return existing IDs (Idempotence)
+  IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'message_id', v_intent.final_message_id,
+      'media_id', v_intent.final_media_id,
+      'idempotent', true
+    );
+  END IF;
+
+  -- Allow atomic finalization ONLY when status is 'finalizing' (or 'finalized' without return)
+  IF v_intent.status NOT IN ('finalizing', 'finalized') THEN
+    IF v_intent.status IN ('pending', 'uploaded') THEN
+      RAISE EXCEPTION 'Upload intent must be claimed and verified before finalization.';
+    ELSE
       RAISE EXCEPTION 'Upload intent is in an invalid state (%).', v_intent.status;
     END IF;
   END IF;
@@ -472,13 +497,11 @@ BEGIN
   RETURNING id INTO v_media_id;
 
   -- 3. Update upload_intent to finalized atomically in the SAME transaction!
-  IF p_upload_intent_id IS NOT NULL THEN
-    UPDATE public.media_upload_intents
-    SET status = 'finalized',
-        final_message_id = v_msg_id,
-        final_media_id = v_media_id
-    WHERE id = p_upload_intent_id;
-  END IF;
+  UPDATE public.media_upload_intents
+  SET status = 'finalized',
+      final_message_id = v_msg_id,
+      final_media_id = v_media_id
+  WHERE id = p_upload_intent_id;
 
   -- 4. Update last message info on conversation using canonical column names
   UPDATE public.conversations
