@@ -8,6 +8,8 @@ export default function AdminSystemHealth() {
   const [maintenanceMode, setMaintenanceMode] = useState<any | null>(null);
   const [flagCounts, setFlagCounts] = useState<{ total: number; enabled: number }>({ total: 0, enabled: 0 });
   const [locationHealth, setLocationHealth] = useState<any | null>(null);
+  const [mediaHealth, setMediaHealth] = useState<any | null>(null);
+  const [mediaStatus, setMediaStatus] = useState<any | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<string>('');
 
   useEffect(() => {
@@ -43,6 +45,20 @@ export default function AdminSystemHealth() {
       const lHealth = await dbService.adminGetLocationServiceHealth();
       if (lHealth) {
         setLocationHealth(lHealth);
+      }
+
+      // Check Media Storage Health Telemetry via Admin RPC & Status API
+      const mHealth = await dbService.adminGetMediaStorageHealth();
+      if (mHealth) {
+        setMediaHealth(mHealth);
+      }
+
+      try {
+        const res = await fetch('/api/media-status');
+        const sData = await res.json();
+        setMediaStatus(sData);
+      } catch (err) {
+        console.warn('Failed to fetch /api/media-status:', err);
       }
 
       setLastRefreshed(new Date().toLocaleTimeString());
@@ -313,6 +329,135 @@ export default function AdminSystemHealth() {
                 <span className="font-bold text-slate-800 dark:text-zinc-200">{nomData?.timeouts_24h || 0}</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Media Storage & Retention Section */}
+        <div className="pt-6 border-t border-slate-200/60 dark:border-zinc-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Database className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Media Storage & Retention</h3>
+            </div>
+            <span className="text-xs font-mono font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 px-2.5 py-1 rounded-full border border-purple-200 dark:border-purple-800">
+              Retention: 15 Days Post-Archive
+            </span>
+          </div>
+
+          {/* Provider Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Cloudflare R2 Card */}
+            <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Cloudflare R2</h4>
+                  <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-widest font-mono">Role: Primary</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  mediaStatus?.mediaMessagingEnabled
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                }`}>
+                  {mediaStatus?.mediaMessagingEnabled ? 'Active' : 'Unconfigured'}
+                </span>
+              </div>
+              <div className="space-y-1 text-xs text-slate-500 dark:text-zinc-400">
+                <div className="flex justify-between">
+                  <span>Usage Metrics:</span>
+                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">Usage data unavailable</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Events (24h):</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                    {mediaHealth?.events_summary_24h?.r2?.total_events || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Backblaze B2 Card */}
+            <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Backblaze B2</h4>
+                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest font-mono">Role: Fallback</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
+                  Standby
+                </span>
+              </div>
+              <div className="space-y-1 text-xs text-slate-500 dark:text-zinc-400">
+                <div className="flex justify-between">
+                  <span>Usage Metrics:</span>
+                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">Usage data unavailable</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Events (24h):</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                    {mediaHealth?.events_summary_24h?.b2?.total_events || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Cloudinary Card */}
+            <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Cloudinary</h4>
+                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest font-mono">Role: Media Processing</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
+                  Optional
+                </span>
+              </div>
+              <div className="space-y-1 text-xs text-slate-500 dark:text-zinc-400">
+                <div className="flex justify-between">
+                  <span>Usage Metrics:</span>
+                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">Usage data unavailable</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Events (24h):</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                    {mediaHealth?.events_summary_24h?.cloudinary?.total_events || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Retention & Lifecycle Summary */}
+          <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
+            <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Lifecycle & Retention Counters</h4>
+            {mediaHealth?.cleanup_overdue_count > 0 && (
+              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-xl text-xs font-bold text-amber-700 dark:text-amber-300 flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>⚠️ {mediaHealth.cleanup_overdue_count} media objects are overdue for 15-day post-archive cleanup deletion.</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-zinc-800/60">
+                <span className="text-[10px] text-slate-400 font-mono block">Active Media</span>
+                <span className="text-sm font-extrabold text-slate-800 dark:text-zinc-200">{mediaHealth?.active_media_count || 0}</span>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-zinc-800/60">
+                <span className="text-[10px] text-slate-400 font-mono block">Cleanup Pending</span>
+                <span className="text-sm font-extrabold text-amber-600 dark:text-amber-400">{mediaHealth?.cleanup_pending_count || 0}</span>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-zinc-800/60">
+                <span className="text-[10px] text-slate-400 font-mono block">Deleted Media</span>
+                <span className="text-sm font-extrabold text-slate-800 dark:text-zinc-200">{mediaHealth?.deleted_media_count || 0}</span>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-zinc-800/60">
+                <span className="text-[10px] text-slate-400 font-mono block">Orphan Uploads</span>
+                <span className="text-sm font-extrabold text-slate-800 dark:text-zinc-200">{mediaHealth?.orphan_intents_count || 0}</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400 italic">
+              * Archived conversation media is automatically marked for external deletion 15 days after conversation archiving. Chat history records are preserved permanently.
+            </p>
           </div>
         </div>
       </div>

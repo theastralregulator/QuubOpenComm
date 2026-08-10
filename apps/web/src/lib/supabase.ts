@@ -3087,6 +3087,21 @@ export const dbService = {
       } : null,
       recent_logins: []
     };
+  },
+
+  async adminGetMediaStorageHealth(): Promise<any> {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('admin_get_media_storage_health');
+      if (error) {
+        console.warn('admin_get_media_storage_health RPC error:', error);
+        return null;
+      }
+      return data;
+    } catch (err) {
+      console.error('adminGetMediaStorageHealth exception:', err);
+      return null;
+    }
   }
 };
 

@@ -1,8 +1,8 @@
 {
-  "rewrites": [
+  "crons": [
     {
-      "source": "/((?!assets/|api/).*)",
-      "destination": "/index.html"
+      "path": "/api/media-cleanup",
+      "schedule": "0 3 * * *"
     }
   ]
 }

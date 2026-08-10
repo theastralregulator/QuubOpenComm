@@ -57,6 +57,7 @@ export interface DbMessage {
   sender_name: string;
   sender_avatar: string | null;
   text: string;
+  message_type?: 'text' | 'image' | 'video' | 'audio' | string;
   unread: boolean;
   role: string;
   created_at: string;

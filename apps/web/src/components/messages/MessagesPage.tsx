@@ -3,13 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   MessageSquare, Send, ArrowLeft, ShieldAlert, 
-  RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle
+  RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle,
+  Mic, Image as ImageIcon, Video as VideoIcon
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { unreadService } from '../../lib/unreadService';
 import { ConversationViewModel, DbMessage } from '../../types';
 import UserAvatar from '../common/UserAvatar';
 import WorkContractBanner from '../contracts/WorkContractBanner';
+import VoiceRecorder from './VoiceRecorder';
+import MediaMessage from './MediaMessage';
+import MediaAttachmentPicker from './MediaAttachmentPicker';
 
 export interface ConversationGroup {
   participantId: string;
@@ -86,6 +90,119 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Active conversation selection
+  const activeConv = conversations.find(c => c.id === conversationId);
+
+  // Media Messaging State
+  const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean }>({
+    mediaMessagingEnabled: false,
+    voiceEnabled: false,
+    imageEnabled: false,
+    videoEnabled: false
+  });
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<{ file: File; mediaType: 'image' | 'video'; previewUrl: string; durationMs?: number; width?: number; height?: number } | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/media-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data && typeof data.mediaMessagingEnabled === 'boolean') {
+          setMediaStatus(data);
+        }
+      })
+      .catch(err => console.warn('Media status check error:', err));
+  }, []);
+
+  const handleUploadAndSendMedia = async (file: File, mediaType: 'image' | 'video' | 'audio', durationMs?: number, width?: number, height?: number) => {
+    if (!conversationId || !activeConv) return;
+    if (activeConv.archivedAt) {
+      triggerToast('Cannot send media to an archived conversation.');
+      return;
+    }
+
+    setIsUploadingMedia(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        triggerToast('Authentication required to upload media.');
+        setIsUploadingMedia(false);
+        return;
+      }
+
+      // Phase A: Request upload intent
+      const intentRes = await fetch('/api/media-upload-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          conversationId,
+          mediaType,
+          mimeType: file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4'),
+          fileSizeBytes: file.size,
+          durationMs
+        })
+      });
+
+      const intentData = await intentRes.json();
+      if (!intentRes.ok || !intentData.uploadUrl) {
+        throw new Error(intentData.error || 'Failed to get upload authorization target');
+      }
+
+      // Phase B: Direct upload binary to provider target
+      const putRes = await fetch(intentData.uploadUrl, {
+        method: 'PUT',
+        headers: intentData.headers || { 'Content-Type': file.type },
+        body: file
+      });
+
+      if (!putRes.ok) {
+        throw new Error(`Direct media upload failed with status ${putRes.status}`);
+      }
+
+      // Phase C: Finalize upload & create message record
+      const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
+      const finalizeRes = await fetch('/api/media-finalize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          intentId: intentData.intentId,
+          conversationId,
+          provider: intentData.provider,
+          objectKey: intentData.objectKey,
+          mediaType,
+          mimeType: file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4'),
+          fileSizeBytes: file.size,
+          durationMs,
+          width,
+          height,
+          originalFilename: file.name,
+          previewText
+        })
+      });
+
+      const finalizeData = await finalizeRes.json();
+      if (!finalizeRes.ok || !finalizeData.success) {
+        throw new Error(finalizeData.error || 'Failed to finalize media message');
+      }
+
+      setSelectedMedia(null);
+      setIsVoiceRecording(false);
+
+    } catch (err: any) {
+      console.error('Error sending media message:', err);
+      triggerToast(err.message || 'Failed to send media message.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
   // 1. Authenticate user & load conversations
   const loadConversations = async (includeArchived = Boolean(conversationId)) => {
     setLoadingConvs(true);
@@ -113,9 +230,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   useEffect(() => {
     loadConversations(Boolean(conversationId));
   }, []);
-
-  // Active conversation selection
-  const activeConv = conversations.find(c => c.id === conversationId);
 
   // 2. Load messages when conversationId changes
   useEffect(() => {
@@ -618,19 +732,23 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           />
                         )}
                         <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
-                          <div
-                            title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                            aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                            className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
-                              isMe
-                                ? isRead
-                                  ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                  : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
-                                : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
-                            }`}
-                          >
-                            {msg.text}
-                          </div>
+                          {msg.message_type && msg.message_type !== 'text' ? (
+                            <MediaMessage messageId={msg.id} mediaType={msg.message_type} isSelf={isMe} />
+                          ) : (
+                            <div
+                              title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                              aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                              className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
+                                isMe
+                                  ? isRead
+                                    ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                    : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+                                  : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
+                              }`}
+                            >
+                              {msg.text}
+                            </div>
+                          )}
                           <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
                             <span>{sentTime}</span>
                           </div>
@@ -670,41 +788,137 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Redesigned Compact Composer - Fixed at Bottom */}
+              {/* Redesigned Compact Composer with Media Support */}
               {activeConv.archivedAt ? (
                 <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-[#0E1320] text-center text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0">
                   This work conversation has been archived.
                 </div>
+              ) : isVoiceRecording ? (
+                <div className="p-2 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
+                  <VoiceRecorder
+                    onSendVoiceNote={(blob, durationMs) => {
+                      const file = new File([blob], 'voice_note.webm', { type: blob.type || 'audio/webm' });
+                      void handleUploadAndSendMedia(file, 'audio', durationMs);
+                    }}
+                    onCancel={() => setIsVoiceRecording(false)}
+                    disabled={isUploadingMedia}
+                  />
+                </div>
+              ) : selectedMedia ? (
+                <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0 flex items-center justify-between gap-3 animate-fade-in">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    {selectedMedia.mediaType === 'image' ? (
+                      <img src={selectedMedia.previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-xl border border-slate-200 dark:border-slate-700" />
+                    ) : (
+                      <div className="w-12 h-12 bg-indigo-900/40 text-indigo-400 rounded-xl flex items-center justify-center border border-indigo-700/50">
+                        <VideoIcon className="w-6 h-6" />
+                      </div>
+                    )}
+                    <div className="flex flex-col text-left truncate">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{selectedMedia.file.name}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">{(selectedMedia.file.size / (1024 * 1024)).toFixed(2)} MB</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        URL.revokeObjectURL(selectedMedia.previewUrl);
+                        setSelectedMedia(null);
+                      }}
+                      className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUploadingMedia}
+                      onClick={() => {
+                        void handleUploadAndSendMedia(
+                          selectedMedia.file,
+                          selectedMedia.mediaType,
+                          selectedMedia.durationMs,
+                          selectedMedia.width,
+                          selectedMedia.height
+                        );
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white rounded-xl text-xs font-extrabold flex items-center space-x-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isUploadingMedia ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Uploading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
-                <div className="flex items-center gap-2 bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-full px-3 py-1.5 focus-within:border-blue-500 transition-colors">
-                  <textarea
-                    ref={textareaRef}
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    maxLength={4000}
-                    rows={1}
-                    placeholder="Type a message..."
-                    className="flex-1 max-h-[100px] min-h-[36px] bg-transparent text-slate-900 dark:text-white text-xs sm:text-sm font-medium focus:outline-none resize-none px-1 py-2 leading-snug"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!chatInput.trim() || isSending}
-                    className={`h-9 w-9 rounded-full text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 ${
-                      !chatInput.trim() || isSending
-                        ? 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500'
-                        : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-xs active:scale-95'
-                    }`}
-                    title="Send Message"
-                  >
-                    {isSending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4 ml-0.5" />
-                    )}
-                  </button>
-                </div>
+                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-full px-3 py-1.5 focus-within:border-blue-500 transition-colors">
+                    {/* Media Attachment Picker Button */}
+                    <MediaAttachmentPicker
+                      onFileSelected={(file, mediaType, previewUrl, durationMs, width, height) => {
+                        if (!mediaStatus.mediaMessagingEnabled) {
+                          triggerToast('Media messaging is temporarily unavailable.');
+                          return;
+                        }
+                        setSelectedMedia({ file, mediaType, previewUrl, durationMs, width, height });
+                      }}
+                      disabled={!mediaStatus.mediaMessagingEnabled || isSending}
+                    />
+
+                    {/* Microphone Voice Recorder Button */}
+                    <button
+                      type="button"
+                      disabled={!mediaStatus.mediaMessagingEnabled || isSending}
+                      onClick={() => {
+                        if (!mediaStatus.mediaMessagingEnabled) {
+                          triggerToast('Media messaging is temporarily unavailable.');
+                          return;
+                        }
+                        setIsVoiceRecording(true);
+                      }}
+                      title={mediaStatus.mediaMessagingEnabled ? 'Record Voice Note' : 'Media messaging is temporarily unavailable.'}
+                      aria-label="Record Voice Note"
+                      className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-40"
+                    >
+                      <Mic className="w-5 h-5" />
+                    </button>
+
+                    <textarea
+                      ref={textareaRef}
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      maxLength={4000}
+                      rows={1}
+                      placeholder="Type a message..."
+                      className="flex-1 max-h-[100px] min-h-[36px] bg-transparent text-slate-900 dark:text-white text-xs sm:text-sm font-medium focus:outline-none resize-none px-1 py-2 leading-snug"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!chatInput.trim() || isSending}
+                      className={`h-9 w-9 rounded-full text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 ${
+                        !chatInput.trim() || isSending
+                          ? 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500'
+                          : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-xs active:scale-95'
+                      }`}
+                      title="Send Message"
+                    >
+                      {isSending ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4 ml-0.5" />
+                      )}
+                    </button>
+                  </div>
                 </form>
               )}
             </>
