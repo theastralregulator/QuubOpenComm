@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -55,6 +55,40 @@ export default function Navbar({
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showSettingsSub, setShowSettingsSub] = useState(false);
+
+  const profileButtonRef = useRef<HTMLButtonElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showProfileMenu) return;
+
+    const handleOutsidePointer = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (
+        profileButtonRef.current?.contains(target) ||
+        profileMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setShowProfileMenu(false);
+      setShowSettingsSub(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowProfileMenu(false);
+        setShowSettingsSub(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handleOutsidePointer);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointer);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showProfileMenu]);
 
   const navItems = [
     { id: 'home', label: 'Home', icon: Home, to: '/' },
@@ -190,6 +224,7 @@ export default function Navbar({
                 {/* Profile Avatar Dropdown */}
                 <div className="relative">
                   <button 
+                    ref={profileButtonRef}
                     onClick={() => {
                       setShowProfileMenu(!showProfileMenu);
                       setShowSettingsSub(false); // Reset settings expansion on open
@@ -209,16 +244,14 @@ export default function Navbar({
 
                   <AnimatePresence>
                     {showProfileMenu && (
-                      <>
-                        {/* Backdrop to close when clicking outside */}
-                        <div className="fixed inset-0 z-40" onClick={() => setShowProfileMenu(false)} />
-                        <motion.div
-                          initial={{ opacity: 0, y: 12, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute right-0 mt-2.5 w-64 bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-2xl shadow-xl z-50 overflow-hidden py-1.5"
-                        >
+                      <motion.div
+                        ref={profileMenuRef}
+                        initial={{ opacity: 0, y: 12, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 mt-2.5 w-64 bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-2xl shadow-xl z-50 overflow-hidden py-1.5"
+                      >
                            {/* Header info card */}
                           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center space-x-3 text-left bg-slate-50/40 dark:bg-slate-900/30">
                             <UserAvatar
@@ -407,7 +440,6 @@ export default function Navbar({
                             </button>
                           </div>
                         </motion.div>
-                      </>
                     )}
                   </AnimatePresence>
                 </div>

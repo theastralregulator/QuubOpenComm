@@ -24,6 +24,8 @@ export interface CanonicalPublicProfile {
   country?: string | null;
   verified: boolean;
   profileType?: string | null;
+  preferredLanguage?: string | null;
+  createdAt?: string | null;
 }
 
 const profileCache = new Map<string, CanonicalPublicProfile>();
@@ -79,7 +81,7 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
     // 1. Query profile_directory with ONLY existing valid schema columns
     const { data: pdData, error: pdError } = await supabase
       .from('profile_directory')
-      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly, created_at')
       .eq('id', userId)
       .maybeSingle();
 
@@ -102,6 +104,8 @@ export async function getPublicProfileById(userId: string): Promise<CanonicalPub
         country: isLocPublic ? (pdData.country || null) : null,
         verified: false,
         profileType: pdData.profile_type || null,
+        preferredLanguage: pdData.preferred_language || null,
+        createdAt: pdData.created_at || null,
       };
       profileCache.set(userId, profile);
       return profile;
@@ -151,7 +155,7 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
     // Single clean batched lookup from profile_directory
     const { data: pdRows, error: pdError } = await supabase
       .from('profile_directory')
-      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly')
+      .select('id, full_name, avatar_url, banner_url, bio, city, state, country, preferred_language, profile_type, username, show_location_publicly, created_at')
       .in('id', missingFromCache);
 
     if (pdError) {
@@ -174,6 +178,8 @@ export async function getPublicProfilesByIds(userIds: string[]): Promise<Map<str
           country: isLocPublic ? (pd.country || null) : null,
           verified: false,
           profileType: pd.profile_type || null,
+          preferredLanguage: pd.preferred_language || null,
+          createdAt: pd.created_at || null,
         };
         profileCache.set(pd.id, profile);
         result.set(pd.id, profile);

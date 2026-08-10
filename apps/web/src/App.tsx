@@ -128,6 +128,32 @@ export default function App() {
     }
   }, [isJobsLoaded]);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [isWorkersLoaded, setIsWorkersLoaded] = useState(false);
+
+  useEffect(() => {
+    const loadWorkers = () => {
+      dbService.getPublicWorkers().then(fetchedWorkers => {
+        setWorkers(applySavedWorkerIds(fetchedWorkers));
+        setIsWorkersLoaded(true);
+      });
+    };
+
+    loadWorkers();
+
+    const handleProfileUpdate = () => {
+      loadWorkers();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('opencomm:profile-updated', handleProfileUpdate);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('opencomm:profile-updated', handleProfileUpdate);
+      }
+    };
+  }, []);
+
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
   

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { analytics } from './analytics';
-import { ConversationViewModel, DbMessage, UserLoginActivity, DeactivationStatusResponse } from '../types';
+import { ConversationViewModel, DbMessage, UserLoginActivity, DeactivationStatusResponse, Worker } from '../types';
 import { normalizeJobType } from './jobType';
 import { UserSettings } from '../types';
 import { clearProfileCache, getPublicProfilesByIds, CanonicalPublicProfile } from './profileService';
@@ -1859,6 +1859,51 @@ export const dbService = {
       }
     }
     return [];
+  },
+
+  async getPublicWorkers(): Promise<Worker[]> {
+    if (!supabase) return [];
+    try {
+      const { data, error } = await supabase
+        .from('worker_directory')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('getPublicWorkers query error:', error);
+        return [];
+      }
+
+      if (!data) return [];
+
+      const seenIds = new Set<string>();
+      const deduplicated = data.filter((d: any) => {
+        if (!d.id || seenIds.has(d.id)) return false;
+        seenIds.add(d.id);
+        return true;
+      });
+
+      return deduplicated.map((d: any) => ({
+        id: d.id,
+        name: d.full_name || d.username || 'OpenComm Worker',
+        photo: d.avatar_url || '',
+        title: d.profession || 'Professional',
+        experience: Number(d.experience_years || 0),
+        rating: 0,
+        availability: d.availability || 'Available Now',
+        location: [d.city, d.state, d.country].filter(Boolean).join(', ') || d.work_location || '',
+        bio: d.bio_summary || '',
+        skills: Array.isArray(d.skills) ? d.skills : [],
+        completedWorks: 0,
+        hourlyRate: Number(d.hourly_rate || 0),
+        expectedSalary: d.expected_salary || '',
+        verified: false,
+        bookmarked: false
+      }));
+    } catch (err) {
+      console.error('getPublicWorkers exception:', err);
+      return [];
+    }
   },
 
   // Conversations & Messages

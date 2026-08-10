@@ -99,93 +99,38 @@ export default function WorkersPage({
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   
   const [liveWorkers, setLiveWorkers] = useState<Worker[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [errorState, setErrorState] = useState<string | null>(null);
 
-  // Fetch Live Workers
   useEffect(() => {
-    async function fetchLiveWorkers() {
-      setIsLoading(true);
-      setErrorState(null);
-
-      if (!supabase) {
+    let active = true;
+    async function fetchWorkers() {
+      if (workers && workers.length > 0) {
+        setLiveWorkers(workers);
         setIsLoading(false);
         return;
       }
-
+      setIsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('worker_directory')
-          .select('*');
-
-        if (error) {
-          console.error("Supabase worker_directory query error:", error);
-          setErrorState(error.message || "Failed to load live workers.");
-          setLiveWorkers([]);
-        } else if (data) {
-          // Strict real worker eligibility filter:
-          // profile_type = 'worker', listing_enabled !== false, account_status !== 'inactive'
-          const eligible = data.filter((d: any) => 
-            (d.profile_type === 'worker' || !d.profile_type) &&
-            d.listing_enabled !== false &&
-            d.account_status !== 'inactive'
-          );
-
-          // Deduplicate by canonical profile ID
-          const seenIds = new Set<string>();
-          const deduplicated = eligible.filter((d: any) => {
-            if (!d.id || seenIds.has(d.id)) return false;
-            seenIds.add(d.id);
-            return true;
-          });
-
-          const mapped: any[] = deduplicated.map((d: any) => ({
-            id: d.id,
-            name: d.full_name || '',
-            photo: d.avatar_url || '',
-            title: d.profession || '',
-            experience: d.experience_years || 0,
-            rating: 0,
-            availability: d.availability || 'Available Now',
-            location: [d.city, d.state, d.country].filter(Boolean).join(', ') || '',
-            bio: d.bio_summary || '',
-            skills: Array.isArray(d.skills) ? d.skills : [],
-            completedWorks: 0,
-            hourlyRate: d.hourly_rate || 0,
-            expectedSalary: d.expected_salary || '',
-            verified: d.verification_status === 'verified',
-            bookmarked: false
-          }));
-
-          setLiveWorkers(mapped);
+        const fetched = await dbService.getPublicWorkers();
+        if (active) {
+          setLiveWorkers(fetched);
         }
       } catch (err: any) {
-        console.error('Failed to load live workers:', err);
-        setErrorState(err.message || 'Failed to load live workers.');
-        setLiveWorkers([]);
+        if (active) {
+          setErrorState(err.message || 'Failed to load workers.');
+        }
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     }
-    fetchLiveWorkers();
 
-    const handleUpdate = () => {
-      fetchLiveWorkers();
-    };
+    fetchWorkers();
+    return () => { active = false; };
+  }, [workers]);
 
-    if (typeof window !== 'undefined') {
-      window.addEventListener('opencomm:profile-updated', handleUpdate);
-    }
-
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('opencomm:profile-updated', handleUpdate);
-      }
-    };
-  }, []);
-
-  // Display only real live workers from database query (no demo/fallback workers)
-  const displayWorkers = liveWorkers;
+  // Consume canonical workers from prop or fetched liveWorkers
+  const displayWorkers = workers && workers.length > 0 ? workers : liveWorkers;
 
   // Sync worker profile state with URL route parameter
   useEffect(() => {
@@ -339,10 +284,6 @@ export default function WorkersPage({
       
       {/* 1. Page Title & Subtitle */}
       <div className="space-y-1.5 mt-2">
-        <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
-          <Users className="w-3.5 h-3.5" />
-          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">TALENT NETWORK</span>
-        </div>
         <h1 className="text-2xl sm:text-[28px] md:text-[34px] font-sans font-bold text-slate-900 dark:text-white flex items-center tracking-tight gap-2">
           <Users className="w-7 h-7 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span>Discover Professionals</span>

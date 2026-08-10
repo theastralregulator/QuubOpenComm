@@ -554,10 +554,10 @@ export default function ProfilePage({
               city: canonical.city || '',
               state: canonical.state || '',
               country: canonical.country || '',
-              preferred_language: '',
+              preferred_language: canonical.preferredLanguage || '',
               profile_type: canonical.profileType || 'normal',
               onboarding_completed: true,
-              created_at: new Date().toISOString(),
+              created_at: canonical.createdAt || '',
               verified: canonical.verified,
             } as unknown as LocalProfile;
           }
@@ -1494,17 +1494,16 @@ export default function ProfilePage({
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => {
-                    if (profile?.id) {
-                      navigate(`/messages`);
-                    }
-                  }}
-                  className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Message Worker</span>
-                </button>
+                {profile?.id && (
+                  <button
+                    onClick={() => {
+                      navigate(`/workers/${profile.id}`);
+                    }}
+                    className="h-9 px-4 bg-gradient-to-r from-[#7C3AED] to-purple-600 hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
+                  >
+                    <span>Hire</span>
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     await navigator.clipboard.writeText(window.location.href);
@@ -1745,7 +1744,7 @@ export default function ProfilePage({
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800 font-mono text-xs">
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Language</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-bold">{profile?.preferred_language || 'English'}</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-bold">{profile?.preferred_language || 'Not provided'}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Account Type</span>
@@ -1753,7 +1752,7 @@ export default function ProfilePage({
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Location</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-bold">{formattedLocation || 'Not specified'}</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-bold">{formattedLocation || 'Location not provided'}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-bold block">Rate / Salary</span>
