@@ -22,7 +22,6 @@ export default async function handler(req: any, res: any) {
     originalFilename
   } = req.body || {};
 
-  // Requirement 5: intentId and conversationId are MANDATORY
   if (!intentId || typeof intentId !== 'string' || !conversationId) {
     return res.status(400).json({ error: 'Missing mandatory intentId or conversationId parameter' });
   }
@@ -46,7 +45,7 @@ export default async function handler(req: any, res: any) {
 
   const status = claimResult.status;
 
-  // Requirement 5: Idempotent return if already finalized
+  // Requirement 4 & 5: Idempotent return if already finalized (or finalizing with existing final message ID)
   if (status === 'finalized') {
     return res.status(200).json({
       success: true,
@@ -72,6 +71,10 @@ export default async function handler(req: any, res: any) {
     return res.status(410).json({ error: 'Upload intent has expired. Please request a new upload target.' });
   }
 
+  if (status === 'failed') {
+    return res.status(400).json({ error: 'Upload intent has failed.' });
+  }
+
   if (status !== 'claimed') {
     return res.status(400).json({ error: `Invalid intent status '${status}' for finalization.` });
   }
@@ -82,11 +85,10 @@ export default async function handler(req: any, res: any) {
   const mimeType = claimResult.mime_type;
   const fileSizeBytes = Number(claimResult.file_size_bytes);
 
-  // 2. Requirement 1: HEAD verification of Object Exists, File Size, and MIME Type
+  // 2. Requirement 5: Server-side HEAD verification of Object Exists, File Size, and MIME Type
   const verification = await verifyUploadedObject(provider, objectKey);
   if (!verification.exists) {
     console.warn(`Object HEAD verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
-    // Revert intent status to pending on verification failure
     await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
 
     void recordStorageEvent({
@@ -120,7 +122,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // MIME Type Validation against intent metadata (with normalization for parameters like ;charset=)
+  // MIME Type Validation against intent metadata
   if (verification.contentType) {
     const headMime = verification.contentType.split(';')[0].trim().toLowerCase();
     const intentMime = mimeType.split(';')[0].trim().toLowerCase();
@@ -129,7 +131,7 @@ export default async function handler(req: any, res: any) {
       headMime === intentMime ||
       (intentMime === 'audio/mp4' && (headMime === 'audio/x-m4a' || headMime === 'audio/m4a')) ||
       (intentMime === 'audio/mpeg' && headMime === 'audio/mp3') ||
-      (headMime === 'application/octet-stream') // S3 default fallback when ContentType isn't sent by browser
+      (headMime === 'application/octet-stream')
     );
 
     if (!isMimeCompatible) {
@@ -146,12 +148,9 @@ export default async function handler(req: any, res: any) {
       });
       return res.status(400).json({ error: 'Uploaded file type does not match authorization intent.' });
     }
-  } else {
-    // Documented Fallback: If provider HEAD response omits ContentType header, rely on size verification
-    console.warn(`[Storage HEAD] Provider ${provider} omitted ContentType header for ${objectKey}. Proceeding with size-verified validation.`);
   }
 
-  // 3. Call user Supabase client with user JWT to execute create_media_message RPC
+  // 3. Requirement 2: Single Atomic Database Finalization via create_media_message RPC
   const userClient = getUserSupabase(authUser.jwtToken);
   if (!userClient) {
     await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
@@ -176,7 +175,8 @@ export default async function handler(req: any, res: any) {
       p_duration_ms: durationMs ? Number(durationMs) : null,
       p_width: width ? Number(width) : null,
       p_height: height ? Number(height) : null,
-      p_original_filename: originalFilename ? String(originalFilename).substring(0, 255) : null
+      p_original_filename: originalFilename ? String(originalFilename).substring(0, 255) : null,
+      p_upload_intent_id: intentId
     });
 
     if (rpcError) {
@@ -197,16 +197,6 @@ export default async function handler(req: any, res: any) {
 
     const messageId = rpcResult?.message_id;
     const mediaId = rpcResult?.media_id;
-
-    // 4. Update upload intent to finalized with references
-    await adminClient
-      .from('media_upload_intents')
-      .update({
-        status: 'finalized',
-        final_message_id: messageId,
-        final_media_id: mediaId
-      })
-      .eq('id', intentId);
 
     void recordStorageEvent({
       provider,

@@ -17,12 +17,30 @@ BEGIN
   END IF;
 END $$;
 
--- 2. Create public.message_media table
+-- 2. Create public.media_upload_intents table
+CREATE TABLE IF NOT EXISTS public.media_upload_intents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  conversation_id uuid NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
+  provider text NOT NULL CHECK (provider IN ('r2', 'b2', 'cloudinary')),
+  object_key text NOT NULL,
+  media_type text NOT NULL CHECK (media_type IN ('image', 'video', 'audio')),
+  mime_type text NOT NULL,
+  file_size_bytes bigint NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalizing', 'finalized', 'expired', 'failed')),
+  final_message_id uuid NULL REFERENCES public.messages(id) ON DELETE SET NULL,
+  final_media_id uuid NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
+);
+
+-- 3. Create public.message_media table with UNIQUE upload_intent_id
 CREATE TABLE IF NOT EXISTS public.message_media (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id uuid NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
   conversation_id uuid NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
   uploader_id uuid NOT NULL REFERENCES auth.users(id),
+  upload_intent_id uuid NULL REFERENCES public.media_upload_intents(id) ON DELETE SET NULL,
   media_type text NOT NULL CHECK (media_type IN ('image', 'video', 'audio')),
   storage_provider text NOT NULL CHECK (storage_provider IN ('r2', 'b2', 'cloudinary')),
   object_key text NOT NULL,
@@ -40,25 +58,22 @@ CREATE TABLE IF NOT EXISTS public.message_media (
   cleanup_attempts integer NOT NULL DEFAULT 0,
   last_cleanup_error text NULL,
   last_cleanup_attempt_at timestamptz NULL,
-  CONSTRAINT message_media_message_id_key UNIQUE (message_id)
+  CONSTRAINT message_media_message_id_key UNIQUE (message_id),
+  CONSTRAINT message_media_upload_intent_id_key UNIQUE (upload_intent_id)
 );
 
--- 3. Create public.media_upload_intents table
-CREATE TABLE IF NOT EXISTS public.media_upload_intents (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  conversation_id uuid NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
-  provider text NOT NULL CHECK (provider IN ('r2', 'b2', 'cloudinary')),
-  object_key text NOT NULL,
-  media_type text NOT NULL CHECK (media_type IN ('image', 'video', 'audio')),
-  mime_type text NOT NULL,
-  file_size_bytes bigint NOT NULL,
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'finalizing', 'finalized', 'expired', 'failed')),
-  final_message_id uuid NULL REFERENCES public.messages(id) ON DELETE SET NULL,
-  final_media_id uuid NULL REFERENCES public.message_media(id) ON DELETE SET NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
-);
+-- Add Foreign Key for final_media_id now that message_media table exists
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'media_upload_intents_final_media_id_fkey'
+  ) THEN
+    ALTER TABLE public.media_upload_intents
+    ADD CONSTRAINT media_upload_intents_final_media_id_fkey
+    FOREIGN KEY (final_media_id) REFERENCES public.message_media(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- 4. Create public.media_storage_events table
 CREATE TABLE IF NOT EXISTS public.media_storage_events (
@@ -76,6 +91,7 @@ CREATE TABLE IF NOT EXISTS public.media_storage_events (
 -- 5. Create Indexes
 CREATE INDEX IF NOT EXISTS idx_message_media_message_id ON public.message_media(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_media_conversation_id ON public.message_media(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_message_media_upload_intent_id ON public.message_media(upload_intent_id);
 CREATE INDEX IF NOT EXISTS idx_message_media_delete_after ON public.message_media(delete_after) WHERE status IN ('active', 'cleanup_pending');
 CREATE INDEX IF NOT EXISTS idx_media_upload_intents_expires_at ON public.media_upload_intents(expires_at) WHERE status IN ('pending', 'uploaded');
 CREATE INDEX IF NOT EXISTS idx_media_storage_events_created_at ON public.media_storage_events(created_at);
@@ -89,13 +105,11 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 BEGIN
-  -- When conversation archived_at becomes non-null: schedule delete_after = archived_at + 15 days
   IF NEW.archived_at IS NOT NULL AND (OLD.archived_at IS NULL OR OLD.archived_at IS DISTINCT FROM NEW.archived_at) THEN
     UPDATE public.message_media
     SET delete_after = NEW.archived_at + interval '15 days'
     WHERE conversation_id = NEW.id
       AND status = 'active';
-  -- If conversation unarchived: clear delete_after
   ELSIF NEW.archived_at IS NULL AND OLD.archived_at IS NOT NULL THEN
     UPDATE public.message_media
     SET delete_after = NULL
@@ -112,7 +126,101 @@ CREATE TRIGGER trg_schedule_media_retention
   FOR EACH ROW
   EXECUTE FUNCTION public.schedule_media_retention_on_conversation_archive();
 
--- 7. Secure RPC to create a media message atomically with strict media-type validations
+-- 7. Atomic Intent Claiming RPC with strict State Validation
+CREATE OR REPLACE FUNCTION public.claim_media_upload_intent_for_finalize(
+  p_intent_id uuid,
+  p_user_id uuid,
+  p_conversation_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_intent RECORD;
+BEGIN
+  -- Atomic row lock on upload intent
+  SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id
+  INTO v_intent
+  FROM public.media_upload_intents
+  WHERE id = p_intent_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found');
+  END IF;
+
+  IF v_intent.user_id <> p_user_id THEN
+    RETURN jsonb_build_object('status', 'user_mismatch');
+  END IF;
+
+  IF v_intent.conversation_id <> p_conversation_id THEN
+    RETURN jsonb_build_object('status', 'conversation_mismatch');
+  END IF;
+
+  -- 1. If already finalized, return existing message/media IDs (Idempotent response)
+  IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'status', 'finalized',
+      'final_message_id', v_intent.final_message_id,
+      'final_media_id', v_intent.final_media_id,
+      'provider', v_intent.provider,
+      'object_key', v_intent.object_key,
+      'media_type', v_intent.media_type,
+      'mime_type', v_intent.mime_type,
+      'file_size_bytes', v_intent.file_size_bytes
+    );
+  END IF;
+
+  -- 2. If finalizing with existing final message ID (Recovery of finalized state)
+  IF v_intent.status = 'finalizing' AND v_intent.final_message_id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'status', 'finalized',
+      'final_message_id', v_intent.final_message_id,
+      'final_media_id', v_intent.final_media_id,
+      'provider', v_intent.provider,
+      'object_key', v_intent.object_key,
+      'media_type', v_intent.media_type,
+      'mime_type', v_intent.mime_type,
+      'file_size_bytes', v_intent.file_size_bytes
+    );
+  END IF;
+
+  -- 3. Explicit State Validation: Reject expired, failed, or unexpected states
+  IF v_intent.expires_at IS NOT NULL AND v_intent.expires_at <= now() THEN
+    RETURN jsonb_build_object('status', 'expired');
+  END IF;
+
+  IF v_intent.status = 'expired' THEN
+    RETURN jsonb_build_object('status', 'expired');
+  END IF;
+
+  IF v_intent.status = 'failed' THEN
+    RETURN jsonb_build_object('status', 'failed');
+  END IF;
+
+  IF v_intent.status NOT IN ('pending', 'uploaded', 'finalizing') THEN
+    RETURN jsonb_build_object('status', 'invalid_status', 'current_status', v_intent.status);
+  END IF;
+
+  -- 4. Transition status ONLY from pending/uploaded to finalizing
+  UPDATE public.media_upload_intents
+  SET status = 'finalizing'
+  WHERE id = p_intent_id;
+
+  RETURN jsonb_build_object(
+    'status', 'claimed',
+    'provider', v_intent.provider,
+    'object_key', v_intent.object_key,
+    'media_type', v_intent.media_type,
+    'mime_type', v_intent.mime_type,
+    'file_size_bytes', v_intent.file_size_bytes
+  );
+END;
+$$;
+
+-- 8. Atomic Database Finalization RPC (Creates message + message_media and marks intent finalized in ONE transaction)
 CREATE OR REPLACE FUNCTION public.create_media_message(
   p_conversation_id uuid,
   p_message_type text,
@@ -126,7 +234,8 @@ CREATE OR REPLACE FUNCTION public.create_media_message(
   p_width integer DEFAULT NULL,
   p_height integer DEFAULT NULL,
   p_original_filename text DEFAULT NULL,
-  p_provider_asset_id text DEFAULT NULL
+  p_provider_asset_id text DEFAULT NULL,
+  p_upload_intent_id uuid DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -138,6 +247,7 @@ DECLARE
   v_sender_name text;
   v_sender_avatar text;
   v_conv RECORD;
+  v_intent RECORD;
   v_msg_id uuid;
   v_media_id uuid;
 BEGIN
@@ -149,6 +259,41 @@ BEGIN
   -- Enforce active account
   IF NOT public.is_current_user_active() THEN
     RAISE EXCEPTION 'Account is inactive or suspended.';
+  END IF;
+
+  -- If upload_intent_id supplied, lock and verify upload intent in this transaction
+  IF p_upload_intent_id IS NOT NULL THEN
+    SELECT id, user_id, conversation_id, status, final_message_id, final_media_id
+    INTO v_intent
+    FROM public.media_upload_intents
+    WHERE id = p_upload_intent_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Upload intent not found.';
+    END IF;
+
+    IF v_intent.user_id <> v_caller_id THEN
+      RAISE EXCEPTION 'Upload intent ownership mismatch.';
+    END IF;
+
+    IF v_intent.conversation_id <> p_conversation_id THEN
+      RAISE EXCEPTION 'Upload intent conversation mismatch.';
+    END IF;
+
+    -- If intent is already finalized with a message ID, return existing IDs (Idempotence)
+    IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
+      RETURN jsonb_build_object(
+        'message_id', v_intent.final_message_id,
+        'media_id', v_intent.final_media_id,
+        'idempotent', true
+      );
+    END IF;
+
+    -- Reject expired or failed intents
+    IF v_intent.status IN ('expired', 'failed') THEN
+      RAISE EXCEPTION 'Upload intent is in an invalid state (%).', v_intent.status;
+    END IF;
   END IF;
 
   -- Media-Type & Storage Provider Validations
@@ -262,7 +407,7 @@ BEGIN
     v_sender_name := 'OpenComm User';
   END IF;
 
-  -- Insert into messages table
+  -- 1. Insert into messages table
   INSERT INTO public.messages (
     conversation_id,
     sender_id,
@@ -287,11 +432,12 @@ BEGIN
   )
   RETURNING id INTO v_msg_id;
 
-  -- Insert into message_media table
+  -- 2. Insert into message_media table with UNIQUE upload_intent_id link
   INSERT INTO public.message_media (
     message_id,
     conversation_id,
     uploader_id,
+    upload_intent_id,
     media_type,
     storage_provider,
     object_key,
@@ -309,6 +455,7 @@ BEGIN
     v_msg_id,
     p_conversation_id,
     v_caller_id,
+    p_upload_intent_id,
     p_media_type,
     p_storage_provider,
     p_object_key,
@@ -324,7 +471,16 @@ BEGIN
   )
   RETURNING id INTO v_media_id;
 
-  -- Update last message info on conversation using canonical column names
+  -- 3. Update upload_intent to finalized atomically in the SAME transaction!
+  IF p_upload_intent_id IS NOT NULL THEN
+    UPDATE public.media_upload_intents
+    SET status = 'finalized',
+        final_message_id = v_msg_id,
+        final_media_id = v_media_id
+    WHERE id = p_upload_intent_id;
+  END IF;
+
+  -- 4. Update last message info on conversation using canonical column names
   UPDATE public.conversations
   SET last_message_text = p_preview_text,
       last_message_time = now()
@@ -337,7 +493,7 @@ BEGIN
 END;
 $$;
 
--- 8. SECURITY DEFINER RPC to get sanitized media metadata without exposing object_key
+-- 9. SECURITY DEFINER RPC to get sanitized media metadata without exposing object_key or upload_intent_id
 CREATE OR REPLACE FUNCTION public.get_conversation_message_media(p_conversation_id uuid)
 RETURNS TABLE (
   id uuid,
@@ -358,7 +514,6 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 BEGIN
-  -- Verify conversation authorization
   IF NOT EXISTS (
     SELECT 1 FROM public.conversations c
     WHERE c.id = p_conversation_id
@@ -393,72 +548,6 @@ BEGIN
 END;
 $$;
 
--- 9. SECURITY DEFINER RPC for atomic finalize intent claiming (concurrency & race condition protection)
-CREATE OR REPLACE FUNCTION public.claim_media_upload_intent_for_finalize(
-  p_intent_id uuid,
-  p_user_id uuid,
-  p_conversation_id uuid
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth, pg_temp
-AS $$
-DECLARE
-  v_intent RECORD;
-BEGIN
-  -- Atomic row lock on upload intent
-  SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id
-  INTO v_intent
-  FROM public.media_upload_intents
-  WHERE id = p_intent_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('status', 'not_found');
-  END IF;
-
-  IF v_intent.user_id <> p_user_id THEN
-    RETURN jsonb_build_object('status', 'user_mismatch');
-  END IF;
-
-  IF v_intent.conversation_id <> p_conversation_id THEN
-    RETURN jsonb_build_object('status', 'conversation_mismatch');
-  END IF;
-
-  IF v_intent.expires_at IS NOT NULL AND v_intent.expires_at <= now() THEN
-    RETURN jsonb_build_object('status', 'expired');
-  END IF;
-
-  -- If already finalized, return existing message/media IDs (Idempotence)
-  IF v_intent.status = 'finalized' THEN
-    RETURN jsonb_build_object(
-      'status', 'finalized',
-      'final_message_id', v_intent.final_message_id,
-      'final_media_id', v_intent.final_media_id
-    );
-  END IF;
-
-  IF v_intent.status = 'finalizing' THEN
-    RETURN jsonb_build_object('status', 'finalizing_in_progress');
-  END IF;
-
-  -- Transition status atomically from pending/uploaded -> finalizing
-  UPDATE public.media_upload_intents
-  SET status = 'finalizing'
-  WHERE id = p_intent_id;
-
-  RETURN jsonb_build_object(
-    'status', 'claimed',
-    'provider', v_intent.provider,
-    'object_key', v_intent.object_key,
-    'media_type', v_intent.media_type,
-    'mime_type', v_intent.mime_type,
-    'file_size_bytes', v_intent.file_size_bytes
-  );
-END;
-$$;
-
 -- 10. Atomic Claim RPC for Concurrency Safety in Cleanup Worker (Clamped Limit)
 CREATE OR REPLACE FUNCTION public.claim_due_media_for_cleanup(p_limit integer DEFAULT 50)
 RETURNS TABLE (
@@ -474,7 +563,6 @@ AS $$
 DECLARE
   v_effective_limit integer;
 BEGIN
-  -- Requirement 7: Server-side clamped limit (between 1 and 100)
   v_effective_limit := GREATEST(1, LEAST(COALESCE(p_limit, 50), 100));
 
   RETURN QUERY
@@ -530,7 +618,6 @@ DECLARE
   v_orphan_intents bigint;
   v_events_24h jsonb;
 BEGIN
-  -- Requirement 4: Canonical admin role check
   v_caller_role := public.get_admin_role();
   IF v_caller_role IS NULL OR v_caller_role NOT IN ('super_admin', 'admin', 'system_admin', 'moderator', 'support_agent') THEN
     RAISE EXCEPTION 'Admin authorization required.';
@@ -542,7 +629,6 @@ BEGIN
   SELECT count(*) INTO v_deleted_count FROM public.message_media WHERE status = 'deleted';
   SELECT count(*) INTO v_orphan_intents FROM public.media_upload_intents WHERE status = 'pending' AND expires_at <= now();
 
-  -- Telemetry events in last 24h by provider
   SELECT jsonb_object_agg(provider, provider_data) INTO v_events_24h
   FROM (
     SELECT provider, jsonb_build_object(
@@ -573,7 +659,6 @@ ALTER TABLE public.message_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_upload_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_storage_events ENABLE ROW LEVEL SECURITY;
 
--- Requirement 3: REVOKE direct client access on public.message_media table
 REVOKE ALL ON public.message_media FROM PUBLIC, anon, authenticated;
 DROP POLICY IF EXISTS message_media_select_policy ON public.message_media;
 
@@ -583,8 +668,8 @@ CREATE POLICY media_upload_intents_select_policy ON public.media_upload_intents
   TO authenticated
   USING (user_id = auth.uid());
 
--- Requirement 6: Explicit identity argument signatures for REVOKE/GRANT
-REVOKE EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) FROM PUBLIC, anon;
+-- Explicit identity argument signatures for REVOKE/GRANT
+REVOKE EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text, uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.claim_media_upload_intent_for_finalize(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.claim_due_media_for_cleanup(integer) FROM PUBLIC, anon, authenticated;
@@ -593,6 +678,6 @@ REVOKE EXECUTE ON FUNCTION public.admin_get_media_storage_health() FROM PUBLIC, 
 
 -- Grants
 GRANT SELECT ON public.media_upload_intents TO authenticated;
-GRANT EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_media_message(uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_conversation_message_media(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_get_media_storage_health() TO authenticated;
