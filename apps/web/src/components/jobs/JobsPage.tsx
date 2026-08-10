@@ -232,6 +232,10 @@ export default function JobsPage({
         
         {/* 1. Page Title & Subtitle */}
         <div className="space-y-1">
+          <div className="flex items-center space-x-2 bg-[#6C4DFF]/10 text-[#6C4DFF] dark:text-purple-300 px-3 py-1 rounded-full shadow-2xs w-fit">
+            <Briefcase className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-extrabold uppercase tracking-widest font-mono">JOB MARKETPLACE</span>
+          </div>
           <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-[#111827] dark:text-white flex items-center tracking-tight gap-2">
             <Briefcase className="w-6 h-6 text-[#6C4DFF] shrink-0" />
             <span>Discover Opportunities</span>

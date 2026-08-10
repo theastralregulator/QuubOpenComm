@@ -284,6 +284,10 @@ export default function WorkersPage({
       
       {/* 1. Page Title & Subtitle */}
       <div className="space-y-1.5 mt-2">
+        <div className="flex items-center space-x-2 bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full shadow-xs w-fit">
+          <Users className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest font-mono">TALENT NETWORK</span>
+        </div>
         <h1 className="text-2xl sm:text-[28px] md:text-[34px] font-sans font-bold text-slate-900 dark:text-white flex items-center tracking-tight gap-2">
           <Users className="w-7 h-7 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span>Discover Professionals</span>
