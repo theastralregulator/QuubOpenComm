@@ -86,7 +86,7 @@ export default async function handler(req: any, res: any) {
   const fileSizeBytes = Number(claimResult.file_size_bytes);
 
   // 2. Server-side HEAD verification of Object Exists, File Size, and MIME Type against canonical intent
-  const verification = await verifyUploadedObject(provider, objectKey);
+  const verification = await verifyUploadedObject(provider, objectKey, mediaType, mimeType);
   if (!verification.exists) {
     console.warn(`Object HEAD verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
     await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);

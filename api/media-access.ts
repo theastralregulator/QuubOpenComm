@@ -56,7 +56,9 @@ export default async function handler(req: any, res: any) {
     const access = await createDownloadAccessUrl(
       media.storage_provider as StorageProviderType,
       media.object_key,
-      900
+      900,
+      media.media_type,
+      media.mime_type
     );
 
     void recordStorageEvent({

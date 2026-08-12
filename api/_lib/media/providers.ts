@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { v2 as cloudinary } from 'cloudinary';
 import crypto from 'crypto';
 
 export type StorageProviderType = 'r2' | 'b2' | 'cloudinary';
@@ -27,6 +28,21 @@ export interface ObjectVerificationResult {
   contentLengthBytes?: number;
   contentType?: string;
   error?: string;
+}
+
+// Canonical Cloudinary Resource-Type Mapping Helper
+export function getCloudinaryResourceType(mediaType?: string, mimeType?: string): 'image' | 'video' | 'raw' {
+  const normType = String(mediaType || '').toLowerCase();
+  const normMime = String(mimeType || '').toLowerCase();
+
+  if (normType === 'image' || normMime.startsWith('image/')) {
+    return 'image';
+  }
+  if (normType === 'video' || normType === 'audio' || normMime.startsWith('video/') || normMime.startsWith('audio/')) {
+    // Cloudinary handles both video and audio assets under the 'video' resource_type pipeline
+    return 'video';
+  }
+  return 'raw';
 }
 
 // 1. Check server environment variables configuration
@@ -109,13 +125,6 @@ function getR2Client(): { client: S3Client; bucket: string } | null {
   return { client, bucket };
 }
 
-// Cloudinary signature helper
-function generateCloudinarySignature(params: Record<string, string | number>, apiSecret: string): string {
-  const sortedKeys = Object.keys(params).sort();
-  const toSign = sortedKeys.map(k => `${k}=${params[k]}`).join('&') + apiSecret;
-  return crypto.createHash('sha1').update(toSign).digest('hex');
-}
-
 // Generate strong object key using crypto.randomUUID()
 export function generateObjectKey(conversationId: string, mediaType: MediaType, mimeType: string): string {
   const extensionMap: Record<string, string> = {
@@ -139,7 +148,7 @@ export function generateObjectKey(conversationId: string, mediaType: MediaType, 
   return `opencomm_media/${datePrefix}/${conversationId}/${Date.now()}_${randomUuid}.${ext}`;
 }
 
-// Create Upload Target (PRIMARY = B2, FALLBACK = Cloudinary)
+// Create Upload Target (PRIMARY = B2, FALLBACK = Cloudinary Authenticated Private Upload)
 export async function createUploadTarget(
   conversationId: string,
   mediaType: MediaType,
@@ -176,7 +185,7 @@ export async function createUploadTarget(
     }
   }
 
-  // Fallback Choice: Cloudinary
+  // Fallback Choice: Cloudinary Authenticated Private Delivery Model
   if (config.cloudinaryConfigured) {
     try {
       const cloudName = process.env.CLOUDINARY_CLOUD_NAME!;
@@ -186,15 +195,24 @@ export async function createUploadTarget(
       const timestamp = Math.floor(Date.now() / 1000);
       const rawObjectKey = generateObjectKey(conversationId, mediaType, mimeType);
       const publicId = rawObjectKey.replace(/[^a-zA-Z0-9_\-\/]/g, '_');
+      const resourceType = getCloudinaryResourceType(mediaType, mimeType);
+      const deliveryType = 'authenticated'; // Enforce authenticated delivery!
+
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+        secure: true
+      });
 
       const paramsToSign = {
         folder,
         public_id: publicId,
-        timestamp
+        timestamp,
+        type: deliveryType
       };
 
-      const signature = generateCloudinarySignature(paramsToSign, apiSecret);
-      const resourceType = mediaType === 'image' ? 'image' : 'video'; // Cloudinary handles audio under video resource type
+      const signature = cloudinary.utils.api_sign_request(paramsToSign, apiSecret);
       const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
 
       return {
@@ -207,7 +225,8 @@ export async function createUploadTarget(
           timestamp: String(timestamp),
           signature,
           folder,
-          public_id: publicId
+          public_id: publicId,
+          type: deliveryType
         },
         expiresInSeconds: 900,
       };
@@ -219,10 +238,12 @@ export async function createUploadTarget(
   throw new Error('No media storage provider (B2 or Cloudinary) is currently configured or available.');
 }
 
-// Verify Uploaded Object Exists (HEAD request)
+// Verify Uploaded Object Exists (HEAD request for B2/R2, Admin API for Cloudinary Authenticated Asset)
 export async function verifyUploadedObject(
   provider: StorageProviderType,
-  objectKey: string
+  objectKey: string,
+  mediaType?: string,
+  mimeType?: string
 ): Promise<ObjectVerificationResult> {
   if (provider === 'b2') {
     const b2 = getB2Client();
@@ -249,26 +270,26 @@ export async function verifyUploadedObject(
       return { exists: false, error: 'Cloudinary provider not configured' };
     }
 
-    try {
-      // Admin API resource check
-      const authHeader = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
-      const resourceType = objectKey.includes('/video/') || objectKey.endsWith('.webm') || objectKey.endsWith('.mp4') || objectKey.endsWith('.ogg') ? 'video' : 'image';
-      const checkUrl = `https://api.cloudinary.com/v1_1/${cloudName}/resources/${resourceType}/upload?public_ids=${encodeURIComponent(objectKey)}`;
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true
+    });
 
-      const res = await fetch(checkUrl, {
-        headers: { Authorization: authHeader }
+    try {
+      const resourceType = getCloudinaryResourceType(mediaType, mimeType);
+      const res = await cloudinary.api.resource(objectKey, {
+        resource_type: resourceType,
+        type: 'authenticated'
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const resource = data.resources && data.resources[0];
-        if (resource) {
-          return {
-            exists: true,
-            contentLengthBytes: resource.bytes,
-            contentType: resource.format ? `${resourceType}/${resource.format}` : undefined
-          };
-        }
+      if (res && res.bytes !== undefined) {
+        return {
+          exists: true,
+          contentLengthBytes: res.bytes,
+          contentType: res.format ? `${resourceType}/${res.format}` : undefined
+        };
       }
       return { exists: false, error: 'Cloudinary asset verification returned no matching resource' };
     } catch (err: any) {
@@ -297,11 +318,13 @@ export async function verifyUploadedObject(
   return { exists: false, error: `Unsupported provider for verification: ${provider}` };
 }
 
-// Create Download Access URL (Presigned GET URL or Signed Cloudinary URL)
+// Create Download Access URL (Presigned GET URL or Cloudinary Authenticated Signed Delivery URL)
 export async function createDownloadAccessUrl(
   provider: StorageProviderType,
   objectKey: string,
-  expiresInSeconds: number = 900
+  expiresInSeconds: number = 900,
+  mediaType?: string,
+  mimeType?: string
 ): Promise<{ accessUrl: string; expiresInSeconds: number }> {
   if (provider === 'b2') {
     const b2 = getB2Client();
@@ -313,13 +336,28 @@ export async function createDownloadAccessUrl(
 
   if (provider === 'cloudinary') {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    if (!cloudName || !apiSecret) throw new Error('Cloudinary is unconfigured.');
+    if (!cloudName || !apiKey || !apiSecret) throw new Error('Cloudinary is unconfigured.');
 
-    const resourceType = objectKey.includes('/video/') || objectKey.endsWith('.webm') || objectKey.endsWith('.mp4') || objectKey.endsWith('.ogg') ? 'video' : 'image';
-    const timestamp = Math.floor(Date.now() / 1000) + expiresInSeconds;
-    const signature = generateCloudinarySignature({ public_id: objectKey, timestamp }, apiSecret);
-    const accessUrl = `https://res.cloudinary.com/${cloudName}/${resourceType}/upload/s--${signature}--/v${timestamp}/${objectKey}`;
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true
+    });
+
+    const resourceType = getCloudinaryResourceType(mediaType, mimeType);
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds; // 15-minute expiration
+
+    const accessUrl = cloudinary.url(objectKey, {
+      resource_type: resourceType,
+      type: 'authenticated',
+      sign_url: true,
+      expires_at: expiresAt,
+      secure: true
+    });
+
     return { accessUrl, expiresInSeconds };
   }
 
@@ -338,7 +376,9 @@ export async function createDownloadAccessUrl(
 // Delete Object from Storage Provider
 export async function deleteStorageObject(
   provider: StorageProviderType,
-  objectKey: string
+  objectKey: string,
+  mediaType?: string,
+  mimeType?: string
 ): Promise<boolean> {
   if (provider === 'b2') {
     const b2 = getB2Client();
@@ -359,26 +399,21 @@ export async function deleteStorageObject(
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
     if (!cloudName || !apiKey || !apiSecret) return false;
 
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true
+    });
+
     try {
-      const timestamp = Math.floor(Date.now() / 1000);
-      const signature = generateCloudinarySignature({ public_id: objectKey, timestamp }, apiSecret);
-      const resourceType = objectKey.includes('/video/') || objectKey.endsWith('.webm') || objectKey.endsWith('.mp4') || objectKey.endsWith('.ogg') ? 'video' : 'image';
-      const destroyUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/destroy`;
-
-      const body = new URLSearchParams({
-        public_id: objectKey,
-        timestamp: String(timestamp),
-        api_key: apiKey,
-        signature
+      const resourceType = getCloudinaryResourceType(mediaType, mimeType);
+      const res = await cloudinary.uploader.destroy(objectKey, {
+        resource_type: resourceType,
+        type: 'authenticated'
       });
 
-      const res = await fetch(destroyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString()
-      });
-
-      return res.ok;
+      return res.result === 'ok' || res.result === 'not found';
     } catch (err) {
       console.error(`[Storage Delete] Cloudinary delete error for key ${objectKey}:`, err);
       return false;

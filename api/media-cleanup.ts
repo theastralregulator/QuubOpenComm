@@ -59,7 +59,7 @@ export default async function handler(req: any, res: any) {
 
     if (!claimErr && dueMedia && dueMedia.length > 0) {
       for (const item of dueMedia) {
-        const success = await deleteStorageObject(item.storage_provider as StorageProviderType, item.object_key);
+        const success = await deleteStorageObject(item.storage_provider as StorageProviderType, item.object_key, item.media_type);
 
         if (success) {
           await adminClient
@@ -112,7 +112,7 @@ export default async function handler(req: any, res: any) {
 
     if (orphanIntents && orphanIntents.length > 0) {
       for (const intent of orphanIntents) {
-        const success = await deleteStorageObject(intent.provider as StorageProviderType, intent.object_key);
+        const success = await deleteStorageObject(intent.provider as StorageProviderType, intent.object_key, intent.media_type);
 
         // Mark expired only when provider deletion succeeds or object is absent
         if (success) {
