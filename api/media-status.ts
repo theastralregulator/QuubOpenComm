@@ -14,7 +14,6 @@ export default async function handler(req: any, res: any) {
     imageEnabled: mediaMessagingEnabled,
     videoEnabled: mediaMessagingEnabled,
     activePrimaryProvider: config.activePrimaryProvider,
-    r2Configured: config.r2Configured,
     b2Configured: config.b2Configured,
     cloudinaryConfigured: config.cloudinaryConfigured
   });

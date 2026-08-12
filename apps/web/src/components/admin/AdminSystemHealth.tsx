@@ -345,51 +345,26 @@ export default function AdminSystemHealth() {
           </div>
 
           {/* Provider Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Cloudflare R2 Card */}
-            <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Cloudflare R2</h4>
-                  <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-widest font-mono">Role: Primary</span>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  mediaStatus?.mediaMessagingEnabled
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                }`}>
-                  {mediaStatus?.mediaMessagingEnabled ? 'Active' : 'Unconfigured'}
-                </span>
-              </div>
-              <div className="space-y-1 text-xs text-slate-500 dark:text-zinc-400">
-                <div className="flex justify-between">
-                  <span>Usage Metrics:</span>
-                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">Usage data unavailable</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Events (24h):</span>
-                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
-                    {mediaHealth?.events_summary_24h?.r2?.total_events || 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Backblaze B2 Card */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Backblaze B2 Card (PRIMARY) */}
             <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">Backblaze B2</h4>
-                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest font-mono">Role: Fallback</span>
+                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest font-mono">Role: Primary Storage</span>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-                  Standby
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  mediaStatus?.b2Configured
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                }`}>
+                  {mediaStatus?.b2Configured ? 'Active Primary' : 'Unconfigured'}
                 </span>
               </div>
               <div className="space-y-1 text-xs text-slate-500 dark:text-zinc-400">
                 <div className="flex justify-between">
                   <span>Usage Metrics:</span>
-                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">Usage data unavailable</span>
+                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">S3 Presigned Bucket</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Events (24h):</span>
@@ -400,21 +375,25 @@ export default function AdminSystemHealth() {
               </div>
             </div>
 
-            {/* Cloudinary Card */}
+            {/* Cloudinary Card (FALLBACK) */}
             <div className="bg-white dark:bg-[#121624] p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">Cloudinary</h4>
-                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest font-mono">Role: Media Processing</span>
+                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest font-mono">Role: Fallback Storage</span>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-                  Optional
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  mediaStatus?.cloudinaryConfigured
+                    ? (mediaStatus?.activePrimaryProvider === 'cloudinary' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20')
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                }`}>
+                  {mediaStatus?.cloudinaryConfigured ? (mediaStatus?.activePrimaryProvider === 'cloudinary' ? 'Active Primary' : 'Standby Fallback') : 'Unconfigured'}
                 </span>
               </div>
               <div className="space-y-1 text-xs text-slate-500 dark:text-zinc-400">
                 <div className="flex justify-between">
-                  <span>Usage Metrics:</span>
-                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">Usage data unavailable</span>
+                  <span>Target Folder:</span>
+                  <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">opencomm-chat-media</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Events (24h):</span>

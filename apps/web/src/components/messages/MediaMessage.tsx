@@ -291,45 +291,50 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
     );
   }
 
-  // 3. VIDEO
+  // 3. VIDEO (Download-First Strategy)
   if (mediaType === 'video' || accessDetails.mediaType === 'video') {
     const durationText = accessDetails.durationMs ? `${Math.floor(accessDetails.durationMs / 1000)}s` : '';
+    const sizeMb = accessDetails.fileSizeBytes ? (accessDetails.fileSizeBytes / (1024 * 1024)).toFixed(1) : '';
 
     return (
-      <div className="relative group overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-black max-w-[280px] sm:max-w-[340px]">
-        {!isVideoPlaying ? (
-          <div className="relative flex items-center justify-center min-h-[160px]">
-            <video
-              src={accessDetails.accessUrl}
-              preload="metadata"
-              className="w-full h-auto max-h-[240px] object-cover opacity-80"
-            />
-            <button
-              onClick={() => {
-                setIsVideoPlaying(true);
-                setTimeout(() => videoRef.current?.play(), 100);
-              }}
-              aria-label="Play video"
-              className="absolute w-12 h-12 rounded-full bg-purple-600/90 hover:bg-purple-500 text-white flex items-center justify-center transition-all cursor-pointer shadow-lg hover:scale-110"
-            >
-              <Play className="w-6 h-6 ml-1" />
-            </button>
-            {durationText && (
-              <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/70 text-white text-[10px] font-mono font-bold">
-                {durationText}
-              </span>
-            )}
+      <div className={`p-3 rounded-2xl flex flex-col space-y-2.5 max-w-[280px] sm:max-w-[320px] ${
+        isSelf
+          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white'
+          : 'bg-slate-100 dark:bg-[#1E293B] text-slate-900 dark:text-white border border-slate-200/60 dark:border-slate-800'
+      }`}>
+        <div className="flex items-center space-x-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+            isSelf ? 'bg-white/20 text-white' : 'bg-purple-600/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400'
+          }`}>
+            <Film className="w-5 h-5" />
           </div>
-        ) : (
-          <video
-            ref={videoRef}
-            src={accessDetails.accessUrl}
-            controls
-            autoPlay
-            onEnded={() => setIsVideoPlaying(false)}
-            className="w-full h-auto max-h-[280px] rounded-2xl"
-          />
-        )}
+
+          <div className="flex-1 min-w-0 text-left">
+            <h4 className="text-xs font-bold truncate">Video Attachment</h4>
+            <div className="flex items-center space-x-2 text-[10px] opacity-80 font-mono">
+              {durationText && <span>{durationText}</span>}
+              {durationText && sizeMb && <span>•</span>}
+              {sizeMb && <span>{sizeMb} MB</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-1 flex items-center space-x-2">
+          <a
+            href={accessDetails.accessUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            download
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm ${
+              isSelf
+                ? 'bg-white text-purple-700 hover:bg-purple-50'
+                : 'bg-purple-600 hover:bg-purple-500 text-white'
+            }`}
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Open / Download Video</span>
+          </a>
+        </div>
       </div>
     );
   }

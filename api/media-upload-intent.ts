@@ -29,14 +29,14 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Cannot send media to an archived conversation.' });
   }
 
-  // 2. Validate media type, size, and duration
+  // 2. Validate media type, size, and duration (Validation failures DO NOT trigger provider fallback!)
   const validation = validateMediaRequest(mediaType as MediaType, mimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
   if (!validation.valid) {
     return res.status(400).json({ error: validation.error });
   }
 
   try {
-    // 3. Create upload target using Storage Provider Router (R2 primary, B2 fallback)
+    // 3. Create upload target using Storage Provider Router (B2 primary, Cloudinary fallback)
     const target = await createUploadTarget(conversationId, mediaType as MediaType, mimeType, Number(fileSizeBytes));
 
     // 4. Save upload intent in database with 24-hour retention window for orphan cleanup
@@ -81,6 +81,8 @@ export default async function handler(req: any, res: any) {
       provider: target.provider,
       uploadUrl: target.uploadUrl,
       objectKey: target.objectKey,
+      uploadMethod: target.uploadMethod || 'PUT',
+      formDataParams: target.formDataParams,
       headers: target.headers,
       expiresInSeconds: target.expiresInSeconds
     });
@@ -88,7 +90,7 @@ export default async function handler(req: any, res: any) {
   } catch (err: any) {
     console.error('Error generating upload intent:', err);
     void recordStorageEvent({
-      provider: 'r2',
+      provider: 'b2',
       operation: 'upload_intent',
       eventType: 'failure',
       httpStatus: 500,

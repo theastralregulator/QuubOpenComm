@@ -332,7 +332,7 @@ BEGIN
     RAISE EXCEPTION 'Mismatch between media_type and message_type.';
   END IF;
 
-  IF p_storage_provider NOT IN ('r2', 'b2') THEN
+  IF p_storage_provider NOT IN ('b2', 'cloudinary', 'r2') THEN
     RAISE EXCEPTION 'Invalid storage_provider.';
   END IF;
 

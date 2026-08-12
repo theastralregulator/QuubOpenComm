@@ -152,12 +152,25 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         throw new Error(intentData.error || 'Failed to get upload authorization target');
       }
 
-      // Phase B: Direct upload binary to provider target
-      const putRes = await fetch(intentData.uploadUrl, {
-        method: 'PUT',
-        headers: intentData.headers || { 'Content-Type': file.type },
-        body: file
-      });
+      // Phase B: Direct upload binary to provider target (PUT for B2, POST form-data for Cloudinary)
+      let putRes: Response;
+      if (intentData.uploadMethod === 'POST' && intentData.formDataParams) {
+        const formData = new FormData();
+        Object.entries(intentData.formDataParams).forEach(([k, v]) => {
+          formData.append(k, v as string);
+        });
+        formData.append('file', file);
+        putRes = await fetch(intentData.uploadUrl, {
+          method: 'POST',
+          body: formData
+        });
+      } else {
+        putRes = await fetch(intentData.uploadUrl, {
+          method: 'PUT',
+          headers: intentData.headers || { 'Content-Type': file.type },
+          body: file
+        });
+      }
 
       if (!putRes.ok) {
         throw new Error(`Direct media upload failed with status ${putRes.status}`);
