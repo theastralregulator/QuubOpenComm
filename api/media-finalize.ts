@@ -85,11 +85,19 @@ export default async function handler(req: any, res: any) {
   const mimeType = claimResult.mime_type;
   const fileSizeBytes = Number(claimResult.file_size_bytes);
 
-  // 2. Server-side HEAD verification of Object Exists, File Size, and MIME Type against canonical intent
+  // Helper to reset intent lease atomically back to pending
+  const resetIntentLeaseToPending = async () => {
+    await adminClient
+      .from('media_upload_intents')
+      .update({ status: 'pending', finalizing_at: null })
+      .eq('id', intentId);
+  };
+
+  // 2. Server-side verification of Object Exists, File Size, and MIME/format against canonical intent
   const verification = await verifyUploadedObject(provider, objectKey, mediaType, mimeType);
   if (!verification.exists) {
-    console.warn(`Object HEAD verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
-    await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+    console.warn(`Object verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
+    await resetIntentLeaseToPending();
 
     void recordStorageEvent({
       provider,
@@ -102,12 +110,12 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Uploaded object was not found in storage bucket.' });
   }
 
-  // Size Validation against intent metadata
+  // Size Validation against intent metadata (tolerance: ±512 bytes)
   if (verification.contentLengthBytes !== undefined && verification.contentLengthBytes !== null) {
     const sizeDiff = Math.abs(verification.contentLengthBytes - fileSizeBytes);
     if (sizeDiff > 512) {
       console.warn(`Object size mismatch for key ${objectKey}: expected ${fileSizeBytes}, found ${verification.contentLengthBytes}`);
-      await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+      await resetIntentLeaseToPending();
 
       void recordStorageEvent({
         provider,
@@ -122,8 +130,37 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // MIME Type Validation against intent metadata
-  if (verification.contentType) {
+  // Provider-Aware Format / MIME Validation
+  if (provider === 'cloudinary') {
+    // Cloudinary format & resource_type validation
+    const resType = verification.resourceType;
+    const format = String(verification.format || '').toLowerCase();
+
+    if (mediaType === 'image') {
+      const allowedImageFormats = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+      if (resType !== 'image' || !allowedImageFormats.includes(format)) {
+        console.warn(`Cloudinary image validation failed: resourceType=${resType}, format=${format}`);
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match image authorization intent.' });
+      }
+    } else if (mediaType === 'video') {
+      const allowedVideoFormats = ['mp4', 'webm', 'mov'];
+      if (resType !== 'video' || !allowedVideoFormats.includes(format)) {
+        console.warn(`Cloudinary video validation failed: resourceType=${resType}, format=${format}`);
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match video authorization intent.' });
+      }
+    } else if (mediaType === 'audio') {
+      // Cloudinary processes audio under resource_type = 'video' (EXPECTED and VALID!)
+      const allowedAudioFormats = ['webm', 'ogg', 'mp3', 'mpeg', 'wav', 'm4a', 'aac', 'mp4'];
+      if (resType !== 'video' || !allowedAudioFormats.includes(format)) {
+        console.warn(`Cloudinary audio validation failed: resourceType=${resType}, format=${format}`);
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match audio authorization intent.' });
+      }
+    }
+  } else if (verification.contentType) {
+    // S3 HEAD ContentType validation for B2 / R2
     const headMime = verification.contentType.split(';')[0].trim().toLowerCase();
     const intentMime = mimeType.split(';')[0].trim().toLowerCase();
 
@@ -136,7 +173,7 @@ export default async function handler(req: any, res: any) {
 
     if (!isMimeCompatible) {
       console.warn(`Object MIME type mismatch for key ${objectKey}: expected ${intentMime}, found ${headMime}`);
-      await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+      await resetIntentLeaseToPending();
 
       void recordStorageEvent({
         provider,
@@ -176,7 +213,7 @@ export default async function handler(req: any, res: any) {
 
     if (rpcError) {
       console.error('Error in finalize_media_message_internal RPC:', rpcError);
-      await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+      await resetIntentLeaseToPending();
 
       void recordStorageEvent({
         provider,
@@ -211,7 +248,7 @@ export default async function handler(req: any, res: any) {
 
   } catch (err: any) {
     console.error('Error finalizing media upload:', err);
-    await adminClient.from('media_upload_intents').update({ status: 'pending' }).eq('id', intentId);
+    await resetIntentLeaseToPending();
 
     void recordStorageEvent({
       provider,

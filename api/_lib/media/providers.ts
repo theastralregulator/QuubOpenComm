@@ -26,7 +26,9 @@ export interface StorageProviderConfig {
 export interface ObjectVerificationResult {
   exists: boolean;
   contentLengthBytes?: number;
-  contentType?: string;
+  contentType?: string; // Trustworthy MIME type from S3 HEAD (B2/R2)
+  format?: string;       // Cloudinary asset format e.g. 'webm', 'jpg', 'png', 'mp4'
+  resourceType?: string; // Cloudinary asset resource_type e.g. 'video', 'image', 'raw'
   error?: string;
 }
 
@@ -288,7 +290,8 @@ export async function verifyUploadedObject(
         return {
           exists: true,
           contentLengthBytes: res.bytes,
-          contentType: res.format ? `${resourceType}/${res.format}` : undefined
+          format: res.format,
+          resourceType: res.resource_type
         };
       }
       return { exists: false, error: 'Cloudinary asset verification returned no matching resource' };
@@ -348,7 +351,7 @@ export async function createDownloadAccessUrl(
     });
 
     const resourceType = getCloudinaryResourceType(mediaType, mimeType);
-    const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds; // 15-minute expiration
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds; // 15-minute expiration timestamp
 
     const accessUrl = cloudinary.url(objectKey, {
       resource_type: resourceType,
