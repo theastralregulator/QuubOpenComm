@@ -257,10 +257,10 @@ export async function createUploadTarget(
           ContentType: cleanMime,
         });
 
-        // Explicitly sign content-type & host in X-Amz-SignedHeaders to ensure B2 SigV4 canonical header verification succeeds!
+        // Sign content-type header explicitly (X-Amz-SignedHeaders=content-type)
         const uploadUrl = await getSignedUrl(b2.client, command, {
           expiresIn: 900,
-          signableHeaders: new Set(['content-type', 'host']),
+          signableHeaders: new Set(['content-type']),
         });
 
         return {

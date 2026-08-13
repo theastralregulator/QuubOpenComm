@@ -44,25 +44,40 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [conversations, setConversations] = useState<ConversationViewModel[]>([]);
   
   const handleSetConversations = (convList: ConversationViewModel[]) => {
-    // Deduplicate exact duplicates by ID (keep latest which is the nature of Map overwriting)
-    const uniqueConversations = Array.from(
-      new Map(convList.map(c => [c.id, c])).values()
-    );
+    // 1. Group conversations by unique context key (otherParticipantId + conversationType + applicationId)
+    const groupedByContext = new Map<string, ConversationViewModel[]>();
 
-    // Detect and log exact context duplicate DB rows
-    const contextMap = new Map<string, string[]>();
-    for (const c of uniqueConversations) {
+    for (const c of convList) {
       const key = `${c.otherParticipantId}-${c.conversationType}-${c.applicationId || 'null'}`;
-      const existing = contextMap.get(key) || [];
-      existing.push(c.id);
-      contextMap.set(key, existing);
-    }
-    const duplicateContexts = Array.from(contextMap.entries()).filter(([_, ids]) => ids.length > 1);
-    if (duplicateContexts.length > 0) {
-      console.warn('[Messages] Exact duplicate contexts found for review (IDs):', duplicateContexts);
+      const group = groupedByContext.get(key) || [];
+      group.push(c);
+      groupedByContext.set(key, group);
     }
 
-    setConversations(uniqueConversations);
+    // 2. Select canonical conversation for each context key
+    const canonicalConversations: ConversationViewModel[] = [];
+    for (const [_, group] of groupedByContext.entries()) {
+      group.sort((a, b) => {
+        const isArchivedA = Boolean(a.archivedAt);
+        const isArchivedB = Boolean(b.archivedAt);
+        // Priority 1: Active (non-archived) before archived
+        if (isArchivedA !== isArchivedB) {
+          return isArchivedA ? 1 : -1;
+        }
+        // Priority 2: Newest message/activity time
+        const timeA = new Date(a.lastMessageTime || a.createdAt || 0).getTime();
+        const timeB = new Date(b.lastMessageTime || b.createdAt || 0).getTime();
+        if (timeA !== timeB) {
+          return timeB - timeA;
+        }
+        // Priority 3: Stable ID tie-break
+        return a.id.localeCompare(b.id);
+      });
+
+      canonicalConversations.push(group[0]);
+    }
+
+    setConversations(canonicalConversations);
   };
   const [loadingConvs, setLoadingConvs] = useState<boolean>(true);
   const [convsError, setConvsError] = useState<string | null>(null);

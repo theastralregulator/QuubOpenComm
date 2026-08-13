@@ -1923,6 +1923,23 @@ export const dbService = {
     await assertUserEmailConfirmed();
     if (supabase) {
       try {
+        // 1. Idempotency Check: Look for existing conversation between these participants
+        const { data: existing } = await supabase
+          .from('conversations')
+          .select('*')
+          .or(`and(creator_id.eq.${creatorId},member_id.eq.${memberId}),and(creator_id.eq.${memberId},member_id.eq.${creatorId})`)
+          .is('archived_at', null)
+          .order('updated_at', { ascending: false });
+
+        if (existing && existing.length > 0) {
+          const match = existing.find(c =>
+            (c.application_id === applicantId || (!c.application_id && !applicantId)) &&
+            (c.job_id === jobId || (!c.job_id && !jobId))
+          ) || existing[0];
+          return match;
+        }
+
+        // 2. Insert new conversation row if none exists
         const { data, error } = await supabase.from('conversations').insert({
           job_id: jobId,
           application_id: applicantId,
