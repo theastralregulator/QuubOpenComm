@@ -108,6 +108,8 @@ function getB2Client(): { client: S3Client; bucket: string } | null {
     endpoint,
     credentials: { accessKeyId: keyId, secretAccessKey: applicationKey },
     forcePathStyle: true, // Path-style URLs (https://s3.<region>.backblazeb2.com/<bucket>/<key>) ensure SSL certificate validity and prevent CORS domain resolution errors in browser uploads!
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   });
 
   return { client, bucket };
@@ -135,6 +137,8 @@ function getR2Client(): { client: S3Client; bucket: string } | null {
     endpoint,
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   });
 
   return { client, bucket };
