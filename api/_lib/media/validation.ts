@@ -1,4 +1,4 @@
-import { MediaType } from './providers';
+import { MediaType } from './providers.js';
 
 export interface MediaValidationResult {
   valid: boolean;

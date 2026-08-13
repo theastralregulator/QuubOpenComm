@@ -1,6 +1,6 @@
-import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth';
-import { createDownloadAccessUrl, StorageProviderType } from './_lib/media/providers';
-import { recordStorageEvent } from './_lib/media/telemetry';
+import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
+import { createDownloadAccessUrl, StorageProviderType } from './_lib/media/providers.js';
+import { recordStorageEvent } from './_lib/media/telemetry.js';
 
 export default async function handler(req: any, res: any) {
   const startTime = Date.now();

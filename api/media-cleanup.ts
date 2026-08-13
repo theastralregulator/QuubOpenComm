@@ -1,6 +1,6 @@
-import { getServiceRoleSupabase } from './_lib/media/auth';
-import { deleteStorageObject, StorageProviderType } from './_lib/media/providers';
-import { recordStorageEvent } from './_lib/media/telemetry';
+import { getServiceRoleSupabase } from './_lib/media/auth.js';
+import { deleteStorageObject, StorageProviderType } from './_lib/media/providers.js';
+import { recordStorageEvent } from './_lib/media/telemetry.js';
 
 export default async function handler(req: any, res: any) {
   // Authorization check: Vercel Cron, MEDIA_CRON_SECRET, or Canonical Admin Member

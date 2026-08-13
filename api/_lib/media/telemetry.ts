@@ -1,4 +1,4 @@
-import { getServiceRoleSupabase } from './auth';
+import { getServiceRoleSupabase } from './auth.js';
 
 export type TelemetryOperation = 'upload_intent' | 'upload_finalize' | 'access' | 'delete' | 'health';
 export type TelemetryEventType = 'success' | 'failure' | 'rate_limited' | 'unauthorized' | 'timeout';

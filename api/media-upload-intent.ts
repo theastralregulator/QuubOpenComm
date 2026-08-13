@@ -1,7 +1,7 @@
-import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth';
-import { createUploadTarget, MediaType } from './_lib/media/providers';
-import { validateMediaRequest } from './_lib/media/validation';
-import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry';
+import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
+import { createUploadTarget, MediaType } from './_lib/media/providers.js';
+import { validateMediaRequest } from './_lib/media/validation.js';
+import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 
 export default async function handler(req: any, res: any) {
   const startTime = Date.now();

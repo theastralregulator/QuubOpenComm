@@ -1,4 +1,4 @@
-import { checkStorageProvidersConfig } from './_lib/media/providers';
+import { checkStorageProvidersConfig } from './_lib/media/providers.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
