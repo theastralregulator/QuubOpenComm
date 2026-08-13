@@ -206,18 +206,31 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         if (!putRes.ok) {
           const errorText = await putRes.text().catch(() => '');
           let xmlCode = '';
+          let cloudinaryMessage = '';
+
+          // Try parsing Cloudinary JSON error if present
+          try {
+            const parsed = JSON.parse(errorText);
+            if (parsed.error && parsed.error.message) {
+              cloudinaryMessage = parsed.error.message;
+            }
+          } catch (e) {}
+
+          // Try parsing S3/B2 XML Code if present
           const codeMatch = errorText.match(/<Code>(.*?)<\/Code>/i);
           if (codeMatch && codeMatch[1]) {
             xmlCode = codeMatch[1];
           }
+
           console.error(`[MediaUpload] ${preferredProvider || 'primary'}-upload`, {
             provider: intentData.provider,
             hostname: targetHost,
             status: putRes.status,
             statusText: putRes.statusText,
-            xmlCode: xmlCode || undefined
+            xmlCode: xmlCode || undefined,
+            cloudinaryMessage: cloudinaryMessage || undefined
           });
-          throw new Error(`Storage upload rejected (HTTP ${putRes.status}${xmlCode ? ` ${xmlCode}` : ''})`);
+          throw new Error(`Storage upload rejected (HTTP ${putRes.status}${xmlCode ? ` ${xmlCode}` : ''}${cloudinaryMessage ? `: ${cloudinaryMessage}` : ''})`);
         } else {
           console.log(`[MediaUpload] ${preferredProvider || 'primary'}-upload`, {
             provider: intentData.provider,

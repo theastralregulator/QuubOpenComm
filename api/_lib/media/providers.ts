@@ -188,7 +188,8 @@ function createCloudinaryUploadTarget(
   const folder = 'opencomm-chat-media';
   const timestamp = Math.floor(Date.now() / 1000);
   const rawObjectKey = generateObjectKey(conversationId, mediaType, mimeType);
-  const publicId = rawObjectKey.replace(/[^a-zA-Z0-9_\-\/]/g, '_');
+  const cleanKeyWithoutExt = rawObjectKey.replace(/\.[^/.]+$/, '');
+  const publicId = cleanKeyWithoutExt.replace(/[^a-zA-Z0-9_\-\/]/g, '_');
   const resourceType = getCloudinaryResourceType(mediaType, mimeType);
   const deliveryType = 'authenticated'; // Enforce authenticated delivery!
 
