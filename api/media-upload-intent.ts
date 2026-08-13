@@ -1,5 +1,5 @@
 import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
-import { createUploadTarget, MediaType } from './_lib/media/providers.js';
+import { createUploadTarget, MediaType, StorageProviderType } from './_lib/media/providers.js';
 import { validateMediaRequest, normalizeMimeType } from './_lib/media/validation.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 
@@ -14,7 +14,7 @@ export default async function handler(req: any, res: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs } = req.body || {};
+  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs, preferredProvider } = req.body || {};
 
   if (!conversationId || !mediaType || !mimeType || !fileSizeBytes) {
     return res.status(400).json({ error: 'Missing required upload parameters' });
@@ -23,7 +23,7 @@ export default async function handler(req: any, res: any) {
   // Normalize MIME type defensively (e.g. "audio/webm;codecs=opus" -> "audio/webm")
   const cleanMimeType = normalizeMimeType(mimeType);
 
-  // 1. Verify conversation authorization (supports creator_id, member_id, conversation_members) & archive status
+  // 1. Verify conversation authorization & archive status
   const check = await verifyConversationParticipant(authUser.userId, conversationId);
   if (!check.allowed) {
     return res.status(403).json({ error: check.errorMsg || 'Forbidden' });
@@ -32,41 +32,48 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Cannot send media to an archived conversation.' });
   }
 
-  // 2. Validate media type, size, and duration (Validation failures DO NOT trigger provider fallback!)
+  // 2. Validate media type, size, and duration
   const validation = validateMediaRequest(mediaType as MediaType, cleanMimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
   if (!validation.valid) {
     return res.status(400).json({ error: validation.error });
   }
 
+  const adminClient = getServiceRoleSupabase();
+  if (!adminClient) {
+    return res.status(500).json({ error: 'Server database configuration unavailable' });
+  }
+
   try {
-    // 3. Create upload target using Storage Provider Router (B2 primary, Cloudinary fallback)
-    const target = await createUploadTarget(conversationId, mediaType as MediaType, cleanMimeType, Number(fileSizeBytes));
+    // 3. Create upload target using Storage Provider Router (B2 primary, Cloudinary fallback, or explicit preferredProvider)
+    const target = await createUploadTarget(
+      conversationId,
+      mediaType as MediaType,
+      cleanMimeType,
+      Number(fileSizeBytes),
+      preferredProvider as StorageProviderType | undefined
+    );
 
     // 4. Save upload intent in database with 24-hour retention window for orphan cleanup
-    const adminClient = getServiceRoleSupabase();
-    let intentId: string | null = null;
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: intent, error: intentErr } = await adminClient
+      .from('media_upload_intents')
+      .insert({
+        user_id: authUser.userId,
+        conversation_id: conversationId,
+        provider: target.provider,
+        object_key: target.objectKey,
+        media_type: mediaType,
+        mime_type: cleanMimeType,
+        file_size_bytes: Number(fileSizeBytes),
+        status: 'pending',
+        expires_at: expiresAt
+      })
+      .select('id')
+      .single();
 
-    if (adminClient) {
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { data: intent, error: intentErr } = await adminClient
-        .from('media_upload_intents')
-        .insert({
-          user_id: authUser.userId,
-          conversation_id: conversationId,
-          provider: target.provider,
-          object_key: target.objectKey,
-          media_type: mediaType,
-          mime_type: cleanMimeType,
-          file_size_bytes: Number(fileSizeBytes),
-          status: 'pending',
-          expires_at: expiresAt
-        })
-        .select('id')
-        .single();
-
-      if (!intentErr && intent) {
-        intentId = intent.id;
-      }
+    if (intentErr || !intent) {
+      console.error('Error inserting upload intent record:', intentErr);
+      return res.status(500).json({ error: 'Failed to record upload authorization intent record.' });
     }
 
     void recordStorageEvent({
@@ -80,7 +87,7 @@ export default async function handler(req: any, res: any) {
     });
 
     return res.status(200).json({
-      intentId,
+      intentId: intent.id,
       provider: target.provider,
       uploadUrl: target.uploadUrl,
       objectKey: target.objectKey,

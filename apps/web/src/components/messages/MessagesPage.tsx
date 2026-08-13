@@ -131,14 +131,15 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         return;
       }
 
-      // Normalize MIME type defensively (e.g. "audio/webm;codecs=opus" -> "audio/webm")
+      // Normalize MIME type defensively and ensure upload Blob has clean mime type
       const rawMime = file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4');
       const cleanMimeType = rawMime.split(';')[0].trim().toLowerCase();
+      const uploadFile = file.type !== cleanMimeType ? new Blob([file], { type: cleanMimeType }) : file;
 
-      // Phase A: Request upload intent
-      let intentRes: Response;
-      try {
-        intentRes = await fetch('/api/media-upload-intent', {
+      // Helper function to execute upload flow for a given target provider preference
+      const executeUploadFlow = async (preferredProvider?: 'b2' | 'cloudinary') => {
+        // Phase A: Request upload intent
+        const intentRes = await fetch('/api/media-upload-intent', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -148,28 +149,30 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             conversationId,
             mediaType,
             mimeType: cleanMimeType,
-            fileSizeBytes: file.size,
-            durationMs
+            fileSizeBytes: uploadFile.size,
+            durationMs,
+            preferredProvider
           })
         });
-      } catch (err) {
-        throw new Error('Upload authorization network request failed');
-      }
 
-      const intentData = await intentRes.json().catch(() => ({}));
-      if (!intentRes.ok || !intentData.uploadUrl) {
-        throw new Error(intentData.error || 'Upload authorization failed');
-      }
+        const intentData = await intentRes.json().catch(() => ({}));
+        if (!intentRes.ok || !intentData.uploadUrl || !intentData.intentId) {
+          throw new Error(intentData.error || 'Upload authorization failed');
+        }
 
-      // Phase B: Direct upload binary to provider target (PUT for B2, POST form-data for Cloudinary)
-      let putRes: Response;
-      try {
+        // Phase B: Direct upload binary to provider target
+        let targetHost = 'unknown';
+        try {
+          targetHost = new URL(intentData.uploadUrl).hostname;
+        } catch (e) {}
+
+        let putRes: Response;
         if (intentData.uploadMethod === 'POST' && intentData.formDataParams) {
           const formData = new FormData();
           Object.entries(intentData.formDataParams).forEach(([k, v]) => {
             formData.append(k, v as string);
           });
-          formData.append('file', file);
+          formData.append('file', uploadFile);
           putRes = await fetch(intentData.uploadUrl, {
             method: 'POST',
             body: formData
@@ -178,38 +181,30 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           putRes = await fetch(intentData.uploadUrl, {
             method: 'PUT',
             headers: intentData.headers || { 'Content-Type': cleanMimeType },
-            body: file
+            body: uploadFile
           });
         }
-      } catch (err: any) {
-        let targetHost = 'unknown';
-        try {
-          targetHost = new URL(intentData.uploadUrl).hostname;
-        } catch (e) {}
 
-        console.error('[Media Direct Upload Network Error]', {
-          provider: intentData.provider,
-          hostname: targetHost,
-          errorName: err?.name,
-          errorMessage: err?.message
-        });
-        throw new Error(`Direct ${intentData.provider || 'storage'} upload failed to target [${targetHost}] (${err?.name || 'NetworkError'}: ${err?.message || 'Failed to fetch'})`);
-      }
+        if (!putRes.ok) {
+          const errorText = await putRes.text().catch(() => '');
+          let xmlCode = '';
+          const codeMatch = errorText.match(/<Code>(.*?)<\/Code>/i);
+          if (codeMatch && codeMatch[1]) {
+            xmlCode = codeMatch[1];
+          }
+          console.error('[Media Storage Upload Rejected]', {
+            provider: intentData.provider,
+            hostname: targetHost,
+            status: putRes.status,
+            statusText: putRes.statusText,
+            xmlCode: xmlCode || undefined
+          });
+          throw new Error(`Storage upload rejected (HTTP ${putRes.status}${xmlCode ? ` ${xmlCode}` : ''})`);
+        }
 
-      if (!putRes.ok) {
-        let targetHost = 'unknown';
-        try {
-          targetHost = new URL(intentData.uploadUrl).hostname;
-        } catch (e) {}
-
-        throw new Error(`Storage upload rejected by ${intentData.provider || 'storage'} target [${targetHost}] (HTTP ${putRes.status})`);
-      }
-
-      // Phase C: Finalize upload & create message record
-      const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
-      let finalizeRes: Response;
-      try {
-        finalizeRes = await fetch('/api/media-finalize', {
+        // Phase C: Finalize upload & create message record
+        const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
+        const finalizeRes = await fetch('/api/media-finalize', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -222,29 +217,43 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             objectKey: intentData.objectKey,
             mediaType,
             mimeType: cleanMimeType,
-            fileSizeBytes: file.size,
+            fileSizeBytes: uploadFile.size,
             durationMs,
             width,
             height,
-            originalFilename: file.name,
+            originalFilename: (file as File).name || undefined,
             previewText
           })
         });
-      } catch (err) {
-        throw new Error('Media finalization network request failed');
-      }
 
-      const finalizeData = await finalizeRes.json().catch(() => ({}));
-      if (!finalizeRes.ok || !finalizeData.success) {
-        throw new Error(finalizeData.error || 'Media finalization failed');
+        const finalizeData = await finalizeRes.json().catch(() => ({}));
+        if (!finalizeRes.ok || !finalizeData.success) {
+          throw new Error(finalizeData.error || 'Media finalization failed');
+        }
+
+        return true;
+      };
+
+      // Primary Attempt: Try primary provider (Backblaze B2)
+      try {
+        await executeUploadFlow();
+      } catch (primaryErr: any) {
+        console.warn('[Media Primary Upload Failed, Attempting Controlled Cloudinary Fallback]:', primaryErr?.message);
+        // Controlled Fallback: Try Cloudinary if primary direct upload failed
+        try {
+          await executeUploadFlow('cloudinary');
+        } catch (fallbackErr: any) {
+          console.error('[Media Fallback Upload Also Failed]:', fallbackErr);
+          throw new Error('Media upload failed. Please try again.');
+        }
       }
 
       setSelectedMedia(null);
       setIsVoiceRecording(false);
 
     } catch (err: any) {
-      console.error('Error sending media message:', err);
-      triggerToast(err.message || 'Failed to send media message.');
+      console.error('[Media Send Flow Error]:', err);
+      triggerToast('Media upload failed. Please try again.');
     } finally {
       setIsUploadingMedia(false);
     }
