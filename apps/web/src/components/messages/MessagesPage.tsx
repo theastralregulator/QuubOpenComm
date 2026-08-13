@@ -182,12 +182,27 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           });
         }
       } catch (err: any) {
-        console.error('[Media Direct Upload Network/CORS Error]:', err);
-        throw new Error('Storage provider direct upload network/CORS error');
+        let targetHost = 'unknown';
+        try {
+          targetHost = new URL(intentData.uploadUrl).hostname;
+        } catch (e) {}
+
+        console.error('[Media Direct Upload Network Error]', {
+          provider: intentData.provider,
+          hostname: targetHost,
+          errorName: err?.name,
+          errorMessage: err?.message
+        });
+        throw new Error(`Direct ${intentData.provider || 'storage'} upload failed to target [${targetHost}] (${err?.name || 'NetworkError'}: ${err?.message || 'Failed to fetch'})`);
       }
 
       if (!putRes.ok) {
-        throw new Error(`Storage upload rejected (HTTP ${putRes.status})`);
+        let targetHost = 'unknown';
+        try {
+          targetHost = new URL(intentData.uploadUrl).hostname;
+        } catch (e) {}
+
+        throw new Error(`Storage upload rejected by ${intentData.provider || 'storage'} target [${targetHost}] (HTTP ${putRes.status})`);
       }
 
       // Phase C: Finalize upload & create message record
