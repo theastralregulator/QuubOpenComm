@@ -2,6 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, Head
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v2 as cloudinary } from 'cloudinary';
 import crypto from 'crypto';
+import { normalizeMimeType } from './validation.js';
 
 export type StorageProviderType = 'r2' | 'b2' | 'cloudinary';
 export type MediaType = 'image' | 'video' | 'audio';
@@ -157,6 +158,7 @@ export async function createUploadTarget(
   mimeType: string,
   fileSizeBytes: number
 ): Promise<UploadTargetResult> {
+  const cleanMime = normalizeMimeType(mimeType);
   const config = checkStorageProvidersConfig();
 
   // Primary Choice: Backblaze B2
@@ -164,12 +166,11 @@ export async function createUploadTarget(
     try {
       const b2 = getB2Client();
       if (b2) {
-        const objectKey = generateObjectKey(conversationId, mediaType, mimeType);
+        const objectKey = generateObjectKey(conversationId, mediaType, cleanMime);
         const command = new PutObjectCommand({
           Bucket: b2.bucket,
           Key: objectKey,
-          ContentType: mimeType,
-          ContentLength: fileSizeBytes,
+          ContentType: cleanMime,
         });
 
         const uploadUrl = await getSignedUrl(b2.client, command, { expiresIn: 900 }); // 15 min
@@ -178,7 +179,7 @@ export async function createUploadTarget(
           uploadUrl,
           objectKey,
           uploadMethod: 'PUT',
-          headers: { 'Content-Type': mimeType },
+          headers: { 'Content-Type': cleanMime },
           expiresInSeconds: 900,
         };
       }

@@ -1,6 +1,6 @@
 import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
 import { createUploadTarget, MediaType } from './_lib/media/providers.js';
-import { validateMediaRequest } from './_lib/media/validation.js';
+import { validateMediaRequest, normalizeMimeType } from './_lib/media/validation.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 
 export default async function handler(req: any, res: any) {
@@ -20,6 +20,9 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing required upload parameters' });
   }
 
+  // Normalize MIME type defensively (e.g. "audio/webm;codecs=opus" -> "audio/webm")
+  const cleanMimeType = normalizeMimeType(mimeType);
+
   // 1. Verify conversation authorization (supports creator_id, member_id, conversation_members) & archive status
   const check = await verifyConversationParticipant(authUser.userId, conversationId);
   if (!check.allowed) {
@@ -30,14 +33,14 @@ export default async function handler(req: any, res: any) {
   }
 
   // 2. Validate media type, size, and duration (Validation failures DO NOT trigger provider fallback!)
-  const validation = validateMediaRequest(mediaType as MediaType, mimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
+  const validation = validateMediaRequest(mediaType as MediaType, cleanMimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
   if (!validation.valid) {
     return res.status(400).json({ error: validation.error });
   }
 
   try {
     // 3. Create upload target using Storage Provider Router (B2 primary, Cloudinary fallback)
-    const target = await createUploadTarget(conversationId, mediaType as MediaType, mimeType, Number(fileSizeBytes));
+    const target = await createUploadTarget(conversationId, mediaType as MediaType, cleanMimeType, Number(fileSizeBytes));
 
     // 4. Save upload intent in database with 24-hour retention window for orphan cleanup
     const adminClient = getServiceRoleSupabase();
@@ -53,7 +56,7 @@ export default async function handler(req: any, res: any) {
           provider: target.provider,
           object_key: target.objectKey,
           media_type: mediaType,
-          mime_type: mimeType,
+          mime_type: cleanMimeType,
           file_size_bytes: Number(fileSizeBytes),
           status: 'pending',
           expires_at: expiresAt

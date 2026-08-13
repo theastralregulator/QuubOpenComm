@@ -131,78 +131,97 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         return;
       }
 
-      // Phase A: Request upload intent
-      const intentRes = await fetch('/api/media-upload-intent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          conversationId,
-          mediaType,
-          mimeType: file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4'),
-          fileSizeBytes: file.size,
-          durationMs
-        })
-      });
+      // Normalize MIME type defensively (e.g. "audio/webm;codecs=opus" -> "audio/webm")
+      const rawMime = file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4');
+      const cleanMimeType = rawMime.split(';')[0].trim().toLowerCase();
 
-      const intentData = await intentRes.json();
+      // Phase A: Request upload intent
+      let intentRes: Response;
+      try {
+        intentRes = await fetch('/api/media-upload-intent', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({
+            conversationId,
+            mediaType,
+            mimeType: cleanMimeType,
+            fileSizeBytes: file.size,
+            durationMs
+          })
+        });
+      } catch (err) {
+        throw new Error('Upload authorization network request failed');
+      }
+
+      const intentData = await intentRes.json().catch(() => ({}));
       if (!intentRes.ok || !intentData.uploadUrl) {
-        throw new Error(intentData.error || 'Failed to get upload authorization target');
+        throw new Error(intentData.error || 'Upload authorization failed');
       }
 
       // Phase B: Direct upload binary to provider target (PUT for B2, POST form-data for Cloudinary)
       let putRes: Response;
-      if (intentData.uploadMethod === 'POST' && intentData.formDataParams) {
-        const formData = new FormData();
-        Object.entries(intentData.formDataParams).forEach(([k, v]) => {
-          formData.append(k, v as string);
-        });
-        formData.append('file', file);
-        putRes = await fetch(intentData.uploadUrl, {
-          method: 'POST',
-          body: formData
-        });
-      } else {
-        putRes = await fetch(intentData.uploadUrl, {
-          method: 'PUT',
-          headers: intentData.headers || { 'Content-Type': file.type },
-          body: file
-        });
+      try {
+        if (intentData.uploadMethod === 'POST' && intentData.formDataParams) {
+          const formData = new FormData();
+          Object.entries(intentData.formDataParams).forEach(([k, v]) => {
+            formData.append(k, v as string);
+          });
+          formData.append('file', file);
+          putRes = await fetch(intentData.uploadUrl, {
+            method: 'POST',
+            body: formData
+          });
+        } else {
+          putRes = await fetch(intentData.uploadUrl, {
+            method: 'PUT',
+            headers: intentData.headers || { 'Content-Type': cleanMimeType },
+            body: file
+          });
+        }
+      } catch (err: any) {
+        console.error('[Media Direct Upload Network/CORS Error]:', err);
+        throw new Error('Storage provider direct upload network/CORS error');
       }
 
       if (!putRes.ok) {
-        throw new Error(`Direct media upload failed with status ${putRes.status}`);
+        throw new Error(`Storage upload rejected (HTTP ${putRes.status})`);
       }
 
       // Phase C: Finalize upload & create message record
       const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
-      const finalizeRes = await fetch('/api/media-finalize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          intentId: intentData.intentId,
-          conversationId,
-          provider: intentData.provider,
-          objectKey: intentData.objectKey,
-          mediaType,
-          mimeType: file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4'),
-          fileSizeBytes: file.size,
-          durationMs,
-          width,
-          height,
-          originalFilename: file.name,
-          previewText
-        })
-      });
+      let finalizeRes: Response;
+      try {
+        finalizeRes = await fetch('/api/media-finalize', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({
+            intentId: intentData.intentId,
+            conversationId,
+            provider: intentData.provider,
+            objectKey: intentData.objectKey,
+            mediaType,
+            mimeType: cleanMimeType,
+            fileSizeBytes: file.size,
+            durationMs,
+            width,
+            height,
+            originalFilename: file.name,
+            previewText
+          })
+        });
+      } catch (err) {
+        throw new Error('Media finalization network request failed');
+      }
 
-      const finalizeData = await finalizeRes.json();
+      const finalizeData = await finalizeRes.json().catch(() => ({}));
       if (!finalizeRes.ok || !finalizeData.success) {
-        throw new Error(finalizeData.error || 'Failed to finalize media message');
+        throw new Error(finalizeData.error || 'Media finalization failed');
       }
 
       setSelectedMedia(null);

@@ -1,6 +1,7 @@
 import { verifyUserAuth, getServiceRoleSupabase } from './_lib/media/auth.js';
 import { verifyUploadedObject, StorageProviderType } from './_lib/media/providers.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
+import { normalizeMimeType } from './_lib/media/validation.js';
 
 export default async function handler(req: any, res: any) {
   const startTime = Date.now();
@@ -83,6 +84,7 @@ export default async function handler(req: any, res: any) {
   const objectKey = claimResult.object_key;
   const mediaType = claimResult.media_type;
   const mimeType = claimResult.mime_type;
+  const cleanMimeType = normalizeMimeType(mimeType);
   const fileSizeBytes = Number(claimResult.file_size_bytes);
 
   // Helper to reset intent lease atomically back to pending
@@ -94,7 +96,7 @@ export default async function handler(req: any, res: any) {
   };
 
   // 2. Server-side verification of Object Exists, File Size, and MIME/format against canonical intent
-  const verification = await verifyUploadedObject(provider, objectKey, mediaType, mimeType);
+  const verification = await verifyUploadedObject(provider, objectKey, mediaType, cleanMimeType);
   if (!verification.exists) {
     console.warn(`Object verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
     await resetIntentLeaseToPending();
@@ -161,8 +163,8 @@ export default async function handler(req: any, res: any) {
     }
   } else if (verification.contentType) {
     // S3 HEAD ContentType validation for B2 / R2
-    const headMime = verification.contentType.split(';')[0].trim().toLowerCase();
-    const intentMime = mimeType.split(';')[0].trim().toLowerCase();
+    const headMime = normalizeMimeType(verification.contentType);
+    const intentMime = cleanMimeType;
 
     const isMimeCompatible = (
       headMime === intentMime ||
@@ -203,7 +205,7 @@ export default async function handler(req: any, res: any) {
       p_media_type: mediaType,
       p_storage_provider: provider,
       p_object_key: objectKey,
-      p_mime_type: mimeType,
+      p_mime_type: cleanMimeType,
       p_file_size_bytes: fileSizeBytes,
       p_duration_ms: durationMs ? Number(durationMs) : null,
       p_width: width ? Number(width) : null,

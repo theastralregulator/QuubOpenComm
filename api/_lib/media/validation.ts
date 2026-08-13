@@ -5,6 +5,11 @@ export interface MediaValidationResult {
   error?: string;
 }
 
+export function normalizeMimeType(mimeType: string): string {
+  if (!mimeType || typeof mimeType !== 'string') return '';
+  return mimeType.split(';')[0].trim().toLowerCase();
+}
+
 export const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 export const MAX_AUDIO_DURATION_MS = 5 * 60 * 1000; // 5 min
 
@@ -29,9 +34,10 @@ export function validateMediaRequest(
     return { valid: false, error: 'Invalid media type.' };
   }
 
+  const cleanMime = normalizeMimeType(mimeType);
   const allowedForType = ALLOWED_MIME_TYPES[mediaType] || [];
-  if (!allowedForType.includes(mimeType.toLowerCase())) {
-    return { valid: false, error: `Unsupported MIME type '${mimeType}' for ${mediaType}.` };
+  if (!allowedForType.includes(cleanMime)) {
+    return { valid: false, error: `Unsupported MIME type '${cleanMime || mimeType}' for ${mediaType}.` };
   }
 
   if (mediaType === 'audio') {
