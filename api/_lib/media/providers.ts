@@ -210,10 +210,12 @@ function createCloudinaryUploadTarget(
   const signature = cloudinary.utils.api_sign_request(paramsToSign, apiSecret);
   const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
 
+  const fullPublicId = `${folder}/${publicId}`;
+
   return {
     provider: 'cloudinary',
     uploadUrl,
-    objectKey: publicId,
+    objectKey: fullPublicId,
     uploadMethod: 'POST',
     formDataParams: {
       api_key: apiKey,
