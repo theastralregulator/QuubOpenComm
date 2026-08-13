@@ -91,17 +91,23 @@ function getB2Client(): { client: S3Client; bucket: string } | null {
   const keyId = process.env.B2_KEY_ID;
   const applicationKey = process.env.B2_APPLICATION_KEY;
   const bucket = process.env.B2_BUCKET_NAME;
-  const endpoint = process.env.B2_ENDPOINT;
+  const rawEndpoint = process.env.B2_ENDPOINT;
   const region = process.env.B2_REGION || 'us-west-004';
 
-  if (!keyId || !applicationKey || !bucket || !endpoint) {
+  if (!keyId || !applicationKey || !bucket || !rawEndpoint) {
     return null;
+  }
+
+  let endpoint = rawEndpoint.trim().replace(/\/+$/, '');
+  if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
+    endpoint = `https://${endpoint}`;
   }
 
   const client = new S3Client({
     region,
     endpoint,
     credentials: { accessKeyId: keyId, secretAccessKey: applicationKey },
+    forcePathStyle: true, // Path-style URLs (https://s3.<region>.backblazeb2.com/<bucket>/<key>) ensure SSL certificate validity and prevent CORS domain resolution errors in browser uploads!
   });
 
   return { client, bucket };
@@ -113,16 +119,22 @@ function getR2Client(): { client: S3Client; bucket: string } | null {
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
   const bucket = process.env.R2_BUCKET_NAME;
   const accountId = process.env.R2_ACCOUNT_ID;
-  const endpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
+  const rawEndpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
 
-  if (!accessKeyId || !secretAccessKey || !bucket || !endpoint) {
+  if (!accessKeyId || !secretAccessKey || !bucket || !rawEndpoint) {
     return null;
+  }
+
+  let endpoint = rawEndpoint.trim().replace(/\/+$/, '');
+  if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
+    endpoint = `https://${endpoint}`;
   }
 
   const client = new S3Client({
     region: 'auto',
     endpoint,
     credentials: { accessKeyId, secretAccessKey },
+    forcePathStyle: true,
   });
 
   return { client, bucket };
