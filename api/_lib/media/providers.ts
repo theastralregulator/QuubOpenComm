@@ -189,7 +189,11 @@ export async function createUploadTarget(
           ContentType: cleanMime,
         });
 
-        const uploadUrl = await getSignedUrl(b2.client, command, { expiresIn: 900 }); // 15 min
+        // Explicitly sign content-type & host in X-Amz-SignedHeaders to ensure B2 SigV4 canonical header verification succeeds!
+        const uploadUrl = await getSignedUrl(b2.client, command, {
+          expiresIn: 900,
+          signableHeaders: new Set(['content-type', 'host']),
+        });
         return {
           provider: 'b2',
           uploadUrl,
@@ -455,4 +459,98 @@ export async function deleteStorageObject(
   }
 
   return false;
+}
+
+// Server-side diagnostic runner for Backblaze B2 S3 API
+export async function runB2Diagnostic(): Promise<{
+  configured: boolean;
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
+  directSdkPutSuccess?: boolean;
+  directSdkPutError?: string;
+  presignedPutSuccess?: boolean;
+  presignedPutHttpStatus?: number;
+  presignedPutError?: string;
+}> {
+  const b2 = getB2Client();
+  if (!b2) {
+    return { configured: false };
+  }
+
+  const region = process.env.B2_REGION || 'us-west-004';
+  const endpoint = process.env.B2_ENDPOINT;
+  const testKey = `opencomm_media/diag_test_${Date.now()}.txt`;
+  const testContent = Buffer.from('opencomm_b2_diag_test');
+  const testMime = 'text/plain';
+
+  let directSdkPutSuccess = false;
+  let directSdkPutError: string | undefined;
+  let presignedPutSuccess = false;
+  let presignedPutHttpStatus: number | undefined;
+  let presignedPutError: string | undefined;
+
+  // Step A: Test direct server-side SDK PutObjectCommand
+  try {
+    const putCmd = new PutObjectCommand({
+      Bucket: b2.bucket,
+      Key: testKey,
+      ContentType: testMime,
+      Body: testContent,
+    });
+    await b2.client.send(putCmd);
+    directSdkPutSuccess = true;
+  } catch (err: any) {
+    directSdkPutError = err?.message || String(err);
+  }
+
+  // Step B: Test server-side presigned HTTP PUT with signableHeaders content-type & host
+  try {
+    const command = new PutObjectCommand({
+      Bucket: b2.bucket,
+      Key: testKey,
+      ContentType: testMime,
+    });
+    const presignedUrl = await getSignedUrl(b2.client, command, {
+      expiresIn: 300,
+      signableHeaders: new Set(['content-type', 'host']),
+    });
+
+    const res = await fetch(presignedUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': testMime },
+      body: testContent,
+    });
+
+    presignedPutHttpStatus = res.status;
+    if (res.ok) {
+      presignedPutSuccess = true;
+    } else {
+      const bodyText = await res.text().catch(() => '');
+      presignedPutError = `HTTP ${res.status} ${res.statusText}: ${bodyText.substring(0, 200)}`;
+    }
+  } catch (err: any) {
+    presignedPutError = err?.message || String(err);
+  }
+
+  // Step C: Clean up test object
+  try {
+    const delCmd = new DeleteObjectCommand({
+      Bucket: b2.bucket,
+      Key: testKey,
+    });
+    await b2.client.send(delCmd);
+  } catch (e) {}
+
+  return {
+    configured: true,
+    bucket: b2.bucket,
+    endpoint,
+    region,
+    directSdkPutSuccess,
+    directSdkPutError,
+    presignedPutSuccess,
+    presignedPutHttpStatus,
+    presignedPutError,
+  };
 }

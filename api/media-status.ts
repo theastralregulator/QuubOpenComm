@@ -1,4 +1,4 @@
-import { checkStorageProvidersConfig } from './_lib/media/providers.js';
+import { checkStorageProvidersConfig, runB2Diagnostic } from './_lib/media/providers.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
@@ -8,6 +8,11 @@ export default async function handler(req: any, res: any) {
   const config = checkStorageProvidersConfig();
   const mediaMessagingEnabled = Boolean(config.activePrimaryProvider);
 
+  let b2Diagnostic = undefined;
+  if (req.query?.diag === '1' && config.b2Configured) {
+    b2Diagnostic = await runB2Diagnostic();
+  }
+
   return res.status(200).json({
     mediaMessagingEnabled,
     voiceEnabled: mediaMessagingEnabled,
@@ -15,6 +20,7 @@ export default async function handler(req: any, res: any) {
     videoEnabled: mediaMessagingEnabled,
     activePrimaryProvider: config.activePrimaryProvider,
     b2Configured: config.b2Configured,
-    cloudinaryConfigured: config.cloudinaryConfigured
+    cloudinaryConfigured: config.cloudinaryConfigured,
+    b2Diagnostic
   });
 }
