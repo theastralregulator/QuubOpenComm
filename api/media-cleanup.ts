@@ -3,9 +3,9 @@ import { deleteStorageObject, StorageProviderType } from './_lib/media/providers
 import { recordStorageEvent } from './_lib/media/telemetry.js';
 
 export default async function handler(req: any, res: any) {
-  // Authorization check: Vercel Cron, MEDIA_CRON_SECRET, or Canonical Admin Member
+  // Authorization check: Vercel Cron, CRON_SECRET, MEDIA_CRON_SECRET, or Canonical Admin Member
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
-  const cronSecret = process.env.MEDIA_CRON_SECRET;
+  const cronSecret = process.env.CRON_SECRET || process.env.MEDIA_CRON_SECRET;
   const isVercelCron = req.headers['x-vercel-cron'] === '1';
 
   let authorized = isVercelCron;
