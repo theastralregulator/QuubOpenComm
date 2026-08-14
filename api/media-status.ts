@@ -23,6 +23,7 @@ export default async function handler(req: any, res: any) {
     b2Configured: config.b2Configured,
     b2CorsStatus: config.b2CorsStatus,
     b2CorsReady: config.b2CorsReady,
+    b2Diagnostic: config.b2Diagnostic,
 
     cloudinaryConfigured: config.cloudinaryConfigured
   });
