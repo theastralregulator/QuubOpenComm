@@ -108,7 +108,9 @@ export function getTrustedOriginsList(): string[] {
 // Read-only check for Backblaze B2 CORS configuration (NEVER mutates bucket configuration on public API calls!)
 export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsStatus> {
   const now = Date.now();
-  // Live diagnostic evaluation
+  if (!forceRefresh && cachedB2CorsStatus && (now - cachedB2CorsStatus.checkedAt < 5 * 60 * 1000)) {
+    return cachedB2CorsStatus.status;
+  }
 
   const b2 = getB2Client();
   if (!b2) {
