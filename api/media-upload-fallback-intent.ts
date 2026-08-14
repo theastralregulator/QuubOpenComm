@@ -13,6 +13,7 @@ export default async function handler(req: any, res: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  // Reject any attempt by client to pass provider override parameters!
   const { originalIntentId } = req.body || {};
 
   if (!originalIntentId) {
@@ -25,32 +26,29 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // 1. Fetch original intent record
-    const { data: origIntent, error: fetchErr } = await adminClient
+    // 1. ATOMICALLY CLAIM original intent to prevent race conditions & duplicate fallback intents
+    const { data: origIntent, error: claimErr } = await adminClient
       .from('media_upload_intents')
-      .select('*')
+      .update({ status: 'failed' })
       .eq('id', originalIntentId)
+      .eq('user_id', authUser.userId)
+      .eq('status', 'pending')
+      .select('*')
       .maybeSingle();
 
-    if (fetchErr || !origIntent) {
-      return res.status(404).json({ error: 'Original upload intent record not found.' });
+    if (claimErr || !origIntent) {
+      return res.status(409).json({
+        error: 'Fallback retry already claimed or original intent is no longer eligible.'
+      });
     }
 
-    // 2. Validate ownership & status
-    if (origIntent.user_id !== authUser.userId) {
-      return res.status(403).json({ error: 'Not authorized for this upload intent authorization.' });
-    }
-    if (origIntent.status !== 'pending') {
-      return res.status(400).json({ error: 'Original upload intent is no longer eligible for fallback retry.' });
-    }
-
-    // 3. Verify conversation access
+    // 2. Verify conversation authorization & archive status
     const check = await verifyConversationParticipant(authUser.userId, origIntent.conversation_id);
     if (!check.allowed || check.archived) {
       return res.status(403).json({ error: 'Conversation access invalid or archived.' });
     }
 
-    // 4. Create fallback upload target via server provider router
+    // 3. Create fallback upload target via server provider router
     const fallbackTarget = await createFallbackUploadTarget(
       origIntent.conversation_id,
       origIntent.media_type,
@@ -59,13 +57,7 @@ export default async function handler(req: any, res: any) {
       origIntent.provider as StorageProviderType
     );
 
-    // 5. Mark original intent as failed to prevent duplicate reuse
-    await adminClient
-      .from('media_upload_intents')
-      .update({ status: 'failed' })
-      .eq('id', origIntent.id);
-
-    // 6. Record new fallback intent
+    // 4. Record new fallback intent
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const { data: fallbackIntent, error: insErr } = await adminClient
       .from('media_upload_intents')

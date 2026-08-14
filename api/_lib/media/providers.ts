@@ -278,7 +278,7 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
       fallbackProvider = autoFallbackEnabled && cloudinaryConfigured ? 'cloudinary' : null;
     } else if (autoFallbackEnabled && cloudinaryConfigured) {
       activePrimaryProvider = 'cloudinary';
-      fallbackProvider = 'cloudinary';
+      fallbackProvider = null; // When Cloudinary is ALREADY actively servicing traffic in failover mode, there is NO further fallback provider!
       failoverActive = true;
     }
   } else if (selectedPrimaryProvider === 'cloudinary') {
@@ -287,7 +287,7 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
       fallbackProvider = autoFallbackEnabled && b2Operational ? 'b2' : null;
     } else if (autoFallbackEnabled && b2Operational) {
       activePrimaryProvider = 'b2';
-      fallbackProvider = 'b2';
+      fallbackProvider = null; // When B2 is ALREADY actively servicing traffic in failover mode, there is NO further fallback provider!
       failoverActive = true;
     }
   }
@@ -535,24 +535,37 @@ export async function createFallbackUploadTarget(
     throw new Error('Automatic media storage provider fallback is disabled by administrator policy.');
   }
 
-  // Calculate strict opposite provider
-  const fallbackProvider = originalProvider === 'b2' ? 'cloudinary' : 'b2';
+  // Prevent failover-of-failover loops:
+  // If failoverActive is true, the primary attempt was ALREADY servicing a failover (e.g. B2 degraded -> active primary was Cloudinary).
+  // If that active primary attempt fails, there is no second operational fallback available.
+  if (config.failoverActive) {
+    throw new Error('No operational fallback provider is currently available.');
+  }
+
+  // Strictly calculate the fallback provider based on original intent provider and site_settings policy
+  let fallbackProvider: StorageProviderType | null = null;
+  if (originalProvider === 'b2' && config.selectedPrimaryProvider === 'b2') {
+    fallbackProvider = 'cloudinary';
+  } else if (originalProvider === 'cloudinary' && config.selectedPrimaryProvider === 'cloudinary') {
+    fallbackProvider = 'b2';
+  }
 
   if (fallbackProvider === 'cloudinary') {
     if (!config.cloudinaryConfigured) {
-      throw new Error('Fallback storage provider Cloudinary is not configured.');
+      throw new Error('No operational fallback provider is currently available.');
     }
     return createCloudinaryUploadTarget(conversationId, mediaType, cleanMime);
   }
 
   if (fallbackProvider === 'b2') {
-    if (!config.b2Configured) {
-      throw new Error('Fallback storage provider Backblaze B2 is not configured.');
+    // B2 is usable ONLY when configured AND CORS ready!
+    if (!config.b2Configured || !config.b2CorsReady) {
+      throw new Error('No operational fallback provider is currently available.');
     }
     return await createB2UploadTarget(conversationId, mediaType, cleanMime);
   }
 
-  throw new Error('No valid fallback storage provider is available.');
+  throw new Error('No operational fallback provider is currently available.');
 }
 
 // Server-side verification of uploaded object before DB finalization
