@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetBucketCorsCommand, PutBucketCorsCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetBucketCorsCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v2 as cloudinary } from 'cloudinary';
 import crypto from 'crypto';
@@ -38,7 +38,6 @@ export interface StorageProviderConfigStatus {
   b2Configured: boolean;
   b2CorsStatus: B2CorsStatusCode;
   b2CorsReady: boolean;
-  b2Diagnostic?: any;
   cloudinaryConfigured: boolean;
   r2Configured: boolean;
   selectedPrimaryProvider: StorageProviderType;
@@ -54,7 +53,6 @@ export interface B2CorsStatus {
   permissionMissing?: boolean;
   ruleMissing?: boolean;
   error?: string;
-  diagnostic?: any;
 }
 
 let cachedB2CorsStatus: { status: B2CorsStatus; checkedAt: number } | null = null;
@@ -121,24 +119,6 @@ export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsSta
 
   const trustedOrigins = getTrustedOriginsList();
 
-  // 1. Safe Read-Only Diagnostics: HeadBucketCommand to verify credentials, bucket existence, region & endpoint
-  let headBucketSuccess = false;
-  let headBucketHttpStatus = 0;
-  let headBucketErrorName = '';
-  let headBucketErrorMessage = '';
-
-  try {
-    const headRes = await b2.client.send(new HeadBucketCommand({ Bucket: b2.bucket }));
-    headBucketSuccess = true;
-    headBucketHttpStatus = headRes.$metadata?.httpStatusCode || 200;
-  } catch (headErr: any) {
-    headBucketSuccess = false;
-    headBucketHttpStatus = headErr.$metadata?.httpStatusCode || 0;
-    headBucketErrorName = headErr.name || headErr.code || 'UnknownHeadBucketError';
-    headBucketErrorMessage = headErr.message || '';
-  }
-
-  // 2. Safe Read-Only Diagnostics: GetBucketCorsCommand
   try {
     const corsRes = await b2.client.send(new GetBucketCorsCommand({ Bucket: b2.bucket }));
     const existingRules = corsRes.CORSRules || [];
@@ -146,29 +126,8 @@ export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsSta
     const ruleId = 'OpenCommBrowserMedia';
     const targetRule = existingRules.find((r: any) => r.ID === ruleId);
 
-    const serializedRules = existingRules.map((r: any) => ({
-      id: r.ID || null,
-      allowedOrigins: r.AllowedOrigins || [],
-      allowedMethods: r.AllowedMethods || [],
-      allowedHeaders: r.AllowedHeaders || [],
-      exposeHeaders: r.ExposeHeaders || [],
-      maxAgeSeconds: r.MaxAgeSeconds || null
-    }));
-
     if (!targetRule) {
-      const status: B2CorsStatus = {
-        ready: false,
-        status: 'rule_missing',
-        ruleMissing: true,
-        error: 'OpenCommBrowserMedia CORS rule is missing',
-        diagnostic: {
-          headBucketSuccess,
-          headBucketHttpStatus,
-          getBucketCorsHttpStatus: 200,
-          existingRulesCount: existingRules.length,
-          existingRules: serializedRules
-        }
-      };
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'OpenCommBrowserMedia CORS rule is missing' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     }
@@ -189,98 +148,34 @@ export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsSta
     const isMaxAgeValid = maxAge >= 3600;
 
     if (hasRequiredMethods && coversOrigins && hasHeaders && hasExpose && isMaxAgeValid) {
-      const status: B2CorsStatus = {
-        ready: true,
-        status: 'ready',
-        diagnostic: {
-          headBucketSuccess,
-          headBucketHttpStatus,
-          getBucketCorsHttpStatus: 200,
-          existingRulesCount: existingRules.length,
-          existingRules: serializedRules
-        }
-      };
+      const status: B2CorsStatus = { ready: true, status: 'ready' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     } else {
-      const status: B2CorsStatus = {
-        ready: false,
-        status: 'rule_missing',
-        ruleMissing: true,
-        error: 'OpenCommBrowserMedia CORS rule is incomplete',
-        diagnostic: {
-          headBucketSuccess,
-          headBucketHttpStatus,
-          getBucketCorsHttpStatus: 200,
-          existingRulesCount: existingRules.length,
-          existingRules: serializedRules
-        }
-      };
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'OpenCommBrowserMedia CORS rule is incomplete' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     }
 
   } catch (getCorsErr: any) {
-    const errName = getCorsErr.name || getCorsErr.code || '';
+    const errName = getCorsErr.name || '';
     const errCode = getCorsErr.Code || getCorsErr.code || '';
     const errMsg = getCorsErr.message || '';
-    const httpStatus = getCorsErr.$metadata?.httpStatusCode || 0;
 
     if (errName === 'NoSuchCORSConfiguration' || errCode === 'NoSuchCORSConfiguration' || errMsg.toLowerCase().includes('no cors configuration')) {
-      const status: B2CorsStatus = {
-        ready: false,
-        status: 'rule_missing',
-        ruleMissing: true,
-        error: 'No CORS configuration exists on bucket',
-        diagnostic: {
-          headBucketSuccess,
-          headBucketHttpStatus,
-          headBucketErrorName,
-          headBucketErrorMessage,
-          getCorsHttpStatus: httpStatus,
-          getCorsErrorName: errName,
-          getCorsErrorMessage: errMsg
-        }
-      };
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'No CORS configuration exists on bucket' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     }
 
     if (errName === 'AccessDenied' || errCode === 'AccessDenied' || errMsg.toLowerCase().includes('unauthorized') || errMsg.toLowerCase().includes('access denied')) {
-      const status: B2CorsStatus = {
-        ready: false,
-        status: 'permission_missing',
-        permissionMissing: true,
-        error: 'Application key lacks CORS read permissions',
-        diagnostic: {
-          headBucketSuccess,
-          headBucketHttpStatus,
-          headBucketErrorName,
-          headBucketErrorMessage,
-          getCorsHttpStatus: httpStatus,
-          getCorsErrorName: errName,
-          getCorsErrorMessage: errMsg
-        }
-      };
+      const status: B2CorsStatus = { ready: false, status: 'permission_missing', permissionMissing: true, error: 'Application key lacks CORS read permissions' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     }
 
     console.warn('[B2 CORS Check Provider Error]:', errMsg);
-    const status: B2CorsStatus = {
-      ready: false,
-      status: 'provider_error',
-      error: 'Provider API communication error during CORS check',
-      diagnostic: {
-        headBucketSuccess,
-        headBucketHttpStatus,
-        headBucketErrorName,
-        headBucketErrorMessage,
-        getCorsHttpStatus: httpStatus,
-        getCorsErrorName: errName,
-        getCorsErrorMessage: errMsg
-      }
-    };
+    const status: B2CorsStatus = { ready: false, status: 'provider_error', error: 'Provider API communication error during CORS check' };
     cachedB2CorsStatus = { status, checkedAt: now };
     return status;
   }
@@ -370,7 +265,7 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
   const autoFallbackEnabled = setting.auto_fallback;
 
   // B2 is operational ONLY if configured AND CORS ready!
-  const b2Cors = b2Configured ? await checkB2CorsStatus(true) : { ready: false, status: 'unconfigured' as const };
+  const b2Cors = b2Configured ? await checkB2CorsStatus() : { ready: false, status: 'unconfigured' as const };
   const b2Operational = b2Configured && b2Cors.ready;
 
   let activePrimaryProvider: StorageProviderType | null = null;
@@ -401,7 +296,6 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
     b2Configured,
     b2CorsStatus: b2Cors.status,
     b2CorsReady: b2Cors.ready,
-    b2Diagnostic: b2Cors.diagnostic,
     cloudinaryConfigured,
     r2Configured,
     selectedPrimaryProvider,
@@ -642,6 +536,8 @@ export async function createFallbackUploadTarget(
   }
 
   // Prevent failover-of-failover loops:
+  // If failoverActive is true, the primary attempt was ALREADY servicing a failover (e.g. B2 degraded -> active primary was Cloudinary).
+  // If that active primary attempt fails, there is no second operational fallback available.
   if (config.failoverActive) {
     throw new Error('No operational fallback provider is currently available.');
   }
@@ -662,6 +558,7 @@ export async function createFallbackUploadTarget(
   }
 
   if (fallbackProvider === 'b2') {
+    // B2 is usable ONLY when configured AND CORS ready!
     if (!config.b2Configured || !config.b2CorsReady) {
       throw new Error('No operational fallback provider is currently available.');
     }
