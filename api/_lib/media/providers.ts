@@ -103,14 +103,22 @@ export function getTrustedOriginsList(): string[] {
   return Array.from(trustedOrigins).filter(o => /^https?:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(o));
 }
 
-// Read-only check for Backblaze B2 CORS configuration (NEVER mutates bucket configuration on public API calls!)
+// Functional check for Backblaze B2 CORS configuration (Accepts ANY rule that functionally satisfies rules)
 export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsStatus> {
   const now = Date.now();
   if (!forceRefresh && cachedB2CorsStatus && (now - cachedB2CorsStatus.checkedAt < 5 * 60 * 1000)) {
     return cachedB2CorsStatus.status;
   }
 
-  const b2 = getB2Client();
+  let b2;
+  try {
+    b2 = getB2Client();
+  } catch (configErr: any) {
+    const status: B2CorsStatus = { ready: false, status: 'provider_error', error: configErr.message || 'B2 configuration error' };
+    cachedB2CorsStatus = { status, checkedAt: now };
+    return status;
+  }
+
   if (!b2) {
     const status: B2CorsStatus = { ready: false, status: 'unconfigured', error: 'B2 storage client not configured' };
     cachedB2CorsStatus = { status, checkedAt: now };
@@ -123,36 +131,32 @@ export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsSta
     const corsRes = await b2.client.send(new GetBucketCorsCommand({ Bucket: b2.bucket }));
     const existingRules = corsRes.CORSRules || [];
 
-    const ruleId = 'OpenCommBrowserMedia';
-    const targetRule = existingRules.find((r: any) => r.ID === ruleId);
+    // Functional check: accept ANY CORS rule that covers required methods, origins, headers, expose headers & max age
+    const functionalRule = existingRules.find((rule: any) => {
+      const methods = rule.AllowedMethods || [];
+      const hasRequiredMethods = ['GET', 'HEAD', 'PUT'].every(m => methods.includes(m));
 
-    if (!targetRule) {
-      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'OpenCommBrowserMedia CORS rule is missing' };
-      cachedB2CorsStatus = { status, checkedAt: now };
-      return status;
-    }
+      const origins = rule.AllowedOrigins || [];
+      const coversOrigins = trustedOrigins.every(o => origins.includes(o) || origins.includes('*'));
 
-    const methods = targetRule.AllowedMethods || [];
-    const hasRequiredMethods = ['GET', 'HEAD', 'PUT'].every(m => methods.includes(m));
+      const headers = rule.AllowedHeaders || [];
+      const hasHeaders = headers.includes('*') || headers.map((h: string) => h.toLowerCase()).includes('content-type');
 
-    const origins = targetRule.AllowedOrigins || [];
-    const coversOrigins = trustedOrigins.every(o => origins.includes(o) || origins.includes('*'));
+      const exposeHeaders = (rule.ExposeHeaders || []).map((h: string) => h.toLowerCase());
+      const hasExpose = ['etag', 'content-length', 'content-type'].every(h => exposeHeaders.includes(h) || exposeHeaders.includes('*'));
 
-    const headers = targetRule.AllowedHeaders || [];
-    const hasHeaders = headers.includes('*') || headers.map((h: string) => h.toLowerCase()).includes('content-type');
+      const maxAge = rule.MaxAgeSeconds || 0;
+      const isMaxAgeValid = maxAge >= 3600;
 
-    const exposeHeaders = (targetRule.ExposeHeaders || []).map((h: string) => h.toLowerCase());
-    const hasExpose = ['etag', 'content-length', 'content-type'].every(h => exposeHeaders.includes(h) || exposeHeaders.includes('*'));
+      return hasRequiredMethods && coversOrigins && hasHeaders && hasExpose && isMaxAgeValid;
+    });
 
-    const maxAge = targetRule.MaxAgeSeconds || 0;
-    const isMaxAgeValid = maxAge >= 3600;
-
-    if (hasRequiredMethods && coversOrigins && hasHeaders && hasExpose && isMaxAgeValid) {
+    if (functionalRule) {
       const status: B2CorsStatus = { ready: true, status: 'ready' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     } else {
-      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'OpenCommBrowserMedia CORS rule is incomplete' };
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'No existing CORS rule functionally satisfies OpenComm browser media requirements' };
       cachedB2CorsStatus = { status, checkedAt: now };
       return status;
     }
@@ -265,7 +269,7 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
   const autoFallbackEnabled = setting.auto_fallback;
 
   // B2 is operational ONLY if configured AND CORS ready!
-  const b2Cors = b2Configured ? await checkB2CorsStatus() : { ready: false, status: 'unconfigured' as const };
+  const b2Cors = b2Configured ? await checkB2CorsStatus(true) : { ready: false, status: 'unconfigured' as const };
   const b2Operational = b2Configured && b2Cors.ready;
 
   let activePrimaryProvider: StorageProviderType | null = null;
@@ -306,41 +310,51 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
   };
 }
 
-// Derive region from B2 endpoint hostname if B2_REGION is absent or mismatching
+// Derive region from B2 endpoint hostname safely
 export function deriveB2Region(endpoint: string): string {
-  if (process.env.B2_REGION && process.env.B2_REGION.trim()) {
-    return process.env.B2_REGION.trim();
-  }
   try {
     const host = new URL(endpoint.startsWith('http') ? endpoint : `https://${endpoint}`).hostname;
     const match = host.match(/^s3\.([a-z0-9-]+)\.backblazeb2\.com$/i);
     if (match && match[1]) {
-      return match[1];
+      return match[1].trim().toLowerCase();
     }
   } catch (e) {}
-  return 'us-west-004';
+  return '';
 }
 
-// Helper: Get S3 Client for Backblaze B2
+// Helper: Get S3 Client for Backblaze B2 (With safe environment normalization & region mismatch guard)
 function getB2Client(): { client: S3Client; bucket: string } | null {
-  const keyId = process.env.B2_KEY_ID;
-  const applicationKey = process.env.B2_APPLICATION_KEY;
-  const bucket = process.env.B2_BUCKET_NAME;
+  const rawKeyId = process.env.B2_KEY_ID;
+  const rawAppKey = process.env.B2_APPLICATION_KEY;
+  const rawBucket = process.env.B2_BUCKET_NAME;
   const rawEndpoint = process.env.B2_ENDPOINT;
+  const rawRegion = process.env.B2_REGION;
 
-  if (!keyId || !applicationKey || !bucket || !rawEndpoint) {
+  if (!rawKeyId || !rawAppKey || !rawBucket || !rawEndpoint) {
     return null;
   }
 
+  const keyId = rawKeyId.trim();
+  const applicationKey = rawAppKey.trim();
+  const bucket = rawBucket.trim();
   let endpoint = rawEndpoint.trim().replace(/\/+$/, '');
+
   if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
     endpoint = `https://${endpoint}`;
   }
 
-  const region = deriveB2Region(endpoint);
+  const derivedRegion = deriveB2Region(endpoint);
+  const configuredRegion = rawRegion ? rawRegion.trim().toLowerCase() : '';
+
+  let finalRegion = derivedRegion || configuredRegion || 'us-west-004';
+
+  if (configuredRegion && derivedRegion && configuredRegion !== derivedRegion) {
+    console.error(`[B2 Configuration Mismatch]: B2_REGION_ENDPOINT_MISMATCH - B2_REGION '${configuredRegion}' does not match endpoint-derived region '${derivedRegion}'.`);
+    throw new Error('B2_REGION_ENDPOINT_MISMATCH: Configured B2_REGION does not match endpoint region.');
+  }
 
   const client = new S3Client({
-    region,
+    region: finalRegion,
     endpoint,
     credentials: { accessKeyId: keyId, secretAccessKey: applicationKey },
     forcePathStyle: true,
@@ -353,10 +367,10 @@ function getB2Client(): { client: S3Client; bucket: string } | null {
 
 // Helper: Get S3 Client for Cloudflare R2 (Legacy historical read/cleanup only)
 function getR2Client(): { client: S3Client; bucket: string } | null {
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-  const bucket = process.env.R2_BUCKET_NAME;
-  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID ? process.env.R2_ACCESS_KEY_ID.trim() : '';
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY ? process.env.R2_SECRET_ACCESS_KEY.trim() : '';
+  const bucket = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
+  const accountId = process.env.R2_ACCOUNT_ID ? process.env.R2_ACCOUNT_ID.trim() : '';
   const rawEndpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
 
   if (!accessKeyId || !secretAccessKey || !bucket || !rawEndpoint) {
@@ -448,9 +462,9 @@ function createCloudinaryUploadTarget(
   mediaType: MediaType,
   mimeType: string
 ): UploadTargetResult {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME!;
-  const apiKey = process.env.CLOUDINARY_API_KEY!;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET!;
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME!.trim();
+  const apiKey = process.env.CLOUDINARY_API_KEY!.trim();
+  const apiSecret = process.env.CLOUDINARY_API_SECRET!.trim();
   const folder = 'opencomm-chat-media';
   const timestamp = Math.floor(Date.now() / 1000);
   const rawObjectKey = generateObjectKey(conversationId, mediaType, mimeType);
@@ -495,7 +509,7 @@ function createCloudinaryUploadTarget(
   };
 }
 
-// Create Upload Target (Dynamic Admin Provider Router - Client preferredProvider override NOT allowed)
+// Create Upload Target (Dynamic Admin Provider Router)
 export async function createUploadTarget(
   conversationId: string,
   mediaType: MediaType,
@@ -535,14 +549,11 @@ export async function createFallbackUploadTarget(
     throw new Error('Automatic media storage provider fallback is disabled by administrator policy.');
   }
 
-  // Prevent failover-of-failover loops:
-  // If failoverActive is true, the primary attempt was ALREADY servicing a failover (e.g. B2 degraded -> active primary was Cloudinary).
-  // If that active primary attempt fails, there is no second operational fallback available.
+  // Prevent failover-of-failover loops: maximum 1 provider transition
   if (config.failoverActive) {
     throw new Error('No operational fallback provider is currently available.');
   }
 
-  // Strictly calculate the fallback provider based on original intent provider and site_settings policy
   let fallbackProvider: StorageProviderType | null = null;
   if (originalProvider === 'b2' && config.selectedPrimaryProvider === 'b2') {
     fallbackProvider = 'cloudinary';
@@ -558,7 +569,6 @@ export async function createFallbackUploadTarget(
   }
 
   if (fallbackProvider === 'b2') {
-    // B2 is usable ONLY when configured AND CORS ready!
     if (!config.b2Configured || !config.b2CorsReady) {
       throw new Error('No operational fallback provider is currently available.');
     }
@@ -612,9 +622,9 @@ export async function verifyUploadedObject(
   }
 
   if (provider === 'cloudinary') {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME ? process.env.CLOUDINARY_CLOUD_NAME.trim() : '';
+    const apiKey = process.env.CLOUDINARY_API_KEY ? process.env.CLOUDINARY_API_KEY.trim() : '';
+    const apiSecret = process.env.CLOUDINARY_API_SECRET ? process.env.CLOUDINARY_API_SECRET.trim() : '';
 
     if (!cloudName || !apiKey || !apiSecret) {
       return { exists: false, error: 'Cloudinary storage provider not configured' };
@@ -648,7 +658,7 @@ export async function verifyUploadedObject(
   return { exists: false, error: `Unknown storage provider '${provider}'` };
 }
 
-// Server-side generation of short-lived signed access URL for private media delivery
+// Server-side generation of short-lived signed access URL for private media delivery (Cloudinary 15-min expiring authenticated access)
 export async function createDownloadAccessUrl(
   provider: StorageProviderType,
   objectKey: string,
@@ -672,9 +682,9 @@ export async function createDownloadAccessUrl(
     const command = new GetObjectCommand({ Bucket: r2.bucket, Key: objectKey });
     accessUrl = await getSignedUrl(r2.client, command, { expiresIn: expiresInSeconds });
   } else if (provider === 'cloudinary') {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME ? process.env.CLOUDINARY_CLOUD_NAME.trim() : '';
+    const apiKey = process.env.CLOUDINARY_API_KEY ? process.env.CLOUDINARY_API_KEY.trim() : '';
+    const apiSecret = process.env.CLOUDINARY_API_SECRET ? process.env.CLOUDINARY_API_SECRET.trim() : '';
 
     if (!cloudName || !apiKey || !apiSecret) {
       throw new Error('Cloudinary storage provider not configured');
@@ -690,12 +700,12 @@ export async function createDownloadAccessUrl(
     const resourceType = getCloudinaryResourceType(mediaType, cleanMime);
     const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds;
 
-    accessUrl = cloudinary.url(objectKey, {
+    // Use Cloudinary's official expiring authenticated delivery mechanism
+    const format = objectKey.includes('.') ? objectKey.split('.').pop() : undefined;
+    accessUrl = cloudinary.utils.private_download_url(objectKey, format || '', {
       resource_type: resourceType,
       type: 'authenticated',
-      sign_url: true,
-      expires_at: expiresAt,
-      secure: true
+      expires_at: expiresAt
     });
   } else {
     throw new Error(`Unsupported storage provider '${provider}'`);
@@ -720,7 +730,10 @@ export async function deleteStorageObject(
       const delCmd = new DeleteObjectCommand({ Bucket: b2.bucket, Key: objectKey });
       await b2.client.send(delCmd);
       return true;
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+        return true; // Treat provider not-found as safe success
+      }
       console.error(`Failed to delete object ${objectKey} from B2:`, err);
       return false;
     }
@@ -733,16 +746,19 @@ export async function deleteStorageObject(
       const delCmd = new DeleteObjectCommand({ Bucket: r2.bucket, Key: objectKey });
       await r2.client.send(delCmd);
       return true;
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+        return true;
+      }
       console.error(`Failed to delete object ${objectKey} from R2:`, err);
       return false;
     }
   }
 
   if (provider === 'cloudinary') {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME ? process.env.CLOUDINARY_CLOUD_NAME.trim() : '';
+    const apiKey = process.env.CLOUDINARY_API_KEY ? process.env.CLOUDINARY_API_KEY.trim() : '';
+    const apiSecret = process.env.CLOUDINARY_API_SECRET ? process.env.CLOUDINARY_API_SECRET.trim() : '';
 
     if (!cloudName || !apiKey || !apiSecret) return false;
 
@@ -762,7 +778,7 @@ export async function deleteStorageObject(
       });
 
       return res.result === 'ok' || res.result === 'not found';
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Failed to delete object ${objectKey} from Cloudinary:`, err);
       return false;
     }

@@ -10,18 +10,18 @@ export function normalizeMimeType(mimeType: string): string {
   return mimeType.split(';')[0].trim().toLowerCase();
 }
 
-export const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-export const MAX_AUDIO_DURATION_MS = 5 * 60 * 1000; // 5 min
+export const MAX_AUDIO_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB canonical limit
+export const MAX_AUDIO_DURATION_MS = 5 * 60 * 1000; // 5 min (300,000 ms)
 
-export const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+export const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB canonical limit
 
-export const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
-export const MAX_VIDEO_DURATION_MS = 5 * 60 * 1000; // 5 min
+export const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB canonical limit
+export const MAX_VIDEO_DURATION_MS = 5 * 60 * 1000; // 5 min (300,000 ms)
 
 export const ALLOWED_MIME_TYPES: Record<MediaType, string[]> = {
-  audio: ['audio/webm', 'audio/ogg', 'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/mp4', 'audio/aac'],
+  audio: ['audio/webm', 'audio/ogg', 'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/mp4', 'audio/aac', 'audio/x-m4a'],
   image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-  video: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska'],
+  video: ['video/mp4', 'video/webm'],
 };
 
 export function validateMediaRequest(
@@ -42,7 +42,7 @@ export function validateMediaRequest(
 
   if (mediaType === 'audio') {
     if (fileSizeBytes > MAX_AUDIO_SIZE_BYTES) {
-      return { valid: false, error: 'Audio file exceeds maximum size limit of 10MB.' };
+      return { valid: false, error: 'Audio file exceeds maximum size limit of 5MB.' };
     }
     if (durationMs && durationMs > MAX_AUDIO_DURATION_MS) {
       return { valid: false, error: 'Voice note exceeds maximum duration limit of 5 minutes.' };

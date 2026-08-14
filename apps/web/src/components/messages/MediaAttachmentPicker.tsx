@@ -14,8 +14,25 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Client-side Image compression helper (Max long edge 1920px)
+  // Client-side Image compression helper (Preserves GIF as animated GIF without canvas conversion)
   const compressImage = async (file: File): Promise<{ compressedBlob: Blob; width: number; height: number }> => {
+    // Preserve GIF as animated GIF directly
+    if (file.type === 'image/gif') {
+      return new Promise((resolve) => {
+        const img = new window.Image();
+        const url = URL.createObjectURL(file);
+        img.src = url;
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve({ compressedBlob: file, width: img.width, height: img.height });
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve({ compressedBlob: file, width: 0, height: 0 });
+        };
+      });
+    }
+
     return new Promise((resolve) => {
       const img = new window.Image();
       const url = URL.createObjectURL(file);
@@ -115,14 +132,13 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
 
     const previewUrl = URL.createObjectURL(file);
 
-    // Extract video duration and dimensions client-side
     const video = document.createElement('video');
     video.preload = 'metadata';
     video.src = previewUrl;
 
     video.onloadedmetadata = () => {
       const durationMs = Math.round(video.duration * 1000);
-      if (durationMs > 5 * 60 * 1000) { // Max 5 minutes
+      if (durationMs > 5 * 60 * 1000) {
         setErrorMsg('Video exceeds maximum duration limit of 5 minutes.');
         URL.revokeObjectURL(previewUrl);
         return;
@@ -160,7 +176,7 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
       <input
         ref={videoInputRef}
         type="file"
-        accept="video/mp4,video/webm,video/quicktime"
+        accept="video/mp4,video/webm"
         onChange={handleVideoChange}
         className="hidden"
       />

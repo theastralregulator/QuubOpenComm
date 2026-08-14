@@ -379,10 +379,16 @@ export default function AdminSystemHealth() {
             </div>
           </div>
 
-          {mediaStatus?.b2CorsPermissionMissing && (
-            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-xl text-xs font-semibold text-amber-700 dark:text-amber-300 flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>Notice: Backblaze B2 application key lacks CORS management permissions. Automatic Cloudinary fallback is active.</span>
+          {mediaStatus?.b2Configured && mediaStatus?.b2CorsStatus !== 'ready' && (
+            <div className={`p-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 border ${
+              mediaStatus?.b2CorsStatus === 'provider_error'
+                ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300'
+                : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-300'
+            }`}>
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>
+                Notice: Backblaze B2 CORS status is <strong>{mediaStatus?.b2CorsStatus}</strong>. Automatic Cloudinary failover is active.
+              </span>
             </div>
           )}
         </div>
@@ -399,11 +405,29 @@ export default function AdminSystemHealth() {
                 </span>
               </div>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                mediaStatus?.b2Configured
-                  ? (mediaStatus?.activePrimaryProvider === 'b2' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20')
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                !mediaStatus?.b2Configured
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  : mediaStatus?.activePrimaryProvider === 'b2'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                  : mediaStatus?.b2CorsStatus === 'provider_error'
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                  : mediaStatus?.b2CorsStatus === 'permission_missing'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  : mediaStatus?.b2CorsStatus === 'rule_missing'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  : 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20'
               }`}>
-                {mediaStatus?.b2Configured ? (mediaStatus?.activePrimaryProvider === 'b2' ? 'Active Primary' : 'Configured Standby') : 'Unconfigured'}
+                {!mediaStatus?.b2Configured
+                  ? 'Unconfigured'
+                  : mediaStatus?.activePrimaryProvider === 'b2'
+                  ? 'Active Primary'
+                  : mediaStatus?.b2CorsStatus === 'provider_error'
+                  ? 'Degraded / Provider Error'
+                  : mediaStatus?.b2CorsStatus === 'permission_missing'
+                  ? 'Permission Missing'
+                  : mediaStatus?.b2CorsStatus === 'rule_missing'
+                  ? 'CORS Rule Missing'
+                  : 'Configured Standby'}
               </span>
             </div>
             <div className="space-y-1.5 text-xs text-slate-500 dark:text-zinc-400 pt-2 border-t border-slate-100 dark:border-zinc-800/80">

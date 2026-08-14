@@ -23,6 +23,9 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
+  let resolvedProvider: StorageProviderType | null = null;
+  let resolvedMediaType: any = undefined;
+
   try {
     // 1. Fetch message_media record
     let query = adminClient
@@ -41,13 +44,16 @@ export default async function handler(req: any, res: any) {
       return res.status(404).json({ error: 'Media record not found' });
     }
 
-    // 2. Verify caller is conversation participant (supports creator_id, member_id, conversation_members)
+    resolvedProvider = media.storage_provider as StorageProviderType;
+    resolvedMediaType = media.media_type;
+
+    // 2. Verify caller is conversation participant
     const check = await verifyConversationParticipant(authUser.userId, media.conversation_id);
     if (!check.allowed) {
       return res.status(403).json({ error: 'Not authorized to access media for this conversation' });
     }
 
-    // 3. Requirement 24: Check delete_after expiration (do not generate signed URL if delete_after <= now())
+    // 3. Check delete_after expiration
     if (media.status === 'deleted' || (media.delete_after && new Date(media.delete_after) <= new Date())) {
       return res.status(410).json({ error: 'Media has expired', expired: true });
     }
@@ -85,13 +91,16 @@ export default async function handler(req: any, res: any) {
 
   } catch (err: any) {
     console.error('Error generating media access URL:', err);
-    void recordStorageEvent({
-      provider: 'r2',
-      operation: 'access',
-      eventType: 'failure',
-      httpStatus: 500,
-      latencyMs: Date.now() - startTime
-    });
+    if (resolvedProvider) {
+      void recordStorageEvent({
+        provider: resolvedProvider,
+        operation: 'access',
+        eventType: 'failure',
+        httpStatus: 500,
+        latencyMs: Date.now() - startTime,
+        mediaType: resolvedMediaType
+      });
+    }
     return res.status(500).json({ error: err.message || 'Failed to generate access URL' });
   }
 }

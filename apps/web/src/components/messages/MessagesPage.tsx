@@ -151,8 +151,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       const cleanMimeType = rawMime.split(';')[0].trim().toLowerCase();
       const uploadFile = file.type !== cleanMimeType ? new Blob([file], { type: cleanMimeType }) : file;
 
-      // Helper function to perform binary upload & finalization for a target
-      const uploadAndFinalizeTarget = async (intentTarget: any) => {
+      const uploadToStorage = async (intentTarget: any) => {
         let targetHost = 'unknown';
         try {
           targetHost = new URL(intentTarget.uploadUrl).hostname;
@@ -213,8 +212,9 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           });
           throw new Error(`Storage upload rejected (HTTP ${putRes.status}${xmlCode ? ` ${xmlCode}` : ''}${cloudinaryMessage ? `: ${cloudinaryMessage}` : ''})`);
         }
+      };
 
-        // Finalize upload & create message record
+      const finalizeUploadedIntent = async (intentTarget: any) => {
         const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
         const finalizeRes = await fetch('/api/media-finalize', {
           method: 'POST',
@@ -243,7 +243,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           throw new Error(finalizeData.error || 'Media finalization failed');
         }
 
-        return true;
+        return finalizeData;
       };
 
       // 1. Initial Upload Intent (Server determines primary provider)
@@ -267,13 +267,17 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         throw new Error(primaryIntent.error || 'Upload authorization failed');
       }
 
-      // 2. Direct upload to primary target
-      try {
-        await uploadAndFinalizeTarget(primaryIntent);
-      } catch (primaryErr: any) {
-        console.warn('[MediaUpload] primary-attempt-failed', { intentId: primaryIntent.intentId, reason: primaryErr?.message });
+      let activeTarget = primaryIntent;
+      let binaryUploaded = false;
 
-        // 3. Single Controlled Server Fallback Retry
+      // 2. Direct upload to primary target (Fallback allowed ONLY if binary upload to storage fails)
+      try {
+        await uploadToStorage(primaryIntent);
+        binaryUploaded = true;
+      } catch (primaryErr: any) {
+        console.warn('[MediaUpload] primary-binary-upload-failed', { intentId: primaryIntent.intentId, reason: primaryErr?.message });
+
+        // Single Controlled Server Fallback Retry
         const fallbackRes = await fetch('/api/media-upload-fallback-intent', {
           method: 'POST',
           headers: {
@@ -288,8 +292,20 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           throw new Error(fallbackIntent.error || primaryErr?.message || 'Media upload failed. Please try again.');
         }
 
-        console.info('[MediaUpload] executing-server-authorized-fallback', { fallbackProvider: fallbackIntent.provider });
-        await uploadAndFinalizeTarget(fallbackIntent);
+        console.info('[MediaUpload] executing-server-authorized-fallback-upload', { fallbackProvider: fallbackIntent.provider });
+        await uploadToStorage(fallbackIntent);
+        activeTarget = fallbackIntent;
+        binaryUploaded = true;
+      }
+
+      // 3. Finalize upload (If finalize fails, retry SAME intent safely without provider switching)
+      if (binaryUploaded) {
+        try {
+          await finalizeUploadedIntent(activeTarget);
+        } catch (finalizeErr: any) {
+          console.warn('[MediaUpload] initial-finalize-failed-retrying-same-intent', { intentId: activeTarget.intentId, reason: finalizeErr?.message });
+          await finalizeUploadedIntent(activeTarget);
+        }
       }
 
       setSelectedMedia(null);

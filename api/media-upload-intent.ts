@@ -1,5 +1,5 @@
 import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
-import { createUploadTarget, MediaType } from './_lib/media/providers.js';
+import { createUploadTarget, MediaType, StorageProviderType } from './_lib/media/providers.js';
 import { validateMediaRequest, normalizeMimeType } from './_lib/media/validation.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 
@@ -42,14 +42,18 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
   }
 
+  let resolvedProvider: StorageProviderType | null = null;
+
   try {
-    // 3. Create upload target strictly using Server Storage Provider Router (no client policy bypass!)
+    // 3. Create upload target strictly using Server Storage Provider Router
     const target = await createUploadTarget(
       conversationId,
       mediaType as MediaType,
       cleanMimeType,
       Number(fileSizeBytes)
     );
+
+    resolvedProvider = target.provider;
 
     // 4. Save upload intent in database with 24-hour retention window for orphan cleanup
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -71,6 +75,17 @@ export default async function handler(req: any, res: any) {
 
     if (intentErr || !intent) {
       console.error('Error inserting upload intent record:', intentErr);
+      if (resolvedProvider) {
+        void recordStorageEvent({
+          provider: resolvedProvider,
+          operation: 'upload_intent',
+          eventType: 'failure',
+          httpStatus: 500,
+          latencyMs: Date.now() - startTime,
+          mediaType: mediaType as MediaType,
+          sizeBucket: getSizeBucket(Number(fileSizeBytes))
+        });
+      }
       return res.status(500).json({ error: 'Failed to record upload authorization intent record.' });
     }
 
@@ -97,15 +112,17 @@ export default async function handler(req: any, res: any) {
 
   } catch (err: any) {
     console.error('Error generating upload intent:', err);
-    void recordStorageEvent({
-      provider: 'b2',
-      operation: 'upload_intent',
-      eventType: 'failure',
-      httpStatus: 500,
-      latencyMs: Date.now() - startTime,
-      mediaType: mediaType as MediaType,
-      sizeBucket: getSizeBucket(Number(fileSizeBytes))
-    });
+    if (resolvedProvider) {
+      void recordStorageEvent({
+        provider: resolvedProvider,
+        operation: 'upload_intent',
+        eventType: 'failure',
+        httpStatus: 500,
+        latencyMs: Date.now() - startTime,
+        mediaType: mediaType as MediaType,
+        sizeBucket: getSizeBucket(Number(fileSizeBytes))
+      });
+    }
     return res.status(500).json({ error: err.message || 'Failed to generate upload authorization target.' });
   }
 }

@@ -146,7 +146,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Uploaded file type does not match image authorization intent.' });
       }
     } else if (mediaType === 'video') {
-      const allowedVideoFormats = ['mp4', 'webm', 'mov'];
+      const allowedVideoFormats = ['mp4', 'webm'];
       if (resType !== 'video' || !allowedVideoFormats.includes(format)) {
         console.warn(`Cloudinary video validation failed: resourceType=${resType}, format=${format}`);
         await resetIntentLeaseToPending();

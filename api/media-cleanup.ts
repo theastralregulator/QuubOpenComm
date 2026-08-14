@@ -102,7 +102,7 @@ export default async function handler(req: any, res: any) {
     const { data: orphanIntents } = await adminClient
       .from('media_upload_intents')
       .select('id, provider, object_key, media_type, finalizing_at')
-      .in('status', ['pending', 'uploaded', 'finalizing'])
+      .in('status', ['pending', 'uploaded', 'finalizing', 'failed'])
       .is('final_message_id', null)
       .is('final_media_id', null)
       .lte('expires_at', nowIso)
