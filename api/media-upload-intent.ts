@@ -1,5 +1,5 @@
 import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
-import { createUploadTarget, MediaType, StorageProviderType } from './_lib/media/providers.js';
+import { createUploadTarget, MediaType } from './_lib/media/providers.js';
 import { validateMediaRequest, normalizeMimeType } from './_lib/media/validation.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 
@@ -14,13 +14,12 @@ export default async function handler(req: any, res: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs, preferredProvider } = req.body || {};
+  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs } = req.body || {};
 
   if (!conversationId || !mediaType || !mimeType || !fileSizeBytes) {
     return res.status(400).json({ error: 'Missing required upload parameters' });
   }
 
-  // Normalize MIME type defensively (e.g. "audio/webm;codecs=opus" -> "audio/webm")
   const cleanMimeType = normalizeMimeType(mimeType);
 
   // 1. Verify conversation authorization & archive status
@@ -44,13 +43,12 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // 3. Create upload target using Storage Provider Router (B2 primary, Cloudinary fallback, or explicit preferredProvider)
+    // 3. Create upload target strictly using Server Storage Provider Router (no client policy bypass!)
     const target = await createUploadTarget(
       conversationId,
       mediaType as MediaType,
       cleanMimeType,
-      Number(fileSizeBytes),
-      preferredProvider as StorageProviderType | undefined
+      Number(fileSizeBytes)
     );
 
     // 4. Save upload intent in database with 24-hour retention window for orphan cleanup

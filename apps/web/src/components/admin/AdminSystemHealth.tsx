@@ -42,8 +42,8 @@ export default function AdminSystemHealth() {
       }
 
       // Check Maintenance Setting
-      const { data: mData } = await supabase.from('site_settings').select('setting_value').eq('setting_key', 'system.maintenance_mode').maybeSingle();
-      setMaintenanceMode(mData?.setting_value || { enabled: false });
+      const { data: mData } = await supabase.from('site_settings').select('value').eq('key', 'system.maintenance_mode').maybeSingle();
+      setMaintenanceMode(mData?.value || { enabled: false });
 
       // Check Feature Flags
       const { data: fData } = await supabase.from('platform_feature_flags').select('key, is_enabled');
@@ -164,6 +164,9 @@ export default function AdminSystemHealth() {
 
   const osmData = locationHealth?.osm_tiles;
   const nomData = locationHealth?.nominatim;
+
+  const b2Telemetry = mediaHealth?.events_summary_24h?.b2 || {};
+  const cloudinaryTelemetry = mediaHealth?.events_summary_24h?.cloudinary || {};
 
   return (
     <div className="space-y-6 text-left max-w-6xl">
@@ -409,15 +412,27 @@ export default function AdminSystemHealth() {
                 <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">S3 Direct Presigned Bucket</span>
               </div>
               <div className="flex justify-between">
-                <span>Total Telemetry Events (24h):</span>
+                <span>Total Events (24h):</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
-                  {mediaHealth?.events_summary_24h?.b2?.total_events || 0}
+                  {b2Telemetry?.total_events || 0}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Successful Operations (24h):</span>
+                <span>Success Count (24h):</span>
                 <span className="font-mono font-bold text-emerald-600">
-                  {mediaHealth?.events_summary_24h?.b2?.successes || 0}
+                  {b2Telemetry?.success_count || 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Failure Count (24h):</span>
+                <span className={`font-mono font-bold ${b2Telemetry?.failure_count > 0 ? 'text-rose-500' : 'text-slate-700 dark:text-zinc-300'}`}>
+                  {b2Telemetry?.failure_count || 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Avg Latency (24h):</span>
+                <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">
+                  {b2Telemetry?.avg_latency_ms ? `${b2Telemetry.avg_latency_ms} ms` : 'N/A'}
                 </span>
               </div>
             </div>
@@ -446,15 +461,27 @@ export default function AdminSystemHealth() {
                 <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">opencomm-chat-media (Authenticated)</span>
               </div>
               <div className="flex justify-between">
-                <span>Total Telemetry Events (24h):</span>
+                <span>Total Events (24h):</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
-                  {mediaHealth?.events_summary_24h?.cloudinary?.total_events || 0}
+                  {cloudinaryTelemetry?.total_events || 0}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Successful Operations (24h):</span>
+                <span>Success Count (24h):</span>
                 <span className="font-mono font-bold text-emerald-600">
-                  {mediaHealth?.events_summary_24h?.cloudinary?.successes || 0}
+                  {cloudinaryTelemetry?.success_count || 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Failure Count (24h):</span>
+                <span className={`font-mono font-bold ${cloudinaryTelemetry?.failure_count > 0 ? 'text-rose-500' : 'text-slate-700 dark:text-zinc-300'}`}>
+                  {cloudinaryTelemetry?.failure_count || 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Avg Latency (24h):</span>
+                <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">
+                  {cloudinaryTelemetry?.avg_latency_ms ? `${cloudinaryTelemetry.avg_latency_ms} ms` : 'N/A'}
                 </span>
               </div>
             </div>

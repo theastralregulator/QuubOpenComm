@@ -3,24 +3,23 @@ import { deleteStorageObject, StorageProviderType } from './_lib/media/providers
 import { recordStorageEvent } from './_lib/media/telemetry.js';
 
 export default async function handler(req: any, res: any) {
-  // Authorization check: Vercel Cron, CRON_SECRET, MEDIA_CRON_SECRET, or Canonical Admin Member
+  const startTime = Date.now();
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
   const cronSecret = process.env.CRON_SECRET || process.env.MEDIA_CRON_SECRET;
-  const isVercelCron = req.headers['x-vercel-cron'] === '1';
 
-  let authorized = isVercelCron;
+  let authorized = false;
+
+  // 1. Production Cron Secret Authentication via Bearer token
   if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-    authorized = true;
-  } else if (cronSecret && req.query?.secret === cronSecret) {
     authorized = true;
   }
 
   const adminClient = getServiceRoleSupabase();
   if (!adminClient) {
-    return res.status(500).json({ error: 'Server configuration unavailable' });
+    return res.status(500).json({ error: 'Server database configuration unavailable' });
   }
 
-  // Canonical Admin Authorization Check for manual trigger
+  // 2. Canonical Admin Authorization Check for manual trigger (Restricted strictly to super_admin or admin)
   if (!authorized && authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     const userAuthHeader = authHeader.substring(7).trim();
     if (userAuthHeader) {
@@ -34,7 +33,7 @@ export default async function handler(req: any, res: any) {
             .eq('is_active', true)
             .maybeSingle();
 
-          if (adminMember && ['super_admin', 'admin', 'moderator', 'content_admin', 'support'].includes(adminMember.role)) {
+          if (adminMember && ['super_admin', 'admin'].includes(adminMember.role)) {
             authorized = true;
           }
         }
@@ -45,7 +44,7 @@ export default async function handler(req: any, res: any) {
   }
 
   if (!authorized) {
-    return res.status(401).json({ error: 'Unauthorized cleanup worker trigger' });
+    return res.status(401).json({ error: 'Unauthorized cleanup worker trigger. Requires Bearer CRON_SECRET or Super Admin authorization.' });
   }
 
   let deletedMediaCount = 0;
@@ -75,10 +74,10 @@ export default async function handler(req: any, res: any) {
             provider: item.storage_provider as StorageProviderType,
             operation: 'delete',
             eventType: 'success',
-            mediaType: item.media_type
+            mediaType: item.media_type,
+            latencyMs: Date.now() - startTime
           });
         } else {
-          // Increment cleanup attempts atomically via DB RPC
           await adminClient.rpc('record_media_cleanup_failure', {
             p_media_id: item.id,
             p_error: 'Provider object deletion failed or object not found'
@@ -89,14 +88,14 @@ export default async function handler(req: any, res: any) {
             provider: item.storage_provider as StorageProviderType,
             operation: 'delete',
             eventType: 'failure',
-            mediaType: item.media_type
+            mediaType: item.media_type,
+            latencyMs: Date.now() - startTime
           });
         }
       }
     }
 
     // 2. Process Expired Unfinalized Upload Intents (pending, uploaded, or stale finalizing)
-    // NEVER delete an intent that already has final_message_id or final_media_id!
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const nowIso = new Date().toISOString();
 
@@ -114,7 +113,6 @@ export default async function handler(req: any, res: any) {
       for (const intent of orphanIntents) {
         const success = await deleteStorageObject(intent.provider as StorageProviderType, intent.object_key, intent.media_type);
 
-        // Mark expired only when provider deletion succeeds or object is absent
         if (success) {
           await adminClient
             .from('media_upload_intents')

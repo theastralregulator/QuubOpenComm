@@ -32,8 +32,12 @@ export interface PrimaryProviderSetting {
   auto_fallback: boolean;
 }
 
+export type B2CorsStatusCode = 'ready' | 'permission_missing' | 'rule_missing' | 'provider_error' | 'unconfigured';
+
 export interface StorageProviderConfigStatus {
   b2Configured: boolean;
+  b2CorsStatus: B2CorsStatusCode;
+  b2CorsReady: boolean;
   cloudinaryConfigured: boolean;
   r2Configured: boolean;
   selectedPrimaryProvider: StorageProviderType;
@@ -45,6 +49,7 @@ export interface StorageProviderConfigStatus {
 
 export interface B2CorsStatus {
   ready: boolean;
+  status: B2CorsStatusCode;
   permissionMissing?: boolean;
   ruleMissing?: boolean;
   error?: string;
@@ -75,25 +80,16 @@ export async function getPrimaryProviderSetting(): Promise<PrimaryProviderSettin
   return { provider: 'b2', auto_fallback: true };
 }
 
-// Ensure Backblaze B2 CORS configuration rule 'OpenCommBrowserMedia' is active
-export async function ensureB2CorsReadiness(requestOrigin?: string): Promise<B2CorsStatus> {
-  const now = Date.now();
-  if (cachedB2CorsStatus && (now - cachedB2CorsStatus.checkedAt < 5 * 60 * 1000)) {
-    return cachedB2CorsStatus.status;
-  }
-
-  const b2 = getB2Client();
-  if (!b2) {
-    const status = { ready: false, error: 'B2 storage client not configured' };
-    cachedB2CorsStatus = { status, checkedAt: now };
-    return status;
-  }
-
+// Get trusted origins list from server configuration ONLY
+export function getTrustedOriginsList(): string[] {
   const trustedOrigins = new Set<string>([
-    'https://opencomm.online',
-    'http://localhost:5173',
-    'http://localhost:3000'
+    'https://opencomm.online'
   ]);
+
+  if (process.env.NODE_ENV !== 'production') {
+    trustedOrigins.add('http://localhost:5173');
+    trustedOrigins.add('http://localhost:3000');
+  }
 
   if (process.env.APP_ORIGIN) trustedOrigins.add(process.env.APP_ORIGIN.trim().replace(/\/+$/, ''));
   if (process.env.PUBLIC_APP_URL) trustedOrigins.add(process.env.PUBLIC_APP_URL.trim().replace(/\/+$/, ''));
@@ -103,11 +99,96 @@ export async function ensureB2CorsReadiness(requestOrigin?: string): Promise<B2C
   if (process.env.B2_CORS_ALLOWED_ORIGINS) {
     process.env.B2_CORS_ALLOWED_ORIGINS.split(',').forEach(o => trustedOrigins.add(o.trim().replace(/\/+$/, '')));
   }
-  if (requestOrigin && /^https?:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(requestOrigin)) {
-    trustedOrigins.add(requestOrigin.trim().replace(/\/+$/, ''));
+
+  return Array.from(trustedOrigins).filter(o => /^https?:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(o));
+}
+
+// Read-only check for Backblaze B2 CORS configuration (NEVER mutates bucket configuration on public API calls!)
+export async function checkB2CorsStatus(forceRefresh = false): Promise<B2CorsStatus> {
+  const now = Date.now();
+  if (!forceRefresh && cachedB2CorsStatus && (now - cachedB2CorsStatus.checkedAt < 5 * 60 * 1000)) {
+    return cachedB2CorsStatus.status;
   }
 
-  const allowedOriginsList = Array.from(trustedOrigins);
+  const b2 = getB2Client();
+  if (!b2) {
+    const status: B2CorsStatus = { ready: false, status: 'unconfigured', error: 'B2 storage client not configured' };
+    cachedB2CorsStatus = { status, checkedAt: now };
+    return status;
+  }
+
+  const trustedOrigins = getTrustedOriginsList();
+
+  try {
+    const corsRes = await b2.client.send(new GetBucketCorsCommand({ Bucket: b2.bucket }));
+    const existingRules = corsRes.CORSRules || [];
+
+    const ruleId = 'OpenCommBrowserMedia';
+    const targetRule = existingRules.find((r: any) => r.ID === ruleId);
+
+    if (!targetRule) {
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'OpenCommBrowserMedia CORS rule is missing' };
+      cachedB2CorsStatus = { status, checkedAt: now };
+      return status;
+    }
+
+    const methods = targetRule.AllowedMethods || [];
+    const hasRequiredMethods = ['GET', 'HEAD', 'PUT'].every(m => methods.includes(m));
+
+    const origins = targetRule.AllowedOrigins || [];
+    const coversOrigins = trustedOrigins.every(o => origins.includes(o) || origins.includes('*'));
+
+    const headers = targetRule.AllowedHeaders || [];
+    const hasHeaders = headers.includes('*') || headers.map((h: string) => h.toLowerCase()).includes('content-type');
+
+    const exposeHeaders = (targetRule.ExposeHeaders || []).map((h: string) => h.toLowerCase());
+    const hasExpose = ['etag', 'content-length', 'content-type'].every(h => exposeHeaders.includes(h) || exposeHeaders.includes('*'));
+
+    const maxAge = targetRule.MaxAgeSeconds || 0;
+    const isMaxAgeValid = maxAge >= 3600;
+
+    if (hasRequiredMethods && coversOrigins && hasHeaders && hasExpose && isMaxAgeValid) {
+      const status: B2CorsStatus = { ready: true, status: 'ready' };
+      cachedB2CorsStatus = { status, checkedAt: now };
+      return status;
+    } else {
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'OpenCommBrowserMedia CORS rule is incomplete' };
+      cachedB2CorsStatus = { status, checkedAt: now };
+      return status;
+    }
+
+  } catch (getCorsErr: any) {
+    const errName = getCorsErr.name || '';
+    const errCode = getCorsErr.Code || getCorsErr.code || '';
+    const errMsg = getCorsErr.message || '';
+
+    if (errName === 'NoSuchCORSConfiguration' || errCode === 'NoSuchCORSConfiguration' || errMsg.toLowerCase().includes('no cors configuration')) {
+      const status: B2CorsStatus = { ready: false, status: 'rule_missing', ruleMissing: true, error: 'No CORS configuration exists on bucket' };
+      cachedB2CorsStatus = { status, checkedAt: now };
+      return status;
+    }
+
+    if (errName === 'AccessDenied' || errCode === 'AccessDenied' || errMsg.toLowerCase().includes('unauthorized') || errMsg.toLowerCase().includes('access denied')) {
+      const status: B2CorsStatus = { ready: false, status: 'permission_missing', permissionMissing: true, error: 'Application key lacks CORS read permissions' };
+      cachedB2CorsStatus = { status, checkedAt: now };
+      return status;
+    }
+
+    console.warn('[B2 CORS Check Provider Error]:', errMsg);
+    const status: B2CorsStatus = { ready: false, status: 'provider_error', error: 'Provider API communication error during CORS check' };
+    cachedB2CorsStatus = { status, checkedAt: now };
+    return status;
+  }
+}
+
+// Authenticated Admin action to repair/configure Backblaze B2 CORS configuration
+export async function repairB2CorsConfiguration(): Promise<B2CorsStatus> {
+  const b2 = getB2Client();
+  if (!b2) {
+    return { ready: false, status: 'unconfigured', error: 'B2 storage client not configured' };
+  }
+
+  const trustedOrigins = getTrustedOriginsList();
 
   try {
     let existingRules: any[] = [];
@@ -115,20 +196,23 @@ export async function ensureB2CorsReadiness(requestOrigin?: string): Promise<B2C
       const corsRes = await b2.client.send(new GetBucketCorsCommand({ Bucket: b2.bucket }));
       existingRules = corsRes.CORSRules || [];
     } catch (getCorsErr: any) {
-      if (getCorsErr.name === 'AccessDenied' || getCorsErr.message?.includes('Unauthorized')) {
-        const status = { ready: false, permissionMissing: true, error: 'Application key lacks CORS read/write permissions' };
-        cachedB2CorsStatus = { status, checkedAt: now };
-        return status;
+      const errName = getCorsErr.name || '';
+      const errMsg = getCorsErr.message || '';
+
+      if (errName === 'AccessDenied' || errMsg.toLowerCase().includes('unauthorized')) {
+        return { ready: false, status: 'permission_missing', permissionMissing: true, error: 'Application key lacks CORS write permissions' };
+      }
+      if (errName !== 'NoSuchCORSConfiguration' && !errMsg.toLowerCase().includes('no cors configuration')) {
+        return { ready: false, status: 'provider_error', error: 'Cannot fetch existing CORS rules for repair' };
       }
     }
 
     const ruleId = 'OpenCommBrowserMedia';
     const targetRuleIndex = existingRules.findIndex((r: any) => r.ID === ruleId);
-    let needsUpdate = false;
 
     const desiredRule = {
       ID: ruleId,
-      AllowedOrigins: allowedOriginsList,
+      AllowedOrigins: trustedOrigins,
       AllowedMethods: ['GET', 'HEAD', 'PUT'],
       AllowedHeaders: ['*'],
       ExposeHeaders: ['ETag', 'Content-Length', 'Content-Type'],
@@ -137,44 +221,26 @@ export async function ensureB2CorsReadiness(requestOrigin?: string): Promise<B2C
 
     if (targetRuleIndex === -1) {
       existingRules.push(desiredRule);
-      needsUpdate = true;
     } else {
-      const existing = existingRules[targetRuleIndex];
-      const missingOrigin = allowedOriginsList.some(o => !existing.AllowedOrigins?.includes(o) && !existing.AllowedOrigins?.includes('*'));
-      if (missingOrigin || !existing.AllowedMethods?.includes('PUT')) {
-        existingRules[targetRuleIndex] = desiredRule;
-        needsUpdate = true;
-      }
+      existingRules[targetRuleIndex] = desiredRule;
     }
 
-    if (needsUpdate) {
-      try {
-        await b2.client.send(new PutBucketCorsCommand({
-          Bucket: b2.bucket,
-          CORSConfiguration: { CORSRules: existingRules }
-        }));
-        console.log('[B2 CORS] Updated OpenCommBrowserMedia CORS configuration rule');
-      } catch (putCorsErr: any) {
-        console.warn('[B2 CORS] PutBucketCors command failed:', putCorsErr.message);
-        const status = { ready: false, permissionMissing: putCorsErr.name === 'AccessDenied', error: putCorsErr.message };
-        cachedB2CorsStatus = { status, checkedAt: now };
-        return status;
-      }
-    }
+    await b2.client.send(new PutBucketCorsCommand({
+      Bucket: b2.bucket,
+      CORSConfiguration: { CORSRules: existingRules }
+    }));
 
-    const status = { ready: true };
-    cachedB2CorsStatus = { status, checkedAt: now };
-    return status;
+    cachedB2CorsStatus = null;
+    return await checkB2CorsStatus(true);
+
   } catch (err: any) {
-    console.warn('[B2 CORS] Readiness check error:', err.message);
-    const status = { ready: false, error: err.message };
-    cachedB2CorsStatus = { status, checkedAt: now };
-    return status;
+    console.error('[B2 CORS Repair Error]:', err);
+    return { ready: false, status: 'provider_error', error: err.message };
   }
 }
 
 // Inspect active environment & site_settings configuration
-export async function checkStorageProvidersConfig(requestOrigin?: string): Promise<StorageProviderConfigStatus> {
+export async function checkStorageProvidersConfig(): Promise<StorageProviderConfigStatus> {
   const b2Configured = Boolean(
     process.env.B2_KEY_ID &&
     process.env.B2_APPLICATION_KEY &&
@@ -198,12 +264,16 @@ export async function checkStorageProvidersConfig(requestOrigin?: string): Promi
   const selectedPrimaryProvider = setting.provider;
   const autoFallbackEnabled = setting.auto_fallback;
 
+  // B2 is operational ONLY if configured AND CORS ready!
+  const b2Cors = b2Configured ? await checkB2CorsStatus() : { ready: false, status: 'unconfigured' as const };
+  const b2Operational = b2Configured && b2Cors.ready;
+
   let activePrimaryProvider: StorageProviderType | null = null;
   let fallbackProvider: StorageProviderType | null = null;
   let failoverActive = false;
 
   if (selectedPrimaryProvider === 'b2') {
-    if (b2Configured) {
+    if (b2Operational) {
       activePrimaryProvider = 'b2';
       fallbackProvider = autoFallbackEnabled && cloudinaryConfigured ? 'cloudinary' : null;
     } else if (autoFallbackEnabled && cloudinaryConfigured) {
@@ -214,8 +284,8 @@ export async function checkStorageProvidersConfig(requestOrigin?: string): Promi
   } else if (selectedPrimaryProvider === 'cloudinary') {
     if (cloudinaryConfigured) {
       activePrimaryProvider = 'cloudinary';
-      fallbackProvider = autoFallbackEnabled && b2Configured ? 'b2' : null;
-    } else if (autoFallbackEnabled && b2Configured) {
+      fallbackProvider = autoFallbackEnabled && b2Operational ? 'b2' : null;
+    } else if (autoFallbackEnabled && b2Operational) {
       activePrimaryProvider = 'b2';
       fallbackProvider = 'b2';
       failoverActive = true;
@@ -224,6 +294,8 @@ export async function checkStorageProvidersConfig(requestOrigin?: string): Promi
 
   return {
     b2Configured,
+    b2CorsStatus: b2Cors.status,
+    b2CorsReady: b2Cors.ready,
     cloudinaryConfigured,
     r2Configured,
     selectedPrimaryProvider,
@@ -423,57 +495,64 @@ function createCloudinaryUploadTarget(
   };
 }
 
-// Create Upload Target (Dynamic Admin Provider Router + Auto Fallback)
+// Create Upload Target (Dynamic Admin Provider Router - Client preferredProvider override NOT allowed)
 export async function createUploadTarget(
   conversationId: string,
   mediaType: MediaType,
   mimeType: string,
-  fileSizeBytes: number,
-  preferredProvider?: StorageProviderType,
-  requestOrigin?: string
+  fileSizeBytes: number
 ): Promise<UploadTargetResult> {
   const cleanMime = normalizeMimeType(mimeType);
-  const config = await checkStorageProvidersConfig(requestOrigin);
+  const config = await checkStorageProvidersConfig();
 
-  // 1. Explicit Preferred Provider Override (e.g. controlled client fallback retry)
-  if (preferredProvider === 'cloudinary' && config.cloudinaryConfigured) {
+  const providerToUse = config.activePrimaryProvider;
+
+  if (providerToUse === 'b2') {
+    return await createB2UploadTarget(conversationId, mediaType, cleanMime);
+  } else if (providerToUse === 'cloudinary') {
     return createCloudinaryUploadTarget(conversationId, mediaType, cleanMime);
   }
-  if (preferredProvider === 'b2' && config.b2Configured) {
+
+  if (config.selectedPrimaryProvider === 'b2' && !config.b2CorsReady) {
+    throw new Error('Primary storage provider Backblaze B2 is CORS degraded and fallback is disabled.');
+  }
+
+  throw new Error(`Primary storage provider '${config.selectedPrimaryProvider}' is currently unavailable and fallback is disabled or unconfigured.`);
+}
+
+// Controlled Server-Side Fallback Target Creation
+export async function createFallbackUploadTarget(
+  conversationId: string,
+  mediaType: MediaType,
+  mimeType: string,
+  fileSizeBytes: number,
+  originalProvider: StorageProviderType
+): Promise<UploadTargetResult> {
+  const cleanMime = normalizeMimeType(mimeType);
+  const config = await checkStorageProvidersConfig();
+
+  if (!config.autoFallbackEnabled) {
+    throw new Error('Automatic media storage provider fallback is disabled by administrator policy.');
+  }
+
+  // Calculate strict opposite provider
+  const fallbackProvider = originalProvider === 'b2' ? 'cloudinary' : 'b2';
+
+  if (fallbackProvider === 'cloudinary') {
+    if (!config.cloudinaryConfigured) {
+      throw new Error('Fallback storage provider Cloudinary is not configured.');
+    }
+    return createCloudinaryUploadTarget(conversationId, mediaType, cleanMime);
+  }
+
+  if (fallbackProvider === 'b2') {
+    if (!config.b2Configured) {
+      throw new Error('Fallback storage provider Backblaze B2 is not configured.');
+    }
     return await createB2UploadTarget(conversationId, mediaType, cleanMime);
   }
 
-  // 2. Primary Provider Choice based on site_settings (media.primary_provider)
-  const primaryChoice = config.selectedPrimaryProvider;
-  const secondaryChoice = config.fallbackProvider;
-
-  if (primaryChoice === 'b2' && config.b2Configured) {
-    try {
-      return await createB2UploadTarget(conversationId, mediaType, cleanMime);
-    } catch (err) {
-      console.warn('[Storage Router] Primary B2 target creation failed:', err);
-    }
-  } else if (primaryChoice === 'cloudinary' && config.cloudinaryConfigured) {
-    try {
-      return createCloudinaryUploadTarget(conversationId, mediaType, cleanMime);
-    } catch (err) {
-      console.warn('[Storage Router] Primary Cloudinary target creation failed:', err);
-    }
-  }
-
-  // 3. Automatic Fallback Choice if primary failed or is unconfigured
-  if (config.autoFallbackEnabled && secondaryChoice) {
-    if (secondaryChoice === 'cloudinary' && config.cloudinaryConfigured) {
-      console.info('[Storage Router] Executing automatic fallback to Cloudinary');
-      return createCloudinaryUploadTarget(conversationId, mediaType, cleanMime);
-    }
-    if (secondaryChoice === 'b2' && config.b2Configured) {
-      console.info('[Storage Router] Executing automatic fallback to B2');
-      return await createB2UploadTarget(conversationId, mediaType, cleanMime);
-    }
-  }
-
-  throw new Error(`Primary storage provider '${primaryChoice}' is currently unavailable and fallback is not enabled or configured.`);
+  throw new Error('No valid fallback storage provider is available.');
 }
 
 // Server-side verification of uploaded object before DB finalization

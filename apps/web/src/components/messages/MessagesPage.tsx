@@ -151,67 +151,36 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       const cleanMimeType = rawMime.split(';')[0].trim().toLowerCase();
       const uploadFile = file.type !== cleanMimeType ? new Blob([file], { type: cleanMimeType }) : file;
 
-      // Helper function to execute upload flow for a given target provider preference
-      const executeUploadFlow = async (preferredProvider?: 'b2' | 'cloudinary') => {
-        // Phase A: Request upload intent
-        const intentRes = await fetch('/api/media-upload-intent', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({
-            conversationId,
-            mediaType,
-            mimeType: cleanMimeType,
-            fileSizeBytes: uploadFile.size,
-            durationMs,
-            preferredProvider
-          })
-        });
-
-        const intentData = await intentRes.json().catch(() => ({}));
-        if (!intentRes.ok || !intentData.uploadUrl || !intentData.intentId) {
-          throw new Error(intentData.error || 'Upload authorization failed');
-        }
-
-        // Diagnostic A: Upload Intent
-        console.log(`[MediaUpload] ${preferredProvider || 'primary'}-intent`, {
-          provider: intentData.provider,
-          status: intentRes.status,
-          intentIdExists: Boolean(intentData.intentId)
-        });
-
-        // Phase B: Direct upload binary to provider target
+      // Helper function to perform binary upload & finalization for a target
+      const uploadAndFinalizeTarget = async (intentTarget: any) => {
         let targetHost = 'unknown';
         try {
-          targetHost = new URL(intentData.uploadUrl).hostname;
+          targetHost = new URL(intentTarget.uploadUrl).hostname;
         } catch (e) {}
 
         let putRes: Response;
         try {
-          if (intentData.uploadMethod === 'POST' && intentData.formDataParams) {
+          if (intentTarget.uploadMethod === 'POST' && intentTarget.formDataParams) {
             const formData = new FormData();
-            Object.entries(intentData.formDataParams).forEach(([k, v]) => {
+            Object.entries(intentTarget.formDataParams).forEach(([k, v]) => {
               formData.append(k, v as string);
             });
             formData.append('file', uploadFile);
-            putRes = await fetch(intentData.uploadUrl, {
+            putRes = await fetch(intentTarget.uploadUrl, {
               method: 'POST',
               body: formData
             });
           } else {
-            putRes = await fetch(intentData.uploadUrl, {
+            putRes = await fetch(intentTarget.uploadUrl, {
               method: 'PUT',
-              headers: intentData.headers || { 'Content-Type': cleanMimeType },
+              headers: intentTarget.headers || { 'Content-Type': cleanMimeType },
               body: uploadFile
             });
           }
         } catch (err: any) {
-          console.error(`[MediaUpload] ${preferredProvider || 'primary'}-upload`, {
-            provider: intentData.provider,
+          console.error('[MediaUpload] direct-upload-error', {
+            provider: intentTarget.provider,
             hostname: targetHost,
-            status: 0,
             errorName: err?.name,
             errorMessage: err?.message
           });
@@ -223,7 +192,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           let xmlCode = '';
           let cloudinaryMessage = '';
 
-          // Try parsing Cloudinary JSON error if present
           try {
             const parsed = JSON.parse(errorText);
             if (parsed.error && parsed.error.message) {
@@ -231,30 +199,22 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             }
           } catch (e) {}
 
-          // Try parsing S3/B2 XML Code if present
           const codeMatch = errorText.match(/<Code>(.*?)<\/Code>/i);
           if (codeMatch && codeMatch[1]) {
             xmlCode = codeMatch[1];
           }
 
-          console.error(`[MediaUpload] ${preferredProvider || 'primary'}-upload`, {
-            provider: intentData.provider,
+          console.error('[MediaUpload] direct-upload-rejected', {
+            provider: intentTarget.provider,
             hostname: targetHost,
             status: putRes.status,
-            statusText: putRes.statusText,
             xmlCode: xmlCode || undefined,
             cloudinaryMessage: cloudinaryMessage || undefined
           });
           throw new Error(`Storage upload rejected (HTTP ${putRes.status}${xmlCode ? ` ${xmlCode}` : ''}${cloudinaryMessage ? `: ${cloudinaryMessage}` : ''})`);
-        } else {
-          console.log(`[MediaUpload] ${preferredProvider || 'primary'}-upload`, {
-            provider: intentData.provider,
-            hostname: targetHost,
-            status: putRes.status
-          });
         }
 
-        // Phase C: Finalize upload & create message record
+        // Finalize upload & create message record
         const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
         const finalizeRes = await fetch('/api/media-finalize', {
           method: 'POST',
@@ -263,10 +223,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             'Authorization': `Bearer ${session.access_token}`
           },
           body: JSON.stringify({
-            intentId: intentData.intentId,
+            intentId: intentTarget.intentId,
             conversationId,
-            provider: intentData.provider,
-            objectKey: intentData.objectKey,
+            provider: intentTarget.provider,
+            objectKey: intentTarget.objectKey,
             mediaType,
             mimeType: cleanMimeType,
             fileSizeBytes: uploadFile.size,
@@ -279,36 +239,57 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         });
 
         const finalizeData = await finalizeRes.json().catch(() => ({}));
-        console.log('[MediaUpload] finalize', {
-          provider: intentData.provider,
-          status: finalizeRes.status,
-          success: Boolean(finalizeData?.success)
-        });
-
         if (!finalizeRes.ok || !finalizeData.success) {
           throw new Error(finalizeData.error || 'Media finalization failed');
         }
 
-        console.log('[MediaUpload] message-insert', {
-          messageId: finalizeData.messageId,
-          mediaId: finalizeData.mediaId
-        });
-
         return true;
       };
 
-      // Primary Attempt: Try primary provider (Backblaze B2)
+      // 1. Initial Upload Intent (Server determines primary provider)
+      const intentRes = await fetch('/api/media-upload-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          conversationId,
+          mediaType,
+          mimeType: cleanMimeType,
+          fileSizeBytes: uploadFile.size,
+          durationMs
+        })
+      });
+
+      const primaryIntent = await intentRes.json().catch(() => ({}));
+      if (!intentRes.ok || !primaryIntent.uploadUrl || !primaryIntent.intentId) {
+        throw new Error(primaryIntent.error || 'Upload authorization failed');
+      }
+
+      // 2. Direct upload to primary target
       try {
-        await executeUploadFlow();
+        await uploadAndFinalizeTarget(primaryIntent);
       } catch (primaryErr: any) {
-        console.warn('[MediaUpload] fallback-start', { reason: primaryErr?.message });
-        // Controlled Fallback: Try Cloudinary if primary direct upload failed
-        try {
-          await executeUploadFlow('cloudinary');
-        } catch (fallbackErr: any) {
-          console.error('[MediaUpload] fallback-failed', fallbackErr);
-          throw new Error('Media upload failed. Please try again.');
+        console.warn('[MediaUpload] primary-attempt-failed', { intentId: primaryIntent.intentId, reason: primaryErr?.message });
+
+        // 3. Single Controlled Server Fallback Retry
+        const fallbackRes = await fetch('/api/media-upload-fallback-intent', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ originalIntentId: primaryIntent.intentId })
+        });
+
+        const fallbackIntent = await fallbackRes.json().catch(() => ({}));
+        if (!fallbackRes.ok || !fallbackIntent.uploadUrl || !fallbackIntent.intentId) {
+          throw new Error(fallbackIntent.error || primaryErr?.message || 'Media upload failed. Please try again.');
         }
+
+        console.info('[MediaUpload] executing-server-authorized-fallback', { fallbackProvider: fallbackIntent.provider });
+        await uploadAndFinalizeTarget(fallbackIntent);
       }
 
       setSelectedMedia(null);
