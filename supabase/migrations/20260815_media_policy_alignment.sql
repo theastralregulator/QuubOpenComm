@@ -284,7 +284,7 @@ BEGIN
     p_duration_ms,
     p_width,
     p_height,
-    p_original_filename,
+    substring(trim(p_original_filename) from 1 for 255),
     'active',
     now()
   )
