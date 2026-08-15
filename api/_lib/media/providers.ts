@@ -24,6 +24,7 @@ export interface ObjectVerificationResult {
   contentType?: string;
   resourceType?: string;
   format?: string;
+  durationMs?: number;
   error?: string;
 }
 
@@ -243,7 +244,7 @@ export async function repairB2CorsConfiguration(): Promise<B2CorsStatus> {
   }
 }
 
-// Inspect active environment & site_settings configuration
+// Inspect active environment & site_settings configuration (Uses cached checkB2CorsStatus() to avoid unnecessary API overhead)
 export async function checkStorageProvidersConfig(): Promise<StorageProviderConfigStatus> {
   const b2Configured = Boolean(
     process.env.B2_KEY_ID &&
@@ -268,8 +269,8 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
   const selectedPrimaryProvider = setting.provider;
   const autoFallbackEnabled = setting.auto_fallback;
 
-  // B2 is operational ONLY if configured AND CORS ready!
-  const b2Cors = b2Configured ? await checkB2CorsStatus(true) : { ready: false, status: 'unconfigured' as const };
+  // B2 is operational ONLY if configured AND CORS ready (Uses cached evaluation)
+  const b2Cors = b2Configured ? await checkB2CorsStatus() : { ready: false, status: 'unconfigured' as const };
   const b2Operational = b2Configured && b2Cors.ready;
 
   let activePrimaryProvider: StorageProviderType | null = null;
@@ -282,7 +283,7 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
       fallbackProvider = autoFallbackEnabled && cloudinaryConfigured ? 'cloudinary' : null;
     } else if (autoFallbackEnabled && cloudinaryConfigured) {
       activePrimaryProvider = 'cloudinary';
-      fallbackProvider = null; // When Cloudinary is ALREADY actively servicing traffic in failover mode, there is NO further fallback provider!
+      fallbackProvider = null;
       failoverActive = true;
     }
   } else if (selectedPrimaryProvider === 'cloudinary') {
@@ -291,7 +292,7 @@ export async function checkStorageProvidersConfig(): Promise<StorageProviderConf
       fallbackProvider = autoFallbackEnabled && b2Operational ? 'b2' : null;
     } else if (autoFallbackEnabled && b2Operational) {
       activePrimaryProvider = 'b2';
-      fallbackProvider = null; // When B2 is ALREADY actively servicing traffic in failover mode, there is NO further fallback provider!
+      fallbackProvider = null;
       failoverActive = true;
     }
   }
@@ -400,6 +401,40 @@ export function getCloudinaryResourceType(mediaType: MediaType, mimeType: string
   if (mediaType === 'image') return 'image';
   if (mediaType === 'video' || mediaType === 'audio') return 'video';
   return 'raw';
+}
+
+// Helper: Derive valid Cloudinary format from canonical MIME type
+export function deriveCloudinaryFormat(mimeType: string, objectKey: string): string {
+  const cleanMime = normalizeMimeType(mimeType);
+  const mimeFormatMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mp3': 'mp3',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/m4a': 'm4a',
+    'audio/x-m4a': 'm4a',
+    'audio/mp4': 'mp4',
+    'audio/aac': 'aac'
+  };
+
+  if (mimeFormatMap[cleanMime]) {
+    return mimeFormatMap[cleanMime];
+  }
+
+  if (objectKey.includes('.')) {
+    const ext = objectKey.split('.').pop()?.toLowerCase();
+    if (ext && ext.length <= 5) return ext;
+  }
+
+  return 'jpg';
 }
 
 // Generate strong object key using crypto.randomUUID()
@@ -644,11 +679,17 @@ export async function verifyUploadedObject(
         type: 'authenticated'
       });
 
+      let durationMs: number | undefined = undefined;
+      if (res.duration && typeof res.duration === 'number') {
+        durationMs = Math.round(res.duration * 1000);
+      }
+
       return {
         exists: true,
         contentLengthBytes: res.bytes,
         resourceType: res.resource_type,
         format: res.format,
+        durationMs
       };
     } catch (err: any) {
       return { exists: false, error: err.message || 'Object verification failed on Cloudinary' };
@@ -699,10 +740,10 @@ export async function createDownloadAccessUrl(
 
     const resourceType = getCloudinaryResourceType(mediaType, cleanMime);
     const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds;
+    const format = deriveCloudinaryFormat(cleanMime, objectKey);
 
-    // Use Cloudinary's official expiring authenticated delivery mechanism
-    const format = objectKey.includes('.') ? objectKey.split('.').pop() : undefined;
-    accessUrl = cloudinary.utils.private_download_url(objectKey, format || '', {
+    // Use Cloudinary's official expiring authenticated private download URL
+    accessUrl = cloudinary.utils.private_download_url(objectKey, format, {
       resource_type: resourceType,
       type: 'authenticated',
       expires_at: expiresAt
@@ -732,7 +773,7 @@ export async function deleteStorageObject(
       return true;
     } catch (err: any) {
       if (err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
-        return true; // Treat provider not-found as safe success
+        return true;
       }
       console.error(`Failed to delete object ${objectKey} from B2:`, err);
       return false;

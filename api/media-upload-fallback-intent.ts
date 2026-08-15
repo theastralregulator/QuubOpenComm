@@ -104,35 +104,50 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 5. Create fallback upload target via server provider router
-    const fallbackTarget = await createFallbackUploadTarget(
-      origIntent.conversation_id,
-      origIntent.media_type,
-      origIntent.mime_type,
-      origIntent.file_size_bytes,
-      origIntent.provider as StorageProviderType
-    );
+    let fallbackTarget;
+    let fallbackIntent;
 
-    // 6. Record new fallback intent
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const { data: fallbackIntent, error: insErr } = await adminClient
-      .from('media_upload_intents')
-      .insert({
-        user_id: authUser.userId,
-        conversation_id: origIntent.conversation_id,
-        provider: fallbackTarget.provider,
-        object_key: fallbackTarget.objectKey,
-        media_type: origIntent.media_type,
-        mime_type: origIntent.mime_type,
-        file_size_bytes: origIntent.file_size_bytes,
-        status: 'pending',
-        expires_at: expiresAt
-      })
-      .select('id')
-      .single();
+    try {
+      // 5. Create fallback upload target via server provider router
+      fallbackTarget = await createFallbackUploadTarget(
+        origIntent.conversation_id,
+        origIntent.media_type,
+        origIntent.mime_type,
+        origIntent.file_size_bytes,
+        origIntent.provider as StorageProviderType
+      );
 
-    if (insErr || !fallbackIntent) {
-      return res.status(500).json({ error: 'Failed to record fallback upload authorization intent record.' });
+      // 6. Record new fallback intent
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const { data: insData, error: insErr } = await adminClient
+        .from('media_upload_intents')
+        .insert({
+          user_id: authUser.userId,
+          conversation_id: origIntent.conversation_id,
+          provider: fallbackTarget.provider,
+          object_key: fallbackTarget.objectKey,
+          media_type: origIntent.media_type,
+          mime_type: origIntent.mime_type,
+          file_size_bytes: origIntent.file_size_bytes,
+          status: 'pending',
+          expires_at: expiresAt
+        })
+        .select('id')
+        .single();
+
+      if (insErr || !insData) {
+        throw new Error('Failed to record fallback upload authorization intent record.');
+      }
+      fallbackIntent = insData;
+
+    } catch (stepErr: any) {
+      console.error('Rolling back original intent status from failed to pending due to fallback creation failure:', stepErr);
+      await adminClient
+        .from('media_upload_intents')
+        .update({ status: 'pending' })
+        .eq('id', originalIntentId)
+        .eq('status', 'failed');
+      throw stepErr;
     }
 
     void recordStorageEvent({

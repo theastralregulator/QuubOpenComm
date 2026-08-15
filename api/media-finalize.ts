@@ -132,6 +132,25 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  // Duration Validation if provider reports actual duration (e.g. Cloudinary)
+  if (verification.durationMs !== undefined && verification.durationMs !== null) {
+    if (verification.durationMs > 300000) {
+      console.warn(`Object duration limit exceeded for key ${objectKey}: found ${verification.durationMs} ms (max 300000 ms)`);
+      await resetIntentLeaseToPending();
+
+      void recordStorageEvent({
+        provider,
+        operation: 'upload_finalize',
+        eventType: 'failure',
+        httpStatus: 400,
+        latencyMs: Date.now() - startTime,
+        mediaType,
+        sizeBucket: getSizeBucket(fileSizeBytes)
+      });
+      return res.status(400).json({ error: 'Uploaded video/audio duration exceeds maximum 5 minute limit.' });
+    }
+  }
+
   // Provider-Aware Format / MIME Validation
   if (provider === 'cloudinary') {
     // Cloudinary format & resource_type validation
