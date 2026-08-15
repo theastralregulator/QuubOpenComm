@@ -13,7 +13,9 @@ export default async function handler(req: any, res: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const { mediaId, messageId } = req.body || {};
+  const { mediaId, messageId, mode: rawMode } = req.body || {};
+  const mode: 'view' | 'download' = rawMode === 'download' ? 'download' : 'view';
+
   if (!mediaId && !messageId) {
     return res.status(400).json({ error: 'Missing mediaId or messageId' });
   }
@@ -27,10 +29,10 @@ export default async function handler(req: any, res: any) {
   let resolvedMediaType: any = undefined;
 
   try {
-    // 1. Fetch message_media record
+    // 1. Fetch message_media record (include original_filename)
     let query = adminClient
       .from('message_media')
-      .select('id, message_id, conversation_id, storage_provider, object_key, media_type, mime_type, file_size_bytes, status, delete_after, duration_ms, width, height');
+      .select('id, message_id, conversation_id, storage_provider, object_key, media_type, mime_type, file_size_bytes, status, delete_after, duration_ms, width, height, original_filename');
 
     if (mediaId) {
       query = query.eq('id', mediaId);
@@ -64,7 +66,9 @@ export default async function handler(req: any, res: any) {
       media.object_key,
       900,
       media.media_type,
-      media.mime_type
+      media.mime_type,
+      mode,
+      media.original_filename
     );
 
     void recordStorageEvent({

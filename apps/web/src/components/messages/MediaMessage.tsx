@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Image as ImageIcon, Film, Mic, AlertCircle, X, Maximize2, Volume2 } from 'lucide-react';
+import { Play, Pause, Image as ImageIcon, Film, Mic, AlertCircle, X, Maximize2, Download, ExternalLink } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 interface MediaMessageProps {
@@ -28,15 +28,15 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
   const [errorState, setErrorState] = useState<string | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
 
+  // Download State
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   // Audio Player State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
   const [durationSec, setDurationSec] = useState<number>(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Video Player State
-  const [isVideoPlaying, setIsVideoPlaying] = useState<boolean>(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -67,7 +67,7 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`
           },
-          body: JSON.stringify({ messageId })
+          body: JSON.stringify({ messageId, mode: 'view' })
         });
 
         const data = await res.json();
@@ -151,6 +151,51 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const handleDownload = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    setDownloadError(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setDownloadError('Authentication required');
+        setIsDownloading(false);
+        return;
+      }
+
+      const res = await fetch('/api/media-access', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ messageId, mode: 'download' })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.accessUrl) {
+        setDownloadError(data.error || 'Unable to download video.');
+        setIsDownloading(false);
+        return;
+      }
+
+      // Trigger actual file download via temporary anchor element
+      const a = document.createElement('a');
+      a.href = data.accessUrl;
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Error triggering video download:', err);
+      setDownloadError('Unable to download video.');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   if (isLoading) {
@@ -291,7 +336,7 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
     );
   }
 
-  // 3. VIDEO (Download-First Strategy)
+  // 3. VIDEO (Split Actions: Open Video vs Download)
   if (mediaType === 'video' || accessDetails.mediaType === 'video') {
     const durationText = accessDetails.durationMs ? `${Math.floor(accessDetails.durationMs / 1000)}s` : '';
     const sizeMb = accessDetails.fileSizeBytes ? (accessDetails.fileSizeBytes / (1024 * 1024)).toFixed(1) : '';
@@ -320,21 +365,47 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
         </div>
 
         <div className="pt-1 flex items-center space-x-2">
+          {/* Action 1: Open Video (View Mode - 15-min expiring URL in new tab) */}
           <a
             href={accessDetails.accessUrl}
             target="_blank"
             rel="noopener noreferrer"
-            download
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm ${
+            className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm ${
               isSelf
                 ? 'bg-white text-purple-700 hover:bg-purple-50'
                 : 'bg-purple-600 hover:bg-purple-500 text-white'
             }`}
+            title="Open video in new tab"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Open / Download Video</span>
+            <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+            <span>Open Video</span>
           </a>
+
+          {/* Action 2: Download Video (Download Mode with Content-Disposition override) */}
+          <button
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className={`py-1.5 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50 ${
+              isSelf
+                ? 'bg-white/20 text-white hover:bg-white/30 border border-white/20'
+                : 'bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 border border-slate-300/50 dark:border-slate-600/50'
+            }`}
+            title="Download video file"
+          >
+            {isDownloading ? (
+              <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
+            ) : (
+              <Download className="w-3.5 h-3.5 shrink-0" />
+            )}
+            <span>Download</span>
+          </button>
         </div>
+
+        {downloadError && (
+          <div className="text-[10px] text-rose-300 dark:text-rose-400 font-medium px-1">
+            {downloadError}
+          </div>
+        )}
       </div>
     );
   }

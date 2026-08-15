@@ -699,13 +699,64 @@ export async function verifyUploadedObject(
   return { exists: false, error: `Unknown storage provider '${provider}'` };
 }
 
+// Helper: Sanitize filename for Content-Disposition header
+export function sanitizeContentDispositionFilename(
+  originalFilename: string | undefined,
+  mimeType: string,
+  mediaType: MediaType
+): string {
+  const cleanMime = normalizeMimeType(mimeType);
+
+  let filename = originalFilename ? originalFilename.trim() : '';
+
+  if (filename) {
+    // Strip CR and LF characters to prevent header injection
+    filename = filename.replace(/[\r\n]+/g, '');
+    // Replace quotes, slashes, backslashes, and control characters with underscores
+    filename = filename.replace(/["'/\\]+/g, '_');
+    filename = filename.replace(/[^\x20-\x7E]+/g, '_');
+    // Ensure reasonable length (max 255 chars)
+    if (filename.length > 255) {
+      const extMatch = filename.match(/(\.[a-zA-Z0-9]{1,10})$/);
+      const ext = extMatch ? extMatch[1] : '';
+      filename = filename.substring(0, 255 - ext.length) + ext;
+    }
+  }
+
+  if (!filename) {
+    const extensionMap: Record<string, string> = {
+      'video/mp4': 'mp4',
+      'video/webm': 'webm',
+      'audio/webm': 'webm',
+      'audio/ogg': 'ogg',
+      'audio/mp3': 'mp3',
+      'audio/mpeg': 'mp3',
+      'audio/wav': 'wav',
+      'audio/m4a': 'm4a',
+      'audio/x-m4a': 'm4a',
+      'audio/mp4': 'mp4',
+      'audio/aac': 'aac',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif'
+    };
+    const ext = extensionMap[cleanMime] || (mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'webm' : 'jpg');
+    filename = `${mediaType || 'file'}.${ext}`;
+  }
+
+  return filename;
+}
+
 // Server-side generation of short-lived signed access URL for private media delivery (Cloudinary 15-min expiring authenticated access)
 export async function createDownloadAccessUrl(
   provider: StorageProviderType,
   objectKey: string,
   expiresInSeconds: number = 900,
   mediaType: MediaType = 'image',
-  mimeType: string = 'image/jpeg'
+  mimeType: string = 'image/jpeg',
+  mode: 'view' | 'download' = 'view',
+  originalFilename?: string
 ): Promise<{ accessUrl: string; expiresInSeconds: number }> {
   const cleanMime = normalizeMimeType(mimeType);
   let accessUrl = '';
@@ -714,13 +765,25 @@ export async function createDownloadAccessUrl(
     const b2 = getB2Client();
     if (!b2) throw new Error('B2 storage provider not configured');
 
-    const command = new GetObjectCommand({ Bucket: b2.bucket, Key: objectKey });
+    const commandParams: any = { Bucket: b2.bucket, Key: objectKey };
+    if (mode === 'download') {
+      const safeFilename = sanitizeContentDispositionFilename(originalFilename, cleanMime, mediaType);
+      commandParams.ResponseContentDisposition = `attachment; filename="${safeFilename}"`;
+    }
+
+    const command = new GetObjectCommand(commandParams);
     accessUrl = await getSignedUrl(b2.client, command, { expiresIn: expiresInSeconds });
   } else if (provider === 'r2') {
     const r2 = getR2Client();
     if (!r2) throw new Error('R2 storage provider not configured');
 
-    const command = new GetObjectCommand({ Bucket: r2.bucket, Key: objectKey });
+    const commandParams: any = { Bucket: r2.bucket, Key: objectKey };
+    if (mode === 'download') {
+      const safeFilename = sanitizeContentDispositionFilename(originalFilename, cleanMime, mediaType);
+      commandParams.ResponseContentDisposition = `attachment; filename="${safeFilename}"`;
+    }
+
+    const command = new GetObjectCommand(commandParams);
     accessUrl = await getSignedUrl(r2.client, command, { expiresIn: expiresInSeconds });
   } else if (provider === 'cloudinary') {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME ? process.env.CLOUDINARY_CLOUD_NAME.trim() : '';
@@ -742,12 +805,19 @@ export async function createDownloadAccessUrl(
     const expiresAt = Math.floor(Date.now() / 1000) + expiresInSeconds;
     const format = deriveCloudinaryFormat(cleanMime, objectKey);
 
-    // Use Cloudinary's official expiring authenticated private download URL
-    accessUrl = cloudinary.utils.private_download_url(objectKey, format, {
+    const options: any = {
       resource_type: resourceType,
       type: 'authenticated',
       expires_at: expiresAt
-    });
+    };
+
+    if (mode === 'download') {
+      const safeFilename = sanitizeContentDispositionFilename(originalFilename, cleanMime, mediaType);
+      options.attachment = safeFilename;
+    }
+
+    // Use Cloudinary's official expiring authenticated private download URL
+    accessUrl = cloudinary.utils.private_download_url(objectKey, format, options);
   } else {
     throw new Error(`Unsupported storage provider '${provider}'`);
   }
