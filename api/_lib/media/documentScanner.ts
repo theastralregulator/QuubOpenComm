@@ -1,4 +1,4 @@
-// Server-side document header signature and ZIP structure verification for OpenComm private media
+// Server-side document header signature and ZIP EOCD Central Directory verification for OpenComm private media
 import { normalizeMimeType } from './validation.js';
 
 export interface DocumentVerificationResult {
@@ -8,56 +8,78 @@ export interface DocumentVerificationResult {
 }
 
 /**
- * Extract ZIP entry names and check encryption flag from ZIP buffer.
- * Supports Local File Headers (0x50 0x4B 0x03 0x04) and Central Directory Headers (0x50 0x4B 0x01 0x02).
+ * Locates End of Central Directory (EOCD) record and parses ZIP Central Directory entries.
+ * Enumerates file names only without decompressing file contents.
  */
-export function getZipEntryNames(buffer: Buffer): { entryNames: string[]; isEncrypted: boolean } {
+export function getZipCentralDirectoryEntries(buffer: Buffer): { entryNames: string[]; isEncrypted: boolean } {
+  const len = buffer.length;
+  if (len < 22) {
+    return { entryNames: [], isEncrypted: false };
+  }
+
+  // 1. Locate End of Central Directory (EOCD) Record (0x50 0x4B 0x05 0x06)
+  // Search backward from end of buffer (EOCD record is at least 22 bytes, comments up to 65535 bytes)
+  const maxSearchLength = Math.min(len, 65557);
+  let eocdPos = -1;
+
+  for (let i = len - 22; i >= len - maxSearchLength; i--) {
+    if (buffer[i] === 0x50 && buffer[i + 1] === 0x4b && buffer[i + 2] === 0x05 && buffer[i + 3] === 0x06) {
+      eocdPos = i;
+      break;
+    }
+  }
+
+  if (eocdPos === -1) {
+    return { entryNames: [], isEncrypted: false };
+  }
+
+  // Read Central Directory metadata from EOCD
+  const totalEntries = buffer.readUInt16LE(eocdPos + 10);
+  const cdSize = buffer.readUInt32LE(eocdPos + 12);
+  const cdOffset = buffer.readUInt32LE(eocdPos + 16);
+
+  // Bounds and sanity checks
+  if (totalEntries > 10000) {
+    return { entryNames: [], isEncrypted: false }; // Excessive entry count (reject malformed / zip bomb)
+  }
+  if (cdOffset < 0 || cdSize < 0 || cdOffset + cdSize > len) {
+    return { entryNames: [], isEncrypted: false }; // Malformed out-of-bounds central directory
+  }
+
   const entryNames: string[] = [];
   let isEncrypted = false;
-  let pos = 0;
-  const len = buffer.length;
+  let pos = cdOffset;
+  const cdEnd = cdOffset + cdSize;
 
-  while (pos <= len - 30) {
-    // 1. Local File Header signature (0x50 0x4B 0x03 0x04)
-    if (buffer[pos] === 0x50 && buffer[pos + 1] === 0x4b && buffer[pos + 2] === 0x03 && buffer[pos + 3] === 0x04) {
-      const flag = buffer.readUInt16LE(pos + 6);
-      if (flag & 0x01) {
-        isEncrypted = true;
-      }
-      const filenameLen = buffer.readUInt16LE(pos + 26);
-      const extraLen = buffer.readUInt16LE(pos + 28);
-      const compressedSize = buffer.readUInt32LE(pos + 18);
-
-      if (pos + 30 + filenameLen <= len) {
-        const name = buffer.subarray(pos + 30, pos + 30 + filenameLen).toString('utf8');
-        if (name && !entryNames.includes(name)) {
-          entryNames.push(name);
-        }
-      }
-
-      pos += 30 + filenameLen + extraLen + (compressedSize > 0 ? compressedSize : 0);
+  // Enumerate Central Directory Headers (0x50 0x4B 0x01 0x02)
+  while (pos + 46 <= cdEnd) {
+    if (buffer[pos] !== 0x50 || buffer[pos + 1] !== 0x4b || buffer[pos + 2] !== 0x01 || buffer[pos + 3] !== 0x02) {
+      break; // Malformed entry header signature
     }
-    // 2. Central Directory Header signature (0x50 0x4B 0x01 0x02)
-    else if (buffer[pos] === 0x50 && buffer[pos + 1] === 0x4b && buffer[pos + 2] === 0x01 && buffer[pos + 3] === 0x02) {
-      if (pos + 46 > len) break;
-      const flag = buffer.readUInt16LE(pos + 8);
-      if (flag & 0x01) {
-        isEncrypted = true;
-      }
-      const filenameLen = buffer.readUInt16LE(pos + 28);
-      const extraLen = buffer.readUInt16LE(pos + 30);
-      const commentLen = buffer.readUInt16LE(pos + 32);
 
-      if (pos + 46 + filenameLen <= len) {
-        const name = buffer.subarray(pos + 46, pos + 46 + filenameLen).toString('utf8');
-        if (name && !entryNames.includes(name)) {
-          entryNames.push(name);
-        }
-      }
-      pos += 46 + filenameLen + extraLen + commentLen;
-    } else {
-      pos++;
+    const flag = buffer.readUInt16LE(pos + 8);
+    if (flag & 0x01) {
+      isEncrypted = true;
     }
+
+    const filenameLen = buffer.readUInt16LE(pos + 28);
+    const extraLen = buffer.readUInt16LE(pos + 30);
+    const commentLen = buffer.readUInt16LE(pos + 32);
+
+    if (filenameLen > 1024) {
+      // Unreasonable filename length
+      break;
+    }
+
+    if (pos + 46 + filenameLen <= len) {
+      const rawName = buffer.subarray(pos + 46, pos + 46 + filenameLen).toString('utf8');
+      const normalizedName = rawName.toLowerCase().trim().replace(/\\/g, '/');
+      if (normalizedName && !entryNames.includes(normalizedName)) {
+        entryNames.push(normalizedName);
+      }
+    }
+
+    pos += 46 + filenameLen + extraLen + commentLen;
   }
 
   return { entryNames, isEncrypted };
@@ -100,52 +122,48 @@ export function verifyDocumentBuffer(
       return { valid: false, error: 'Invalid OOXML document. File is not a valid ZIP container.' };
     }
 
-    const { entryNames, isEncrypted } = getZipEntryNames(buffer);
+    const { entryNames, isEncrypted } = getZipCentralDirectoryEntries(buffer);
 
     if (isEncrypted) {
       return { valid: false, error: 'Encrypted archives are not permitted.' };
     }
 
     if (entryNames.length === 0) {
-      return { valid: false, error: 'ZIP container contains no readable entries.' };
+      return { valid: false, error: 'ZIP central directory missing or malformed.' };
     }
 
-    // Must contain [Content_Types].xml
-    const hasContentTypes = entryNames.some(e => e === '[Content_Types].xml' || e.endsWith('/[Content_Types].xml'));
+    // Must contain [content_types].xml
+    const hasContentTypes = entryNames.includes('[content_types].xml');
     if (!hasContentTypes) {
       return { valid: false, error: 'ZIP container missing mandatory OOXML [Content_Types].xml header.' };
     }
 
-    // Family-specific path verification
+    // Macro check (case-insensitive search for vbaproject.bin)
+    if (entryNames.some(e => e.includes('vbaproject.bin'))) {
+      return { valid: false, error: 'Macro-enabled OOXML documents (DOCM/XLSM/PPTM with vbaProject.bin) are strictly prohibited.' };
+    }
+
+    // Family-specific core entry verification
     if (cleanMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      const hasWordPath = entryNames.some(e => e.startsWith('word/'));
-      if (!hasWordPath) {
-        return { valid: false, error: 'Document structure mismatch: Missing Word (word/) package structure.' };
-      }
-      if (entryNames.some(e => e.includes('vbaProject.bin'))) {
-        return { valid: false, error: 'Macro-enabled Word documents (DOCM/vbaProject) are strictly prohibited.' };
+      const hasWordDoc = entryNames.includes('word/document.xml');
+      if (!hasWordDoc) {
+        return { valid: false, error: 'Document structure mismatch: Missing Word core entry (word/document.xml).' };
       }
       return { valid: true, detectedFamily: 'docx' };
     }
 
     if (cleanMime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-      const hasExcelPath = entryNames.some(e => e.startsWith('xl/'));
-      if (!hasExcelPath) {
-        return { valid: false, error: 'Document structure mismatch: Missing Excel (xl/) package structure.' };
-      }
-      if (entryNames.some(e => e.includes('vbaProject.bin'))) {
-        return { valid: false, error: 'Macro-enabled Excel spreadsheets (XLSM/vbaProject) are strictly prohibited.' };
+      const hasWorkbook = entryNames.includes('xl/workbook.xml');
+      if (!hasWorkbook) {
+        return { valid: false, error: 'Document structure mismatch: Missing Excel core entry (xl/workbook.xml).' };
       }
       return { valid: true, detectedFamily: 'xlsx' };
     }
 
     if (cleanMime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
-      const hasPptPath = entryNames.some(e => e.startsWith('ppt/'));
-      if (!hasPptPath) {
-        return { valid: false, error: 'Document structure mismatch: Missing PowerPoint (ppt/) package structure.' };
-      }
-      if (entryNames.some(e => e.includes('vbaProject.bin'))) {
-        return { valid: false, error: 'Macro-enabled PowerPoint presentations (PPTM/vbaProject) are strictly prohibited.' };
+      const hasPresentation = entryNames.includes('ppt/presentation.xml');
+      if (!hasPresentation) {
+        return { valid: false, error: 'Document structure mismatch: Missing PowerPoint core entry (ppt/presentation.xml).' };
       }
       return { valid: true, detectedFamily: 'pptx' };
     }

@@ -212,15 +212,28 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // 2b. Bounded Server-Side Document Magic Bytes & Signature Verification
+  // 2b. Bounded Server-Side Document Signature & OOXML Structure Verification
   if (mediaType === 'document') {
+    const maxDocBytes = 20 * 1024 * 1024; // 20 MB max limit
+    if (fileSizeBytes > maxDocBytes) {
+      await resetIntentLeaseToPending();
+      return res.status(400).json({ error: 'Document size exceeds maximum 20MB limit.' });
+    }
+
     let docBuffer: Buffer | null = null;
+    const isOoxml = cleanMimeType.includes('openxmlformats');
 
     try {
       if (provider === 'b2') {
         const b2 = getB2Client();
         if (b2) {
-          const getCmd = new GetObjectCommand({ Bucket: b2.bucket, Key: objectKey, Range: 'bytes=0-65535' });
+          // For OOXML (.docx/.xlsx/.pptx), fetch full object (<=20MB) to inspect EOCD/Central Directory.
+          // For PDF/TXT/CSV, a 64KB prefix range fetch is sufficient.
+          const getCmd = new GetObjectCommand({
+            Bucket: b2.bucket,
+            Key: objectKey,
+            ...(isOoxml ? {} : { Range: 'bytes=0-65535' })
+          });
           const getRes = await b2.client.send(getCmd);
           if (getRes.Body) {
             const byteArray = await getRes.Body.transformToByteArray();
@@ -230,7 +243,11 @@ export default async function handler(req: any, res: any) {
       } else if (provider === 'r2') {
         const r2 = getR2Client();
         if (r2) {
-          const getCmd = new GetObjectCommand({ Bucket: r2.bucket, Key: objectKey, Range: 'bytes=0-65535' });
+          const getCmd = new GetObjectCommand({
+            Bucket: r2.bucket,
+            Key: objectKey,
+            ...(isOoxml ? {} : { Range: 'bytes=0-65535' })
+          });
           const getRes = await r2.client.send(getCmd);
           if (getRes.Body) {
             const byteArray = await getRes.Body.transformToByteArray();
@@ -239,14 +256,15 @@ export default async function handler(req: any, res: any) {
         }
       } else if (provider === 'cloudinary') {
         const access = await createDownloadAccessUrl(provider, objectKey, 300, mediaType, cleanMimeType, 'view');
-        const fetchRes = await fetch(access.accessUrl, { headers: { Range: 'bytes=0-65535' } });
+        const headers: Record<string, string> = isOoxml ? {} : { Range: 'bytes=0-65535' };
+        const fetchRes = await fetch(access.accessUrl, { headers });
         if (fetchRes.ok) {
           const ab = await fetchRes.arrayBuffer();
           docBuffer = Buffer.from(ab);
         }
       }
     } catch (fetchErr) {
-      console.warn(`Failed to fetch document header buffer for key ${objectKey}:`, fetchErr);
+      console.warn(`Failed to fetch document buffer for key ${objectKey}:`, fetchErr);
     }
 
     if (docBuffer) {
