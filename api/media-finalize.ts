@@ -34,31 +34,62 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server configuration unavailable' });
   }
 
-  // 1. Guarded Intent Claiming via Server-Only RPC
+  // 1. Guarded Intent Claiming via Server-Only RPC (Production Status Contract)
   const { data: claimResult, error: claimErr } = await adminClient.rpc('claim_media_upload_intent_for_finalize', {
     p_intent_id: intentId,
     p_user_id: authUser.userId,
     p_conversation_id: conversationId
   });
 
-  if (claimErr || !claimResult || !claimResult.success) {
-    const errorMsg = claimResult?.error || claimErr?.message || 'Upload intent state claim failed';
+  if (claimErr || !claimResult) {
+    const errorMsg = claimErr?.message || 'Upload intent state claim failed';
     return res.status(400).json({ error: errorMsg });
   }
 
-  const intent = claimResult.intent;
-  const provider: StorageProviderType = intent.provider;
-  const objectKey: string = intent.object_key;
-  const mediaType = intent.media_type;
-  const cleanMimeType = normalizeMimeType(intent.mime_type);
-  const fileSizeBytes = Number(intent.file_size_bytes);
+  const claimStatus = claimResult.status;
+
+  if (claimStatus === 'finalized') {
+    return res.status(200).json({
+      success: true,
+      messageId: claimResult.final_message_id,
+      mediaId: claimResult.final_media_id,
+      idempotent: true
+    });
+  }
+
+  if (claimStatus === 'finalizing_in_progress') {
+    return res.status(409).json({ error: 'Upload intent finalization is currently in progress.' });
+  }
+
+  if (claimStatus === 'not_found') {
+    return res.status(404).json({ error: 'Upload intent not found.' });
+  }
+
+  if (claimStatus === 'user_mismatch' || claimStatus === 'conversation_mismatch') {
+    return res.status(403).json({ error: 'Not authorized for this upload intent.' });
+  }
+
+  if (claimStatus === 'expired') {
+    return res.status(410).json({ error: 'Upload intent has expired.' });
+  }
+
+  if (claimStatus !== 'claimed') {
+    return res.status(400).json({ error: claimResult.error || 'Claim upload intent failed.' });
+  }
+
+  const provider: StorageProviderType = claimResult.provider;
+  const objectKey: string = claimResult.object_key;
+  const mediaType = claimResult.media_type;
+  const cleanMimeType = normalizeMimeType(claimResult.mime_type);
+  const fileSizeBytes = Number(claimResult.file_size_bytes);
 
   const resetIntentLeaseToPending = async () => {
     try {
       await adminClient
         .from('media_upload_intents')
         .update({ status: 'pending', finalizing_at: null })
-        .eq('id', intentId);
+        .eq('id', intentId)
+        .eq('status', 'finalizing');
     } catch (err) {
       console.error('Failed to reset upload intent lease to pending:', err);
     }
@@ -80,8 +111,8 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Uploaded object was not found on storage provider.' });
   }
 
-  // Size Validation (Exact Match or within 5% tolerance for metadata variation)
-  if (verification.contentLengthBytes && Math.abs(verification.contentLengthBytes - fileSizeBytes) > fileSizeBytes * 0.05) {
+  // Size Validation (Strict ±512 bytes tolerance for S3/Cloudinary metadata headers)
+  if (verification.contentLengthBytes && Math.abs(verification.contentLengthBytes - fileSizeBytes) > 512) {
     console.warn(`Object size mismatch for key ${objectKey}: expected ${fileSizeBytes}, found ${verification.contentLengthBytes}`);
     await resetIntentLeaseToPending();
 
@@ -146,7 +177,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Uploaded file type does not match audio authorization intent.' });
       }
     } else if (mediaType === 'document') {
-      const allowedDocFormats = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
+      const allowedDocFormats = ['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'csv'];
       if (resType !== 'raw' || !allowedDocFormats.includes(format)) {
         console.warn(`Cloudinary document validation failed: resourceType=${resType}, format=${format}`);
         await resetIntentLeaseToPending();

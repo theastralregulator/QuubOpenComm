@@ -1,10 +1,66 @@
-// Server-side document header signature and magic-number verification for OpenComm private media
+// Server-side document header signature and ZIP structure verification for OpenComm private media
 import { normalizeMimeType } from './validation.js';
 
 export interface DocumentVerificationResult {
   valid: boolean;
   error?: string;
   detectedFamily?: string;
+}
+
+/**
+ * Extract ZIP entry names and check encryption flag from ZIP buffer.
+ * Supports Local File Headers (0x50 0x4B 0x03 0x04) and Central Directory Headers (0x50 0x4B 0x01 0x02).
+ */
+export function getZipEntryNames(buffer: Buffer): { entryNames: string[]; isEncrypted: boolean } {
+  const entryNames: string[] = [];
+  let isEncrypted = false;
+  let pos = 0;
+  const len = buffer.length;
+
+  while (pos <= len - 30) {
+    // 1. Local File Header signature (0x50 0x4B 0x03 0x04)
+    if (buffer[pos] === 0x50 && buffer[pos + 1] === 0x4b && buffer[pos + 2] === 0x03 && buffer[pos + 3] === 0x04) {
+      const flag = buffer.readUInt16LE(pos + 6);
+      if (flag & 0x01) {
+        isEncrypted = true;
+      }
+      const filenameLen = buffer.readUInt16LE(pos + 26);
+      const extraLen = buffer.readUInt16LE(pos + 28);
+      const compressedSize = buffer.readUInt32LE(pos + 18);
+
+      if (pos + 30 + filenameLen <= len) {
+        const name = buffer.subarray(pos + 30, pos + 30 + filenameLen).toString('utf8');
+        if (name && !entryNames.includes(name)) {
+          entryNames.push(name);
+        }
+      }
+
+      pos += 30 + filenameLen + extraLen + (compressedSize > 0 ? compressedSize : 0);
+    }
+    // 2. Central Directory Header signature (0x50 0x4B 0x01 0x02)
+    else if (buffer[pos] === 0x50 && buffer[pos + 1] === 0x4b && buffer[pos + 2] === 0x01 && buffer[pos + 3] === 0x02) {
+      if (pos + 46 > len) break;
+      const flag = buffer.readUInt16LE(pos + 8);
+      if (flag & 0x01) {
+        isEncrypted = true;
+      }
+      const filenameLen = buffer.readUInt16LE(pos + 28);
+      const extraLen = buffer.readUInt16LE(pos + 30);
+      const commentLen = buffer.readUInt16LE(pos + 32);
+
+      if (pos + 46 + filenameLen <= len) {
+        const name = buffer.subarray(pos + 46, pos + 46 + filenameLen).toString('utf8');
+        if (name && !entryNames.includes(name)) {
+          entryNames.push(name);
+        }
+      }
+      pos += 46 + filenameLen + extraLen + commentLen;
+    } else {
+      pos++;
+    }
+  }
+
+  return { entryNames, isEncrypted };
 }
 
 /**
@@ -23,39 +79,14 @@ export function verifyDocumentBuffer(
 
   // 1. PDF Verification (application/pdf)
   if (cleanMime === 'application/pdf') {
-    // Check first 1024 bytes for %PDF- signature (0x25 0x50 0x44 0x46 0x2D)
-    const headerStr = buffer.subarray(0, 1024).toString('ascii');
+    const headerStr = buffer.subarray(0, Math.min(buffer.length, 1024)).toString('ascii');
     if (!headerStr.includes('%PDF-')) {
       return { valid: false, error: 'Invalid PDF signature. File content does not match PDF specification.' };
     }
     return { valid: true, detectedFamily: 'pdf' };
   }
 
-  // 2. Legacy Microsoft Office Binary Formats (DOC, XLS, PPT)
-  const legacyMimes = [
-    'application/msword',
-    'application/vnd.ms-excel',
-    'application/vnd.ms-powerpoint'
-  ];
-
-  if (legacyMimes.includes(cleanMime)) {
-    // Microsoft OLE2 Compound File header magic bytes: D0 CF 11 E0 A1 B1 1A E1
-    const oleHeader = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
-    let isOleMatch = true;
-    for (let i = 0; i < oleHeader.length; i++) {
-      if (buffer[i] !== oleHeader[i]) {
-        isOleMatch = false;
-        break;
-      }
-    }
-
-    if (!isOleMatch) {
-      return { valid: false, error: 'Invalid legacy Office document binary header signature.' };
-    }
-    return { valid: true, detectedFamily: 'legacy_office' };
-  }
-
-  // 3. OOXML Office Formats (DOCX, XLSX, PPTX)
+  // 2. OOXML Office Formats (DOCX, XLSX, PPTX)
   const ooxmlMimes = [
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -69,37 +100,59 @@ export function verifyDocumentBuffer(
       return { valid: false, error: 'Invalid OOXML document. File is not a valid ZIP container.' };
     }
 
-    // Convert first 64KB to string (latin1/ascii) to search for OOXML structural path indicators
-    const contentSample = buffer.subarray(0, Math.min(buffer.length, 65536)).toString('latin1');
+    const { entryNames, isEncrypted } = getZipEntryNames(buffer);
 
+    if (isEncrypted) {
+      return { valid: false, error: 'Encrypted archives are not permitted.' };
+    }
+
+    if (entryNames.length === 0) {
+      return { valid: false, error: 'ZIP container contains no readable entries.' };
+    }
+
+    // Must contain [Content_Types].xml
+    const hasContentTypes = entryNames.some(e => e === '[Content_Types].xml' || e.endsWith('/[Content_Types].xml'));
+    if (!hasContentTypes) {
+      return { valid: false, error: 'ZIP container missing mandatory OOXML [Content_Types].xml header.' };
+    }
+
+    // Family-specific path verification
     if (cleanMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      const hasWordStructure = contentSample.includes('word/') || contentSample.includes('wordprocessingml') || contentSample.includes('[Content_Types].xml');
-      if (!hasWordStructure) {
-        return { valid: false, error: 'ZIP container does not contain expected Word (DOCX) document structure.' };
+      const hasWordPath = entryNames.some(e => e.startsWith('word/'));
+      if (!hasWordPath) {
+        return { valid: false, error: 'Document structure mismatch: Missing Word (word/) package structure.' };
+      }
+      if (entryNames.some(e => e.includes('vbaProject.bin'))) {
+        return { valid: false, error: 'Macro-enabled Word documents (DOCM/vbaProject) are strictly prohibited.' };
       }
       return { valid: true, detectedFamily: 'docx' };
     }
 
     if (cleanMime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-      const hasExcelStructure = contentSample.includes('xl/') || contentSample.includes('spreadsheetml') || contentSample.includes('[Content_Types].xml');
-      if (!hasExcelStructure) {
-        return { valid: false, error: 'ZIP container does not contain expected Excel (XLSX) document structure.' };
+      const hasExcelPath = entryNames.some(e => e.startsWith('xl/'));
+      if (!hasExcelPath) {
+        return { valid: false, error: 'Document structure mismatch: Missing Excel (xl/) package structure.' };
+      }
+      if (entryNames.some(e => e.includes('vbaProject.bin'))) {
+        return { valid: false, error: 'Macro-enabled Excel spreadsheets (XLSM/vbaProject) are strictly prohibited.' };
       }
       return { valid: true, detectedFamily: 'xlsx' };
     }
 
     if (cleanMime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
-      const hasPptStructure = contentSample.includes('ppt/') || contentSample.includes('presentationml') || contentSample.includes('[Content_Types].xml');
-      if (!hasPptStructure) {
-        return { valid: false, error: 'ZIP container does not contain expected PowerPoint (PPTX) document structure.' };
+      const hasPptPath = entryNames.some(e => e.startsWith('ppt/'));
+      if (!hasPptPath) {
+        return { valid: false, error: 'Document structure mismatch: Missing PowerPoint (ppt/) package structure.' };
+      }
+      if (entryNames.some(e => e.includes('vbaProject.bin'))) {
+        return { valid: false, error: 'Macro-enabled PowerPoint presentations (PPTM/vbaProject) are strictly prohibited.' };
       }
       return { valid: true, detectedFamily: 'pptx' };
     }
   }
 
-  // 4. Plain Text and CSV Formats (text/plain, text/csv)
+  // 3. Plain Text and CSV Formats (text/plain, text/csv)
   if (cleanMime === 'text/plain' || cleanMime === 'text/csv') {
-    // Check for Executable Headers
     // Windows PE Executable ("MZ" = 0x4D 0x5A)
     if (buffer[0] === 0x4d && buffer[1] === 0x5a) {
       return { valid: false, error: 'Executable binary data detected. Windows PE files are strictly prohibited.' };
