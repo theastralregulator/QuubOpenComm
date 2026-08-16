@@ -6,6 +6,7 @@ interface MediaMessageProps {
   messageId: string;
   mediaType: 'image' | 'video' | 'audio' | string;
   isSelf: boolean;
+  isRead: boolean;
 }
 
 interface MediaAccessDetails {
@@ -22,7 +23,7 @@ interface MediaAccessDetails {
 // In-memory cache for presigned GET access URLs (Key: messageId -> { details, expiresAt })
 const accessCache = new Map<string, { details: MediaAccessDetails; expiresAt: number }>();
 
-export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMessageProps) {
+export default function MediaMessage({ messageId, mediaType, isSelf, isRead }: MediaMessageProps) {
   const [accessDetails, setAccessDetails] = useState<MediaAccessDetails | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorState, setErrorState] = useState<string | null>(null);
@@ -231,17 +232,27 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
     const progressPercent = totalDuration > 0 ? (currentTimeSec / totalDuration) * 100 : 0;
 
     return (
-      <div className={`p-2.5 rounded-2xl flex flex-col space-y-2 min-w-[200px] max-w-[280px] ${
-        isSelf 
-          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
-          : 'bg-slate-100 dark:bg-[#1E293B] text-slate-900 dark:text-white border border-slate-200/60 dark:border-slate-800'
-      }`}>
+      <div
+        title={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+        aria-label={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+        className={`p-2.5 rounded-2xl flex flex-col space-y-2 min-w-[200px] max-w-[280px] transition-colors duration-300 ${
+          isSelf
+            ? isRead
+              ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+              : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+            : 'bg-slate-100 dark:bg-[#1E293B] text-slate-900 dark:text-white border border-slate-200/60 dark:border-slate-800 rounded-bl-xs shadow-xs'
+        }`}
+      >
         <div className="flex items-center space-x-2.5">
           <button
             onClick={toggleAudioPlay}
             aria-label={isPlaying ? 'Pause voice message' : 'Play voice message'}
             className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-sm ${
-              isSelf ? 'bg-white text-purple-700 hover:bg-purple-50' : 'bg-purple-600 text-white hover:bg-purple-500'
+              isSelf
+                ? isRead
+                  ? 'bg-white text-blue-700 hover:bg-blue-50'
+                  : 'bg-white text-slate-800 hover:bg-slate-100'
+                : 'bg-blue-600 text-white hover:bg-blue-500'
             }`}
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
@@ -269,7 +280,7 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
               }}
             >
               <div
-                className={`h-full transition-all duration-100 ${isSelf ? 'bg-white' : 'bg-purple-600 dark:bg-purple-400'}`}
+                className={`h-full transition-all duration-100 ${isSelf ? 'bg-white' : 'bg-blue-600 dark:bg-blue-400'}`}
                 style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
               />
             </div>
@@ -294,17 +305,27 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
   if (mediaType === 'image' || accessDetails.mediaType === 'image') {
     return (
       <>
-        <div className="relative group overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 max-w-[280px] sm:max-w-[320px]">
+        <div
+          title={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+          aria-label={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+          className={`relative group overflow-hidden rounded-2xl border p-1 max-w-[280px] sm:max-w-[320px] transition-colors duration-300 ${
+            isSelf
+              ? isRead
+                ? 'bg-blue-600 border-blue-500 rounded-br-xs shadow-xs'
+                : 'bg-slate-600 border-slate-500 rounded-br-xs shadow-xs'
+              : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-bl-xs shadow-xs'
+          }`}
+        >
           <img
             src={accessDetails.accessUrl}
             alt="Attachment"
             loading="lazy"
             onClick={() => setIsLightboxOpen(true)}
-            className="w-full h-auto max-h-[260px] object-cover rounded-2xl cursor-pointer hover:opacity-95 transition-opacity"
+            className="w-full h-auto max-h-[260px] object-cover rounded-xl cursor-pointer hover:opacity-95 transition-opacity"
           />
           <button
             onClick={() => setIsLightboxOpen(true)}
-            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 cursor-pointer"
+            className="absolute top-3 right-3 p-1.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 cursor-pointer"
             title="Open Image Lightbox"
           >
             <Maximize2 className="w-3.5 h-3.5" />
@@ -342,14 +363,20 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
     const sizeMb = accessDetails.fileSizeBytes ? (accessDetails.fileSizeBytes / (1024 * 1024)).toFixed(1) : '';
 
     return (
-      <div className={`p-3 rounded-2xl flex flex-col space-y-2.5 max-w-[280px] sm:max-w-[320px] ${
-        isSelf
-          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white'
-          : 'bg-slate-100 dark:bg-[#1E293B] text-slate-900 dark:text-white border border-slate-200/60 dark:border-slate-800'
-      }`}>
+      <div
+        title={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+        aria-label={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+        className={`p-3 rounded-2xl flex flex-col space-y-2.5 max-w-[280px] sm:max-w-[320px] transition-colors duration-300 ${
+          isSelf
+            ? isRead
+              ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+              : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+            : 'bg-slate-100 dark:bg-[#1E293B] text-slate-900 dark:text-white border border-slate-200/60 dark:border-slate-800 rounded-bl-xs shadow-xs'
+        }`}
+      >
         <div className="flex items-center space-x-3">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-            isSelf ? 'bg-white/20 text-white' : 'bg-purple-600/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400'
+            isSelf ? 'bg-white/20 text-white' : 'bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
           }`}>
             <Film className="w-5 h-5" />
           </div>
@@ -372,8 +399,10 @@ export default function MediaMessage({ messageId, mediaType, isSelf }: MediaMess
             rel="noopener noreferrer"
             className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm ${
               isSelf
-                ? 'bg-white text-purple-700 hover:bg-purple-50'
-                : 'bg-purple-600 hover:bg-purple-500 text-white'
+                ? isRead
+                  ? 'bg-white text-blue-700 hover:bg-blue-50'
+                  : 'bg-white text-slate-800 hover:bg-slate-100'
+                : 'bg-blue-600 hover:bg-blue-500 text-white'
             }`}
             title="Open video in new tab"
           >

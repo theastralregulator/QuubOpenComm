@@ -849,7 +849,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         )}
                         <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
                           {msg.message_type && msg.message_type !== 'text' ? (
-                            <MediaMessage messageId={msg.id} mediaType={msg.message_type} isSelf={isMe} />
+                            <MediaMessage messageId={msg.id} mediaType={msg.message_type} isSelf={isMe} isRead={isRead} />
                           ) : (
                             <div
                               title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
@@ -867,6 +867,14 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           )}
                           <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
                             <span>{sentTime}</span>
+                            {isMe && (
+                              <>
+                                <span>·</span>
+                                <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
+                                  {isRead ? 'Read' : 'Sent'}
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
