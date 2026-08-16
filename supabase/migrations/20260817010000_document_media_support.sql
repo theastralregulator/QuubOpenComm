@@ -1,7 +1,30 @@
 -- Migration: 20260817010000_document_media_support.sql
--- Description: Extend public.finalize_media_message_internal RPC to support secure document attachments (PDF, DOC/X, XLS/X, PPT/X, TXT, CSV up to 20MB) while preserving 100% production schema compatibility.
+-- Description: Extend database CHECK constraints and public.finalize_media_message_internal RPC to support secure document attachments (PDF, DOC/X, XLS/X, PPT/X, TXT, CSV up to 20MB) while preserving 100% production schema compatibility.
 -- DO NOT APPLY TO PRODUCTION AUTOMATICALLY. MANUAL REVIEW REQUIRED FIRST.
 
+-- 1. Safely update table CHECK constraints to include 'document'
+ALTER TABLE public.media_upload_intents
+  DROP CONSTRAINT IF EXISTS media_upload_intents_media_type_check;
+
+ALTER TABLE public.media_upload_intents
+  ADD CONSTRAINT media_upload_intents_media_type_check
+  CHECK (media_type IN ('image', 'video', 'audio', 'document'));
+
+ALTER TABLE public.message_media
+  DROP CONSTRAINT IF EXISTS message_media_media_type_check;
+
+ALTER TABLE public.message_media
+  ADD CONSTRAINT message_media_media_type_check
+  CHECK (media_type IN ('image', 'video', 'audio', 'document'));
+
+ALTER TABLE public.messages
+  DROP CONSTRAINT IF EXISTS messages_message_type_check;
+
+ALTER TABLE public.messages
+  ADD CONSTRAINT messages_message_type_check
+  CHECK (message_type IN ('text', 'image', 'video', 'audio', 'document'));
+
+-- 2. Create or replace public.finalize_media_message_internal RPC
 CREATE OR REPLACE FUNCTION public.finalize_media_message_internal(
   p_user_id uuid,
   p_upload_intent_id uuid,

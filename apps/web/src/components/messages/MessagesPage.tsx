@@ -131,7 +131,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       .catch(err => console.warn('Media status check error:', err));
   }, []);
 
-  const handleUploadAndSendMedia = async (file: File, mediaType: 'image' | 'video' | 'audio', durationMs?: number, width?: number, height?: number) => {
+  const handleUploadAndSendMedia = async (file: File, mediaType: 'image' | 'video' | 'audio' | 'document', durationMs?: number, width?: number, height?: number) => {
     if (!conversationId || !activeConv) return;
     if (activeConv.archivedAt) {
       triggerToast('Cannot send media to an archived conversation.');
@@ -148,8 +148,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       }
 
       // Normalize MIME type defensively and ensure upload Blob has clean mime type
-      const rawMime = file.type || (mediaType === 'audio' ? 'audio/webm' : mediaType === 'image' ? 'image/jpeg' : 'video/mp4');
-      const cleanMimeType = rawMime.split(';')[0].trim().toLowerCase();
+      let cleanMimeType = file.type ? file.type.split(';')[0].trim().toLowerCase() : '';
+      if (!cleanMimeType) {
+        if (mediaType === 'audio') cleanMimeType = 'audio/webm';
+        else if (mediaType === 'image') cleanMimeType = 'image/jpeg';
+        else if (mediaType === 'video') cleanMimeType = 'video/mp4';
+        else {
+          triggerToast('Document file type could not be verified. Upload cancelled.');
+          setIsUploadingMedia(false);
+          return;
+        }
+      }
+
       const uploadFile = file.type !== cleanMimeType ? new Blob([file], { type: cleanMimeType }) : file;
 
       const uploadToStorage = async (intentTarget: any) => {
@@ -216,7 +226,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       };
 
       const finalizeUploadedIntent = async (intentTarget: any) => {
-        const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : 'Video';
+        const previewText = mediaType === 'audio' ? 'Voice message' : mediaType === 'image' ? 'Photo' : mediaType === 'document' ? 'Document' : 'Video';
         const finalizeRes = await fetch('/api/media-finalize', {
           method: 'POST',
           headers: {
@@ -993,6 +1003,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                   <div className="flex items-center gap-2 bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-full px-3 py-1.5 focus-within:border-blue-500 transition-colors">
                     {/* Media Attachment Picker Button */}
                     <MediaAttachmentPicker
+                      documentEnabled={Boolean(mediaStatus.documentEnabled)}
                       onFileSelected={(file, mediaType, previewUrl, durationMs, width, height) => {
                         if (!mediaStatus.mediaMessagingEnabled) {
                           triggerToast('Media messaging is temporarily unavailable.');

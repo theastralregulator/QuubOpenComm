@@ -324,7 +324,7 @@ export function deriveB2Region(endpoint: string): string {
 }
 
 // Helper: Get S3 Client for Backblaze B2 (With safe environment normalization & region mismatch guard)
-function getB2Client(): { client: S3Client; bucket: string } | null {
+export function getB2Client(): { client: S3Client; bucket: string } | null {
   const rawKeyId = process.env.B2_KEY_ID;
   const rawAppKey = process.env.B2_APPLICATION_KEY;
   const rawBucket = process.env.B2_BUCKET_NAME;
@@ -367,7 +367,7 @@ function getB2Client(): { client: S3Client; bucket: string } | null {
 }
 
 // Helper: Get S3 Client for Cloudflare R2 (Legacy historical read/cleanup only)
-function getR2Client(): { client: S3Client; bucket: string } | null {
+export function getR2Client(): { client: S3Client; bucket: string } | null {
   const accessKeyId = process.env.R2_ACCESS_KEY_ID ? process.env.R2_ACCESS_KEY_ID.trim() : '';
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY ? process.env.R2_SECRET_ACCESS_KEY.trim() : '';
   const bucket = process.env.R2_BUCKET_NAME ? process.env.R2_BUCKET_NAME.trim() : '';
@@ -522,8 +522,14 @@ function createCloudinaryUploadTarget(
   const folder = 'opencomm-chat-media';
   const timestamp = Math.floor(Date.now() / 1000);
   const rawObjectKey = generateObjectKey(conversationId, mediaType, mimeType);
-  const cleanKeyWithoutExt = rawObjectKey.replace(/\.[^/.]+$/, '');
-  const publicId = cleanKeyWithoutExt.replace(/[^a-zA-Z0-9_\-\/]/g, '_');
+  let publicId: string;
+  if (mediaType === 'document') {
+    // For raw documents, Cloudinary requires preserving the canonical file extension in public_id
+    publicId = rawObjectKey.replace(/[^a-zA-Z0-9_\-\/\.]/g, '_');
+  } else {
+    const cleanKeyWithoutExt = rawObjectKey.replace(/\.[^/.]+$/, '');
+    publicId = cleanKeyWithoutExt.replace(/[^a-zA-Z0-9_\-\/]/g, '_');
+  }
   const resourceType = getCloudinaryResourceType(mediaType, mimeType);
   const deliveryType = 'authenticated';
 

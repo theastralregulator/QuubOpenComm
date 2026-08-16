@@ -1,7 +1,9 @@
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { verifyUserAuth, getServiceRoleSupabase } from './_lib/media/auth.js';
-import { verifyUploadedObject, StorageProviderType } from './_lib/media/providers.js';
+import { verifyUploadedObject, getB2Client, getR2Client, createDownloadAccessUrl, StorageProviderType } from './_lib/media/providers.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 import { normalizeMimeType } from './_lib/media/validation.js';
+import { verifyDocumentBuffer } from './_lib/media/documentScanner.js';
 
 export default async function handler(req: any, res: any) {
   const startTime = Date.now();
@@ -39,103 +41,67 @@ export default async function handler(req: any, res: any) {
     p_conversation_id: conversationId
   });
 
-  if (claimErr || !claimResult) {
-    console.error('Error claiming upload intent:', claimErr);
-    return res.status(500).json({ error: 'Failed to process upload intent authorization' });
+  if (claimErr || !claimResult || !claimResult.success) {
+    const errorMsg = claimResult?.error || claimErr?.message || 'Upload intent state claim failed';
+    return res.status(400).json({ error: errorMsg });
   }
 
-  const status = claimResult.status;
+  const intent = claimResult.intent;
+  const provider: StorageProviderType = intent.provider;
+  const objectKey: string = intent.object_key;
+  const mediaType = intent.media_type;
+  const cleanMimeType = normalizeMimeType(intent.mime_type);
+  const fileSizeBytes = Number(intent.file_size_bytes);
 
-  // Idempotent return if already finalized (or finalizing with existing final message ID)
-  if (status === 'finalized') {
-    return res.status(200).json({
-      success: true,
-      messageId: claimResult.final_message_id,
-      mediaId: claimResult.final_media_id,
-      idempotent: true
-    });
-  }
-
-  if (status === 'finalizing_in_progress') {
-    return res.status(409).json({ error: 'Upload finalization is already in progress' });
-  }
-
-  if (status === 'not_found') {
-    return res.status(404).json({ error: 'Upload intent record not found' });
-  }
-
-  if (status === 'user_mismatch' || status === 'conversation_mismatch') {
-    return res.status(403).json({ error: 'Authorization mismatch for this upload intent' });
-  }
-
-  if (status === 'expired') {
-    return res.status(410).json({ error: 'Upload intent has expired. Please request a new upload target.' });
-  }
-
-  if (status === 'failed') {
-    return res.status(400).json({ error: 'Upload intent has failed.' });
-  }
-
-  if (status !== 'claimed') {
-    return res.status(400).json({ error: `Invalid intent status '${status}' for finalization.` });
-  }
-
-  const provider = claimResult.provider as StorageProviderType;
-  const objectKey = claimResult.object_key;
-  const mediaType = claimResult.media_type;
-  const mimeType = claimResult.mime_type;
-  const cleanMimeType = normalizeMimeType(mimeType);
-  const fileSizeBytes = Number(claimResult.file_size_bytes);
-
-  // Helper to reset intent lease atomically back to pending
   const resetIntentLeaseToPending = async () => {
-    await adminClient
-      .from('media_upload_intents')
-      .update({ status: 'pending', finalizing_at: null })
-      .eq('id', intentId);
+    try {
+      await adminClient
+        .from('media_upload_intents')
+        .update({ status: 'pending', finalizing_at: null })
+        .eq('id', intentId);
+    } catch (err) {
+      console.error('Failed to reset upload intent lease to pending:', err);
+    }
   };
 
-  // 2. Server-side verification of Object Exists, File Size, and MIME/format against canonical intent
+  // 2. Controlled Verification of Uploaded Object
   const verification = await verifyUploadedObject(provider, objectKey, mediaType, cleanMimeType);
   if (!verification.exists) {
-    console.warn(`Object verification failed for key ${objectKey} on provider ${provider}: ${verification.error}`);
     await resetIntentLeaseToPending();
 
     void recordStorageEvent({
       provider,
       operation: 'upload_finalize',
       eventType: 'failure',
-      httpStatus: 404,
+      httpStatus: 400,
       latencyMs: Date.now() - startTime,
       mediaType
     });
-    return res.status(400).json({ error: 'Uploaded object was not found in storage bucket.' });
+    return res.status(400).json({ error: 'Uploaded object was not found on storage provider.' });
   }
 
-  // Size Validation against intent metadata (tolerance: ±512 bytes)
-  if (verification.contentLengthBytes !== undefined && verification.contentLengthBytes !== null) {
-    const sizeDiff = Math.abs(verification.contentLengthBytes - fileSizeBytes);
-    if (sizeDiff > 512) {
-      console.warn(`Object size mismatch for key ${objectKey}: expected ${fileSizeBytes}, found ${verification.contentLengthBytes}`);
-      await resetIntentLeaseToPending();
+  // Size Validation (Exact Match or within 5% tolerance for metadata variation)
+  if (verification.contentLengthBytes && Math.abs(verification.contentLengthBytes - fileSizeBytes) > fileSizeBytes * 0.05) {
+    console.warn(`Object size mismatch for key ${objectKey}: expected ${fileSizeBytes}, found ${verification.contentLengthBytes}`);
+    await resetIntentLeaseToPending();
 
-      void recordStorageEvent({
-        provider,
-        operation: 'upload_finalize',
-        eventType: 'failure',
-        httpStatus: 400,
-        latencyMs: Date.now() - startTime,
-        mediaType,
-        sizeBucket: getSizeBucket(fileSizeBytes)
-      });
-      return res.status(400).json({ error: 'Uploaded file size does not match authorization intent.' });
-    }
+    void recordStorageEvent({
+      provider,
+      operation: 'upload_finalize',
+      eventType: 'failure',
+      httpStatus: 400,
+      latencyMs: Date.now() - startTime,
+      mediaType
+    });
+    return res.status(400).json({ error: 'Uploaded file size does not match authorization intent.' });
   }
 
-  // Duration Validation if provider reports actual duration (e.g. Cloudinary)
-  if (verification.durationMs !== undefined && verification.durationMs !== null) {
-    if (verification.durationMs > 300000) {
-      console.warn(`Object duration limit exceeded for key ${objectKey}: found ${verification.durationMs} ms (max 300000 ms)`);
+  // Duration Validation
+  const verifiedDurationMs = verification.durationMs || (durationMs ? Number(durationMs) : undefined);
+  if (mediaType === 'audio' || mediaType === 'video') {
+    const maxDurationMs = 5 * 60 * 1000;
+    if (verifiedDurationMs && verifiedDurationMs > maxDurationMs) {
+      console.warn(`Duration validation failed for key ${objectKey}: duration=${verifiedDurationMs}ms`);
       await resetIntentLeaseToPending();
 
       void recordStorageEvent({
@@ -196,7 +162,7 @@ export default async function handler(req: any, res: any) {
       headMime === intentMime ||
       (intentMime === 'audio/mp4' && (headMime === 'audio/x-m4a' || headMime === 'audio/m4a')) ||
       (intentMime === 'audio/mpeg' && headMime === 'audio/mp3') ||
-      (headMime === 'application/octet-stream')
+      (mediaType !== 'document' && headMime === 'application/octet-stream')
     );
 
     if (!isMimeCompatible) {
@@ -212,6 +178,75 @@ export default async function handler(req: any, res: any) {
         mediaType
       });
       return res.status(400).json({ error: 'Uploaded file type does not match authorization intent.' });
+    }
+  }
+
+  // 2b. Bounded Server-Side Document Magic Bytes & Signature Verification
+  if (mediaType === 'document') {
+    let docBuffer: Buffer | null = null;
+
+    try {
+      if (provider === 'b2') {
+        const b2 = getB2Client();
+        if (b2) {
+          const getCmd = new GetObjectCommand({ Bucket: b2.bucket, Key: objectKey, Range: 'bytes=0-65535' });
+          const getRes = await b2.client.send(getCmd);
+          if (getRes.Body) {
+            const byteArray = await getRes.Body.transformToByteArray();
+            docBuffer = Buffer.from(byteArray);
+          }
+        }
+      } else if (provider === 'r2') {
+        const r2 = getR2Client();
+        if (r2) {
+          const getCmd = new GetObjectCommand({ Bucket: r2.bucket, Key: objectKey, Range: 'bytes=0-65535' });
+          const getRes = await r2.client.send(getCmd);
+          if (getRes.Body) {
+            const byteArray = await getRes.Body.transformToByteArray();
+            docBuffer = Buffer.from(byteArray);
+          }
+        }
+      } else if (provider === 'cloudinary') {
+        const access = await createDownloadAccessUrl(provider, objectKey, 300, mediaType, cleanMimeType, 'view');
+        const fetchRes = await fetch(access.accessUrl, { headers: { Range: 'bytes=0-65535' } });
+        if (fetchRes.ok) {
+          const ab = await fetchRes.arrayBuffer();
+          docBuffer = Buffer.from(ab);
+        }
+      }
+    } catch (fetchErr) {
+      console.warn(`Failed to fetch document header buffer for key ${objectKey}:`, fetchErr);
+    }
+
+    if (docBuffer) {
+      const docCheck = verifyDocumentBuffer(docBuffer, cleanMimeType);
+      if (!docCheck.valid) {
+        console.warn(`Document content verification failed for key ${objectKey}: ${docCheck.error}`);
+        await resetIntentLeaseToPending();
+
+        void recordStorageEvent({
+          provider,
+          operation: 'upload_finalize',
+          eventType: 'failure',
+          httpStatus: 400,
+          latencyMs: Date.now() - startTime,
+          mediaType
+        });
+        return res.status(400).json({ error: docCheck.error || 'Uploaded document failed security content verification.' });
+      }
+    } else {
+      console.warn(`Unable to fetch document header chunk for key ${objectKey}`);
+      await resetIntentLeaseToPending();
+
+      void recordStorageEvent({
+        provider,
+        operation: 'upload_finalize',
+        eventType: 'failure',
+        httpStatus: 400,
+        latencyMs: Date.now() - startTime,
+        mediaType
+      });
+      return res.status(400).json({ error: 'Unable to verify document content security.' });
     }
   }
 
@@ -250,14 +285,10 @@ export default async function handler(req: any, res: any) {
         eventType: 'failure',
         httpStatus: 400,
         latencyMs: Date.now() - startTime,
-        mediaType,
-        sizeBucket: getSizeBucket(fileSizeBytes)
+        mediaType
       });
-      return res.status(400).json({ error: rpcError.message || 'Failed to create media message record' });
+      return res.status(400).json({ error: rpcError.message || 'Database finalization failed' });
     }
-
-    const messageId = rpcResult?.message_id;
-    const mediaId = rpcResult?.media_id;
 
     void recordStorageEvent({
       provider,
@@ -271,12 +302,12 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       success: true,
-      messageId,
-      mediaId
+      messageId: rpcResult.message_id,
+      mediaId: rpcResult.media_id
     });
 
   } catch (err: any) {
-    console.error('Error finalizing media upload:', err);
+    console.error('Error executing finalize_media_message_internal:', err);
     await resetIntentLeaseToPending();
 
     void recordStorageEvent({
@@ -285,9 +316,8 @@ export default async function handler(req: any, res: any) {
       eventType: 'failure',
       httpStatus: 500,
       latencyMs: Date.now() - startTime,
-      mediaType,
-      sizeBucket: getSizeBucket(fileSizeBytes)
+      mediaType
     });
-    return res.status(500).json({ error: err.message || 'Failed to finalize media message.' });
+    return res.status(500).json({ error: err.message || 'Failed to complete media message finalization.' });
   }
 }

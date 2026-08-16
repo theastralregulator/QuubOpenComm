@@ -7,13 +7,15 @@ export default async function handler(req: any, res: any) {
 
   const config = await checkStorageProvidersConfig();
   const mediaMessagingEnabled = Boolean(config.activePrimaryProvider);
+  const isDocumentExplicitlyEnabled = process.env.MEDIA_DOCUMENT_ENABLED ? process.env.MEDIA_DOCUMENT_ENABLED.trim() === 'true' : false;
+  const documentEnabled = mediaMessagingEnabled && isDocumentExplicitlyEnabled;
 
   return res.status(200).json({
     mediaMessagingEnabled,
     voiceEnabled: mediaMessagingEnabled,
     imageEnabled: mediaMessagingEnabled,
     videoEnabled: mediaMessagingEnabled,
-    documentEnabled: mediaMessagingEnabled,
+    documentEnabled,
 
     selectedPrimaryProvider: config.selectedPrimaryProvider,
     activePrimaryProvider: config.activePrimaryProvider,

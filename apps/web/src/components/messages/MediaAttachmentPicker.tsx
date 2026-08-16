@@ -5,9 +5,10 @@ import { MAX_IMAGE_SIZE_BYTES, MAX_VIDEO_SIZE_BYTES, MAX_DOCUMENT_SIZE_BYTES, AL
 interface MediaAttachmentPickerProps {
   onFileSelected: (file: File, mediaType: 'image' | 'video' | 'document', previewUrl: string, durationMs?: number, width?: number, height?: number) => void;
   disabled?: boolean;
+  documentEnabled?: boolean;
 }
 
-export default function MediaAttachmentPicker({ onFileSelected, disabled = false }: MediaAttachmentPickerProps) {
+export default function MediaAttachmentPicker({ onFileSelected, disabled = false, documentEnabled = false }: MediaAttachmentPickerProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -235,14 +236,16 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
               <Video className="w-4 h-4 text-indigo-500" />
               <span>Video</span>
             </button>
-            <button
-              type="button"
-              onClick={() => documentInputRef.current?.click()}
-              className="flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-950/40 hover:text-purple-600 rounded-xl transition-all cursor-pointer text-left"
-            >
-              <FileText className="w-4 h-4 text-emerald-500" />
-              <span>Document</span>
-            </button>
+            {documentEnabled && (
+              <button
+                type="button"
+                onClick={() => documentInputRef.current?.click()}
+                className="flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-950/40 hover:text-purple-600 rounded-xl transition-all cursor-pointer text-left"
+              >
+                <FileText className="w-4 h-4 text-emerald-500" />
+                <span>Document</span>
+              </button>
+            )}
           </div>
         </>
       )}
