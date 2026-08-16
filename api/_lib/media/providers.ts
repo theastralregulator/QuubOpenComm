@@ -6,7 +6,7 @@ import { normalizeMimeType } from './validation.js';
 import { getServiceRoleSupabase } from './auth.js';
 
 export type StorageProviderType = 'r2' | 'b2' | 'cloudinary';
-export type MediaType = 'image' | 'video' | 'audio';
+export type MediaType = 'image' | 'video' | 'audio' | 'document';
 
 export interface UploadTargetResult {
   provider: StorageProviderType;
@@ -400,6 +400,7 @@ export function getCloudinaryResourceType(mediaType: MediaType, mimeType: string
   const cleanMime = normalizeMimeType(mimeType);
   if (mediaType === 'image') return 'image';
   if (mediaType === 'video' || mediaType === 'audio') return 'video';
+  if (mediaType === 'document') return 'raw';
   return 'raw';
 }
 
@@ -422,7 +423,16 @@ export function deriveCloudinaryFormat(mimeType: string, objectKey: string): str
     'audio/m4a': 'm4a',
     'audio/x-m4a': 'm4a',
     'audio/mp4': 'mp4',
-    'audio/aac': 'aac'
+    'audio/aac': 'aac',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'text/plain': 'txt',
+    'text/csv': 'csv'
   };
 
   if (mimeFormatMap[cleanMime]) {
@@ -452,9 +462,18 @@ export function generateObjectKey(conversationId: string, mediaType: MediaType, 
     'image/gif': 'gif',
     'video/mp4': 'mp4',
     'video/webm': 'webm',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'text/plain': 'txt',
+    'text/csv': 'csv'
   };
 
-  const ext = extensionMap[mimeType] || (mediaType === 'audio' ? 'webm' : mediaType === 'image' ? 'jpg' : 'mp4');
+  const ext = extensionMap[mimeType] || (mediaType === 'audio' ? 'webm' : mediaType === 'image' ? 'jpg' : mediaType === 'document' ? 'pdf' : 'mp4');
   const datePrefix = new Date().toISOString().substring(0, 7);
   const randomUuid = crypto.randomUUID();
   return `opencomm_media/${datePrefix}/${conversationId}/${Date.now()}_${randomUuid}.${ext}`;
@@ -739,9 +758,18 @@ export function sanitizeContentDispositionFilename(
       'image/jpeg': 'jpg',
       'image/png': 'png',
       'image/webp': 'webp',
-      'image/gif': 'gif'
+      'image/gif': 'gif',
+      'application/pdf': 'pdf',
+      'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.ms-excel': 'xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.ms-powerpoint': 'ppt',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+      'text/plain': 'txt',
+      'text/csv': 'csv'
     };
-    const ext = extensionMap[cleanMime] || (mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'webm' : 'jpg');
+    const ext = extensionMap[cleanMime] || (mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'webm' : mediaType === 'document' ? 'pdf' : 'jpg');
     filename = `${mediaType || 'file'}.${ext}`;
   }
 

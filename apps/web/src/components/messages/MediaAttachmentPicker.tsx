@@ -1,9 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { Image, Video, Paperclip, AlertCircle, X } from 'lucide-react';
-import { MAX_IMAGE_SIZE_BYTES, MAX_VIDEO_SIZE_BYTES, ALLOWED_MIME_TYPES } from '../../lib/mediaValidation';
+import { Image, Video, Paperclip, AlertCircle, X, FileText } from 'lucide-react';
+import { MAX_IMAGE_SIZE_BYTES, MAX_VIDEO_SIZE_BYTES, MAX_DOCUMENT_SIZE_BYTES, ALLOWED_MIME_TYPES } from '../../lib/mediaValidation';
 
 interface MediaAttachmentPickerProps {
-  onFileSelected: (file: File, mediaType: 'image' | 'video', previewUrl: string, durationMs?: number, width?: number, height?: number) => void;
+  onFileSelected: (file: File, mediaType: 'image' | 'video' | 'document', previewUrl: string, durationMs?: number, width?: number, height?: number) => void;
   disabled?: boolean;
 }
 
@@ -13,6 +13,7 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
 
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
 
   // Client-side Image compression helper (Preserves GIF as animated GIF without canvas conversion)
   const compressImage = async (file: File): Promise<{ compressedBlob: Blob; width: number; height: number }> => {
@@ -153,13 +154,38 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
     if (videoInputRef.current) videoInputRef.current.value = '';
   };
 
+  const handleDocumentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg(null);
+    setShowMenu(false);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const cleanType = file.type ? file.type.split(';')[0].trim().toLowerCase() : '';
+
+    if (!cleanType || !ALLOWED_MIME_TYPES.document.includes(cleanType)) {
+      setErrorMsg('Invalid document type. Allowed formats: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV.');
+      return;
+    }
+
+    if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setErrorMsg('Document size exceeds maximum limit of 20MB.');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    onFileSelected(file, 'document', previewUrl);
+
+    if (documentInputRef.current) documentInputRef.current.value = '';
+  };
+
   return (
     <div className="relative">
       <button
         type="button"
         disabled={disabled}
         onClick={() => setShowMenu(!showMenu)}
-        aria-label="Attach photo or video"
+        aria-label="Attach photo, video, or document"
         className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-50"
       >
         <Paperclip className="w-5 h-5" />
@@ -180,12 +206,19 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
         onChange={handleVideoChange}
         className="hidden"
       />
+      <input
+        ref={documentInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv"
+        onChange={handleDocumentChange}
+        className="hidden"
+      />
 
       {/* Popup Menu */}
       {showMenu && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setShowMenu(false)} />
-          <div className="absolute bottom-12 left-0 z-40 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1.5 w-40 flex flex-col space-y-1 animate-scale-up">
+          <div className="absolute bottom-12 left-0 z-40 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1.5 w-44 flex flex-col space-y-1 animate-scale-up">
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
@@ -201,6 +234,14 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
             >
               <Video className="w-4 h-4 text-indigo-500" />
               <span>Video</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => documentInputRef.current?.click()}
+              className="flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-950/40 hover:text-purple-600 rounded-xl transition-all cursor-pointer text-left"
+            >
+              <FileText className="w-4 h-4 text-emerald-500" />
+              <span>Document</span>
             </button>
           </div>
         </>

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   MessageSquare, Send, ArrowLeft, ShieldAlert, 
   RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle,
-  Mic, Image as ImageIcon, Video as VideoIcon
+  Mic, Image as ImageIcon, Video as VideoIcon, FileText
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { unreadService } from '../../lib/unreadService';
@@ -109,14 +109,15 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const activeConv = conversations.find(c => c.id === conversationId);
 
   // Media Messaging State
-  const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean }>({
+  const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean; documentEnabled?: boolean }>({
     mediaMessagingEnabled: false,
     voiceEnabled: false,
     imageEnabled: false,
-    videoEnabled: false
+    videoEnabled: false,
+    documentEnabled: false
   });
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
-  const [selectedMedia, setSelectedMedia] = useState<{ file: File; mediaType: 'image' | 'video'; previewUrl: string; durationMs?: number; width?: number; height?: number } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{ file: File; mediaType: 'image' | 'video' | 'document'; previewUrl: string; durationMs?: number; width?: number; height?: number } | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   useEffect(() => {
@@ -933,6 +934,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                   <div className="flex items-center space-x-3 min-w-0">
                     {selectedMedia.mediaType === 'image' ? (
                       <img src={selectedMedia.previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-xl border border-slate-200 dark:border-slate-700" />
+                    ) : selectedMedia.mediaType === 'document' ? (
+                      <div className="w-12 h-12 bg-emerald-900/40 text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-700/50">
+                        <FileText className="w-6 h-6" />
+                      </div>
                     ) : (
                       <div className="w-12 h-12 bg-indigo-900/40 text-indigo-400 rounded-xl flex items-center justify-center border border-indigo-700/50">
                         <VideoIcon className="w-6 h-6" />

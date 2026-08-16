@@ -13,6 +13,7 @@ export default async function handler(req: any, res: any) {
     voiceEnabled: mediaMessagingEnabled,
     imageEnabled: mediaMessagingEnabled,
     videoEnabled: mediaMessagingEnabled,
+    documentEnabled: mediaMessagingEnabled,
 
     selectedPrimaryProvider: config.selectedPrimaryProvider,
     activePrimaryProvider: config.activePrimaryProvider,

@@ -1,4 +1,5 @@
 import { getServiceRoleSupabase } from './auth.js';
+import { MediaType } from './providers.js';
 
 export type TelemetryOperation = 'upload_intent' | 'upload_finalize' | 'access' | 'delete' | 'health';
 export type TelemetryEventType = 'success' | 'failure' | 'rate_limited' | 'unauthorized' | 'timeout';
@@ -9,7 +10,7 @@ export interface TelemetryParams {
   eventType: TelemetryEventType;
   httpStatus?: number;
   latencyMs?: number;
-  mediaType?: 'image' | 'video' | 'audio';
+  mediaType?: MediaType;
   sizeBucket?: string;
 }
 

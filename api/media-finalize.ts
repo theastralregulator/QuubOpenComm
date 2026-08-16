@@ -179,6 +179,13 @@ export default async function handler(req: any, res: any) {
         await resetIntentLeaseToPending();
         return res.status(400).json({ error: 'Uploaded file type does not match audio authorization intent.' });
       }
+    } else if (mediaType === 'document') {
+      const allowedDocFormats = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
+      if (resType !== 'raw' || !allowedDocFormats.includes(format)) {
+        console.warn(`Cloudinary document validation failed: resourceType=${resType}, format=${format}`);
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match document authorization intent.' });
+      }
     }
   } else if (verification.contentType) {
     // S3 HEAD ContentType validation for B2 / R2
@@ -212,7 +219,8 @@ export default async function handler(req: any, res: any) {
   try {
     const previewText = (
       mediaType === 'audio' ? 'Voice message' :
-      mediaType === 'image' ? 'Photo' : 'Video'
+      mediaType === 'image' ? 'Photo' :
+      mediaType === 'document' ? 'Document' : 'Video'
     );
 
     const { data: rpcResult, error: rpcError } = await adminClient.rpc('finalize_media_message_internal', {

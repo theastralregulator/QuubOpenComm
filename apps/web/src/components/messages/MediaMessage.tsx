@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Image as ImageIcon, Film, Mic, AlertCircle, X, Maximize2, Download, ExternalLink } from 'lucide-react';
+import { Play, Pause, Image as ImageIcon, Film, Mic, AlertCircle, X, Maximize2, Download, ExternalLink, FileText, FileSpreadsheet, FileCode } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 interface MediaMessageProps {
@@ -428,6 +428,124 @@ export default function MediaMessage({ messageId, mediaType, isSelf, isRead }: M
             )}
             <span>Download</span>
           </button>
+        </div>
+
+        {downloadError && (
+          <div className="text-[10px] text-rose-300 dark:text-rose-400 font-medium px-1">
+            {downloadError}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 4. DOCUMENT
+  if (mediaType === 'document' || accessDetails.mediaType === 'document') {
+    const sizeMb = accessDetails.fileSizeBytes ? (accessDetails.fileSizeBytes / (1024 * 1024)).toFixed(1) : '';
+    const sizeKb = accessDetails.fileSizeBytes ? Math.round(accessDetails.fileSizeBytes / 1024) : 0;
+    const formattedSize = Number(sizeMb) >= 1 ? `${sizeMb} MB` : `${sizeKb} KB`;
+
+    const mime = accessDetails.mimeType || '';
+    const isPdf = mime.includes('pdf');
+    const isSpreadsheet = mime.includes('excel') || mime.includes('spreadsheet') || mime.includes('csv');
+    const isCodeOrTxt = mime.includes('text/plain') || mime.includes('text/csv');
+
+    const typeLabel = isPdf ? 'PDF Document' : isSpreadsheet ? 'Spreadsheet' : isCodeOrTxt ? 'Text File' : 'Document';
+
+    return (
+      <div
+        title={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+        aria-label={isSelf ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+        className={`p-3 rounded-2xl flex flex-col space-y-2.5 max-w-[280px] sm:max-w-[320px] transition-colors duration-300 ${
+          isSelf
+            ? isRead
+              ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+              : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+            : 'bg-slate-100 dark:bg-[#1E293B] text-slate-900 dark:text-white border border-slate-200/60 dark:border-slate-800 rounded-bl-xs shadow-xs'
+        }`}
+      >
+        <div className="flex items-center space-x-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+            isSelf ? 'bg-white/20 text-white' : 'bg-emerald-600/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+          }`}>
+            {isSpreadsheet ? (
+              <FileSpreadsheet className="w-5 h-5" />
+            ) : isCodeOrTxt ? (
+              <FileCode className="w-5 h-5" />
+            ) : (
+              <FileText className="w-5 h-5" />
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0 text-left">
+            <h4 className="text-xs font-bold truncate">{typeLabel}</h4>
+            <div className="flex items-center space-x-2 text-[10px] opacity-80 font-mono">
+              <span>{formattedSize}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-1 flex items-center space-x-2">
+          {/* For PDF: Open in new tab + Download */}
+          {isPdf ? (
+            <>
+              <a
+                href={accessDetails.accessUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm ${
+                  isSelf
+                    ? isRead
+                      ? 'bg-white text-blue-700 hover:bg-blue-50'
+                      : 'bg-white text-slate-800 hover:bg-slate-100'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                }`}
+                title="Open PDF in new tab"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span>Open</span>
+              </a>
+
+              <button
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className={`py-1.5 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50 ${
+                  isSelf
+                    ? 'bg-white/20 text-white hover:bg-white/30 border border-white/20'
+                    : 'bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 border border-slate-300/50 dark:border-slate-600/50'
+                }`}
+                title="Download document"
+              >
+                {isDownloading ? (
+                  <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span>Download</span>
+              </button>
+            </>
+          ) : (
+            /* For non-PDF documents: Download action */
+            <button
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50 ${
+                isSelf
+                  ? isRead
+                    ? 'bg-white text-blue-700 hover:bg-blue-50'
+                    : 'bg-white text-slate-800 hover:bg-slate-100'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+              title="Download document"
+            >
+              {isDownloading ? (
+                <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
+              ) : (
+                <Download className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>Download Document</span>
+            </button>
+          )}
         </div>
 
         {downloadError && (
