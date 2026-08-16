@@ -1,5 +1,5 @@
 -- Migration: 20260817010000_document_media_support.sql
--- Description: Extend database CHECK constraints and public.finalize_media_message_internal RPC to support secure document attachments (PDF, DOC/X, XLS/X, PPT/X, TXT, CSV up to 20MB) while preserving 100% production schema compatibility.
+-- Description: Extend database CHECK constraints and public.finalize_media_message_internal RPC to support secure document attachments (PDF, DOCX, XLSX, PPTX, TXT, CSV up to 20MB) while preserving 100% production schema compatibility.
 -- DO NOT APPLY TO PRODUCTION AUTOMATICALLY. MANUAL REVIEW REQUIRED FIRST.
 
 -- 1. Safely update table CHECK constraints to include 'document'

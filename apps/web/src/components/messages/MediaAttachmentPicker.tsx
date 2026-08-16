@@ -165,7 +165,7 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
     const cleanType = file.type ? file.type.split(';')[0].trim().toLowerCase() : '';
 
     if (!cleanType || !ALLOWED_MIME_TYPES.document.includes(cleanType)) {
-      setErrorMsg('Invalid document type. Allowed formats: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV.');
+      setErrorMsg('Invalid document type. Allowed formats: PDF, DOCX, XLSX, PPTX, TXT, CSV.');
       return;
     }
 
@@ -210,7 +210,7 @@ export default function MediaAttachmentPicker({ onFileSelected, disabled = false
       <input
         ref={documentInputRef}
         type="file"
-        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv"
+        accept=".pdf,.docx,.xlsx,.pptx,.txt,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv"
         onChange={handleDocumentChange}
         className="hidden"
       />
