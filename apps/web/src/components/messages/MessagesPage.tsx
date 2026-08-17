@@ -454,12 +454,25 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         }
         setIsOtherUserOnline(otherOnline);
       })
-      .subscribe(async (status) => {
+    const initRealtimeAuthAndSubscribe = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await supabase.realtime.setAuth(session.access_token);
+        }
+      } catch (e) {
+        console.warn('Realtime setAuth warning:', e);
+      }
+
+      channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           conversationRealtimeChannelRef.current = channel;
           await channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() });
         }
       });
+    };
+
+    void initRealtimeAuthAndSubscribe();
 
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
