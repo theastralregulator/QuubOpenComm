@@ -91,6 +91,9 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Chat Interactions V1 Feature Gate State (Default FALSE)
+  const [chatInteractionsEnabled, setChatInteractionsEnabled] = useState<boolean>(false);
+
   // New Chat Interactions State
   const [replyingToMessage, setReplyingToMessage] = useState<DbMessage | null>(null);
   const [messageReactions, setMessageReactions] = useState<Record<string, DbMessageReaction[]>>({});
@@ -106,6 +109,20 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [isOtherUserOnline, setIsOtherUserOnline] = useState<boolean>(false);
   const lastTypingSentRef = useRef<number>(0);
   const typingTimeoutRef = useRef<any>(null);
+  const conversationRealtimeChannelRef = useRef<any>(null);
+  const typingExpirationsRef = useRef<Map<string, any>>(new Map());
+
+  // Fetch Chat Interactions V1 Capability
+  useEffect(() => {
+    fetch('/api/chat-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data && typeof data.chatInteractionsEnabled === 'boolean') {
+          setChatInteractionsEnabled(data.chatInteractionsEnabled);
+        }
+      })
+      .catch(err => console.warn('Chat status check error:', err));
+  }, []);
 
   useEffect(() => {
     if (isSearchOpen) {
@@ -229,20 +246,24 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         return finalizeData;
       };
 
+      const intentBody: any = {
+        conversationId,
+        mediaType,
+        mimeType: cleanMimeType,
+        fileSizeBytes: uploadFile.size,
+        durationMs
+      };
+      if (chatInteractionsEnabled && replyingToMessage?.id) {
+        intentBody.replyToMessageId = replyingToMessage.id;
+      }
+
       const intentRes = await fetch('/api/media-upload-intent', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({
-          conversationId,
-          mediaType,
-          mimeType: cleanMimeType,
-          fileSizeBytes: uploadFile.size,
-          durationMs,
-          replyToMessageId: replyingToMessage?.id
-        })
+        body: JSON.stringify(intentBody)
       });
 
       const primaryIntent = await intentRes.json().catch(() => ({}));
@@ -370,9 +391,13 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // Realtime Broadcast (Typing) & Presence (Online Status)
+  // Single-Channel Realtime Broadcast (Typing) & Presence (Online Status)
   useEffect(() => {
-    if (!conversationId || !currentUserId) return;
+    if (!chatInteractionsEnabled || !conversationId || !currentUserId) {
+      setTypingUsers(new Set());
+      setIsOtherUserOnline(false);
+      return;
+    }
 
     const channel = supabase.channel(`conversation:${conversationId}`, {
       config: { private: true }
@@ -380,17 +405,38 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     channel
       .on('broadcast', { event: 'typing' }, (payload) => {
-        const { userId, userName, typing } = payload.payload || {};
-        if (userId && userId !== currentUserId) {
-          setTypingUsers(prev => {
-            const next = new Set(prev);
-            if (typing && userName) {
-              next.add(userName);
-            } else if (userName) {
-              next.delete(userName);
+        const { userId, typing } = payload.payload || {};
+        const otherParticipantId = activeConv?.otherParticipantId;
+        const otherParticipantName = activeConv?.otherParticipantName || 'User';
+
+        if (userId && userId === otherParticipantId) {
+          if (typing) {
+            setTypingUsers(prev => new Set(prev).add(otherParticipantName));
+
+            if (typingExpirationsRef.current.has(userId)) {
+              clearTimeout(typingExpirationsRef.current.get(userId));
             }
-            return next;
-          });
+            const timer = setTimeout(() => {
+              setTypingUsers(prev => {
+                const next = new Set(prev);
+                next.delete(otherParticipantName);
+                return next;
+              });
+              typingExpirationsRef.current.delete(userId);
+            }, 3000);
+            typingExpirationsRef.current.set(userId, timer);
+
+          } else {
+            if (typingExpirationsRef.current.has(userId)) {
+              clearTimeout(typingExpirationsRef.current.get(userId));
+              typingExpirationsRef.current.delete(userId);
+            }
+            setTypingUsers(prev => {
+              const next = new Set(prev);
+              next.delete(otherParticipantName);
+              return next;
+            });
+          }
         }
       })
       .on('presence', { event: 'sync' }, () => {
@@ -410,21 +456,39 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
+          conversationRealtimeChannelRef.current = channel;
           await channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() });
         }
       });
 
     return () => {
-      channel.untrack();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingExpirationsRef.current.forEach(t => clearTimeout(t));
+      typingExpirationsRef.current.clear();
+
+      if (conversationRealtimeChannelRef.current) {
+        conversationRealtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { userId: currentUserId, typing: false }
+        }).catch(() => {});
+        conversationRealtimeChannelRef.current.untrack().catch(() => {});
+      }
+
       supabase.removeChannel(channel);
+      conversationRealtimeChannelRef.current = null;
       setTypingUsers(new Set());
       setIsOtherUserOnline(false);
+      lastTypingSentRef.current = 0;
     };
-  }, [conversationId, currentUserId, activeConv?.otherParticipantId]);
+  }, [chatInteractionsEnabled, conversationId, currentUserId, activeConv?.otherParticipantId, activeConv?.otherParticipantName]);
 
   // Reactions Realtime Subscription
   useEffect(() => {
-    if (!conversationId) return;
+    if (!chatInteractionsEnabled || !conversationId) {
+      setMessageReactions({});
+      return;
+    }
 
     dbService.getConversationReactions(conversationId).then(data => {
       const map: Record<string, DbMessageReaction[]> = {};
@@ -461,21 +525,22 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     return () => {
       supabase.removeChannel(rxChannel);
     };
-  }, [conversationId]);
+  }, [chatInteractionsEnabled, conversationId]);
 
   const sendTypingStatus = (typing: boolean) => {
-    if (!conversationId || !currentUserId || activeConv?.archivedAt) return;
-    const channel = supabase.channel(`conversation:${conversationId}`, { config: { private: true } });
-    channel.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: { userId: currentUserId, userName: 'User', typing }
-    });
+    if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) return;
+    if (conversationRealtimeChannelRef.current) {
+      conversationRealtimeChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: currentUserId, typing }
+      }).catch(() => {});
+    }
   };
 
   const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setChatInput(e.target.value);
-    if (activeConv?.archivedAt) return;
+    if (!chatInteractionsEnabled || activeConv?.archivedAt) return;
 
     const now = Date.now();
     if (now - lastTypingSentRef.current > 1000) {
@@ -553,7 +618,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     setIsSending(true);
 
     try {
-      const sentMsg = await dbService.sendTextMessage(conversationId, textToSend, replyingToMessage?.id);
+      const replyId = chatInteractionsEnabled ? replyingToMessage?.id : undefined;
+      const sentMsg = await dbService.sendTextMessage(conversationId, textToSend, replyId);
       if (sentMsg) {
         setPendingMessages(prev => prev.filter(m => m.id !== tempId));
         setMessages((prev) => {
@@ -814,7 +880,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate leading-tight">
                         {activeConv.otherParticipantName}
                       </h3>
-                      {isOtherUserOnline && (
+                      {chatInteractionsEnabled && isOtherUserOnline && (
                         <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/50">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                           Online
@@ -830,16 +896,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIsMediaPanelOpen(true)}
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-medium border border-slate-200 dark:border-slate-800"
-                    title="Media & Files"
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                    <span className="hidden sm:inline">Media & Files</span>
-                  </button>
-                </div>
+                {chatInteractionsEnabled && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsMediaPanelOpen(true)}
+                      className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-medium border border-slate-200 dark:border-slate-800"
+                      title="Media & Files"
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      <span className="hidden sm:inline">Media & Files</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Work Contract Banner */}
@@ -892,13 +960,13 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       : '';
                     const isRead = Boolean(msg.read_at) || msg.unread === false;
-                    const isDeleted = Boolean(msg.deleted_at);
+                    const isDeleted = chatInteractionsEnabled && Boolean(msg.deleted_at);
 
-                    const replyParent = msg.reply_to_message_id
+                    const replyParent = (chatInteractionsEnabled && msg.reply_to_message_id)
                       ? messages.find(m => m.id === msg.reply_to_message_id)
                       : null;
 
-                    const rxList = messageReactions[msg.id] || [];
+                    const rxList = chatInteractionsEnabled ? (messageReactions[msg.id] || []) : [];
                     const rxCounts: Record<string, { count: number; hasMine: boolean }> = {};
                     rxList.forEach(r => {
                       if (!rxCounts[r.emoji]) rxCounts[r.emoji] = { count: 0, hasMine: false };
@@ -906,7 +974,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       if (r.user_id === currentUserId) rxCounts[r.emoji].hasMine = true;
                     });
 
-                    const isHighlighted = highlightedMessageId === msg.id;
+                    const isHighlighted = chatInteractionsEnabled && highlightedMessageId === msg.id;
 
                     return (
                       <div
@@ -927,7 +995,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 relative ${isMe ? 'items-end' : 'items-start'}`}>
 
                           {/* Quoted Reply Block */}
-                          {msg.reply_to_message_id && (
+                          {chatInteractionsEnabled && msg.reply_to_message_id && (
                             <div
                               onClick={() => handleJumpToMessage(msg.reply_to_message_id!)}
                               className="cursor-pointer p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-purple-500 text-[11px] text-slate-600 dark:text-slate-300 mb-1 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-colors flex items-center gap-1.5"
@@ -979,7 +1047,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                               )}
 
                               {/* Per-Message Action Trigger & Menu */}
-                              {!activeConv.archivedAt && (
+                              {chatInteractionsEnabled && !activeConv.archivedAt && (
                                 <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
                                   isMe ? '-left-14' : '-right-14'
                                 }`}>
@@ -1036,7 +1104,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                               )}
 
                               {/* Reaction Picker Bar */}
-                              {activeReactionPickerMsgId === msg.id && (
+                              {chatInteractionsEnabled && activeReactionPickerMsgId === msg.id && (
                                 <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-xl p-1.5 z-40 flex items-center gap-1 animate-in zoom-in-95 duration-100`}>
                                   {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
                                     <button
@@ -1056,7 +1124,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                           )}
 
                           {/* Grouped Reaction Chips */}
-                          {!isDeleted && Object.keys(rxCounts).length > 0 && (
+                          {chatInteractionsEnabled && !isDeleted && Object.keys(rxCounts).length > 0 && (
                             <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
                               {Object.entries(rxCounts).map(([emoji, data]) => (
                                 <button
@@ -1128,7 +1196,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               </div>
 
               {/* Typing Indicator Display */}
-              {typingUsers.size > 0 && (
+              {chatInteractionsEnabled && typingUsers.size > 0 && (
                 <div className="px-4 py-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 italic flex items-center gap-1.5 shrink-0">
                   <span className="flex gap-0.5">
                     <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -1140,7 +1208,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               )}
 
               {/* Quoted Reply Bar in Composer */}
-              {replyingToMessage && !activeConv.archivedAt && (
+              {chatInteractionsEnabled && replyingToMessage && !activeConv.archivedAt && (
                 <div className="p-2 px-3 bg-purple-50 dark:bg-purple-950/40 border-b border-purple-100 dark:border-purple-900/50 flex items-center justify-between gap-2 shrink-0 animate-in slide-in-from-bottom-2 duration-150">
                   <div className="flex items-center gap-2 min-w-0">
                     <Reply className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
@@ -1293,15 +1361,17 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       </div>
 
       {/* Media & Files Panel Drawer */}
-      <MediaFilesPanel
-        isOpen={isMediaPanelOpen}
-        onClose={() => setIsMediaPanelOpen(false)}
-        conversationId={conversationId || ''}
-        onJumpToMessage={handleJumpToMessage}
-      />
+      {chatInteractionsEnabled && (
+        <MediaFilesPanel
+          isOpen={isMediaPanelOpen}
+          onClose={() => setIsMediaPanelOpen(false)}
+          conversationId={conversationId || ''}
+          onJumpToMessage={handleJumpToMessage}
+        />
+      )}
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirmMessage && (
+      {chatInteractionsEnabled && deleteConfirmMessage && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">

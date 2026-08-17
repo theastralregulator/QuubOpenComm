@@ -148,7 +148,8 @@ async function getFallbackCounts(userId: string): Promise<UnreadCounts> {
         .select('id', { count: 'exact', head: true })
         .in('conversation_id', activeConversationIds)
         .neq('sender_id', userId)
-        .eq('unread', true);
+        .eq('unread', true)
+        .is('deleted_at', null);
       messageCount = count || 0;
     }
   }

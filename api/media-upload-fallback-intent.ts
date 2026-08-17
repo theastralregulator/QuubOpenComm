@@ -18,13 +18,15 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing originalIntentId' });
   }
 
+  const chatEnabled = process.env.CHAT_INTERACTIONS_V1_ENABLED?.trim() === 'true';
+
   const adminClient = getServiceRoleSupabase();
   if (!adminClient) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
   }
 
   try {
-    // 1. Fetch original intent record to verify ownership, conversation, status & expiration
+    // 1. Fetch original intent record
     const { data: origIntent, error: fetchErr } = await adminClient
       .from('media_upload_intents')
       .select('*')
@@ -117,22 +119,27 @@ export default async function handler(req: any, res: any) {
         origIntent.provider as StorageProviderType
       );
 
-      // 6. Record new fallback intent
+      // 6. Record new fallback intent safely
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const insertPayload: Record<string, any> = {
+        user_id: authUser.userId,
+        conversation_id: origIntent.conversation_id,
+        provider: fallbackTarget.provider,
+        object_key: fallbackTarget.objectKey,
+        media_type: origIntent.media_type,
+        mime_type: origIntent.mime_type,
+        file_size_bytes: origIntent.file_size_bytes,
+        status: 'pending',
+        expires_at: expiresAt
+      };
+
+      if (chatEnabled && origIntent.reply_to_message_id) {
+        insertPayload.reply_to_message_id = origIntent.reply_to_message_id;
+      }
+
       const { data: insData, error: insErr } = await adminClient
         .from('media_upload_intents')
-        .insert({
-          user_id: authUser.userId,
-          conversation_id: origIntent.conversation_id,
-          provider: fallbackTarget.provider,
-          object_key: fallbackTarget.objectKey,
-          media_type: origIntent.media_type,
-          mime_type: origIntent.mime_type,
-          file_size_bytes: origIntent.file_size_bytes,
-          status: 'pending',
-          expires_at: expiresAt,
-          reply_to_message_id: origIntent.reply_to_message_id || null
-        })
+        .insert(insertPayload)
         .select('id')
         .single();
 

@@ -183,6 +183,11 @@ export const MediaFilesPanel: React.FC<MediaFilesPanelProps> = ({
                         <span>{formatBytes(item.file_size_bytes)}</span>
                         {item.duration_ms ? <span>• {formatDuration(item.duration_ms)}</span> : null}
                         <span>• {new Date(item.created_at).toLocaleDateString()}</span>
+                        {item.status === 'deleted' && (
+                          <span className="px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold">
+                            Media expired
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -199,18 +204,24 @@ export const MediaFilesPanel: React.FC<MediaFilesPanelProps> = ({
                       <ArrowDownLeft className="w-4 h-4" />
                     </button>
 
-                    <button
-                      onClick={() => handleOpenMedia(item, isDoc ? 'download' : 'view')}
-                      disabled={accessingMediaId === item.media_id}
-                      title={isDoc ? 'Download document' : 'Open media'}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-                    >
-                      {accessingMediaId === item.media_id ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
-                      ) : (
-                        <ExternalLink className="w-4 h-4" />
-                      )}
-                    </button>
+                    {item.status === 'deleted' ? (
+                      <span className="p-1.5 text-[11px] font-semibold text-rose-500 italic">
+                        Expired
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleOpenMedia(item, isDoc ? 'download' : 'view')}
+                        disabled={accessingMediaId === item.media_id}
+                        title={isDoc ? 'Download document' : 'Open media'}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                      >
+                        {accessingMediaId === item.media_id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                        ) : (
+                          <ExternalLink className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               );

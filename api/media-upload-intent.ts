@@ -21,6 +21,11 @@ export default async function handler(req: any, res: any) {
   }
 
   const cleanMimeType = normalizeMimeType(mimeType);
+  const chatEnabled = process.env.CHAT_INTERACTIONS_V1_ENABLED?.trim() === 'true';
+
+  if (replyToMessageId && !chatEnabled) {
+    return res.status(400).json({ error: 'Message replies are currently unavailable.' });
+  }
 
   // 1. Verify conversation authorization & archive status
   const check = await verifyConversationParticipant(authUser.userId, conversationId);
@@ -42,9 +47,9 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
   }
 
-  // Validate replyToMessageId if provided
+  // Validate replyToMessageId if feature enabled and provided
   let validReplyTargetId: string | null = null;
-  if (replyToMessageId && typeof replyToMessageId === 'string') {
+  if (chatEnabled && replyToMessageId && typeof replyToMessageId === 'string') {
     const { data: targetMsg } = await adminClient
       .from('messages')
       .select('id, conversation_id, deleted_at')
@@ -76,22 +81,27 @@ export default async function handler(req: any, res: any) {
 
     resolvedProvider = target.provider;
 
-    // 4. Save upload intent in database with 24-hour retention window for orphan cleanup
+    // 4. Save upload intent in database (using existing schema columns by default for pre-migration safety)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const insertPayload: Record<string, any> = {
+      user_id: authUser.userId,
+      conversation_id: conversationId,
+      provider: target.provider,
+      object_key: target.objectKey,
+      media_type: mediaType,
+      mime_type: cleanMimeType,
+      file_size_bytes: Number(fileSizeBytes),
+      status: 'pending',
+      expires_at: expiresAt
+    };
+
+    if (chatEnabled && validReplyTargetId) {
+      insertPayload.reply_to_message_id = validReplyTargetId;
+    }
+
     const { data: intent, error: intentErr } = await adminClient
       .from('media_upload_intents')
-      .insert({
-        user_id: authUser.userId,
-        conversation_id: conversationId,
-        provider: target.provider,
-        object_key: target.objectKey,
-        media_type: mediaType,
-        mime_type: cleanMimeType,
-        file_size_bytes: Number(fileSizeBytes),
-        status: 'pending',
-        expires_at: expiresAt,
-        reply_to_message_id: validReplyTargetId
-      })
+      .insert(insertPayload)
       .select('id')
       .single();
 
