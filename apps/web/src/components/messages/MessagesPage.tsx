@@ -110,6 +110,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const lastTypingSentRef = useRef<number>(0);
   const typingTimeoutRef = useRef<any>(null);
   const conversationRealtimeChannelRef = useRef<any>(null);
+  const activeMessagesRealtimeChannelRef = useRef<any>(null);
+  const refreshConversationsDebouncedRef = useRef<any>(null);
   const typingExpirationsRef = useRef<Map<string, any>>(new Map());
 
   // Fetch Chat Interactions V1 Capability
@@ -407,6 +409,142 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     return () => { isMounted = false; };
   }, [currentUserId]);
 
+  // Silent Reconciliation Helper for Active Conversation Messages
+  const refreshActiveConversationMessages = useCallback(async (targetConvId?: string) => {
+    const convId = targetConvId || conversationId;
+    if (!convId) return;
+    try {
+      const latest = await dbService.getConversationMessages(convId);
+      setMessages(latest);
+    } catch (err) {
+      console.error('Error in silent active conversation message reconciliation:', err);
+    }
+  }, [conversationId]);
+
+  // Debounced Conversation List Refresh Helper
+  const refreshConversationsList = useCallback(async () => {
+    if (!currentUserId) return;
+    try {
+      const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
+      handleSetConversations(updatedConvs);
+    } catch (err) {
+      console.warn('Error refreshing conversation list:', err);
+    }
+  }, [currentUserId, conversationId]);
+
+  const triggerDebouncedConversationRefresh = useCallback(() => {
+    if (refreshConversationsDebouncedRef.current) {
+      clearTimeout(refreshConversationsDebouncedRef.current);
+    }
+    refreshConversationsDebouncedRef.current = setTimeout(() => {
+      void refreshConversationsList();
+    }, 500);
+  }, [refreshConversationsList]);
+
+  // Dedicated Active Conversation Realtime Postgres Changes Channel
+  useEffect(() => {
+    if (!conversationId || !currentUserId) return;
+
+    const channelTopic = `opencomm:messages:${conversationId}`;
+    const channel = supabase.channel(channelTopic);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        },
+        (payload) => {
+          const message = payload.new as DbMessage;
+          if (!message || message.conversation_id !== conversationId) return;
+
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === message.id)) {
+              return prev.map((m) => (m.id === message.id ? message : m));
+            }
+            return [...prev, message];
+          });
+
+          if (message.sender_id !== currentUserId) {
+            void (async () => {
+              try {
+                await dbService.markConversationRead(conversationId);
+                await unreadService.refresh(currentUserId);
+              } catch (e) {
+                console.warn('Async mark read error on INSERT:', e);
+              }
+            })();
+          }
+
+          triggerDebouncedConversationRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        },
+        (payload) => {
+          const message = payload.new as DbMessage;
+          if (!message || message.conversation_id !== conversationId) return;
+
+          setMessages((prev) =>
+            prev.map((m) => (m.id === message.id ? message : m))
+          );
+
+          triggerDebouncedConversationRefresh();
+        }
+      );
+
+    channel.subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        activeMessagesRealtimeChannelRef.current = channel;
+        void refreshActiveConversationMessages(conversationId);
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        if (err) console.warn(`Dedicated messages channel ${status}:`, err.message || err);
+      }
+    });
+
+    return () => {
+      if (refreshConversationsDebouncedRef.current) {
+        clearTimeout(refreshConversationsDebouncedRef.current);
+      }
+      supabase.removeChannel(channel);
+      activeMessagesRealtimeChannelRef.current = null;
+    };
+  }, [conversationId, currentUserId, refreshActiveConversationMessages, triggerDebouncedConversationRefresh]);
+
+  // Lightweight Reconciliation on Visibility / Focus Recovery
+  useEffect(() => {
+    if (!conversationId || !currentUserId) return;
+
+    let lastReconcileTime = 0;
+
+    const handleVisibilityOrFocus = () => {
+      const now = Date.now();
+      if (now - lastReconcileTime < 3000) return;
+      if (document.visibilityState === 'visible') {
+        lastReconcileTime = now;
+        void refreshActiveConversationMessages(conversationId);
+        triggerDebouncedConversationRefresh();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [conversationId, currentUserId, refreshActiveConversationMessages, triggerDebouncedConversationRefresh]);
+
   // Canonical Reaction Refresh Helper
   const refreshConversationReactions = useCallback(async (targetConvId?: string) => {
     const convId = targetConvId || conversationId;
@@ -622,36 +760,9 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       () => { void refreshConversations(); }
     );
 
-    const unsubscribeMessages = unreadService.subscribeMessageEvents(
-      currentUserId,
-      async (event) => {
-        const message = event.new as DbMessage;
-        if (conversationId && message.conversation_id === conversationId) {
-          if (event.eventType === 'INSERT') {
-            setMessages((prev) => {
-              if (prev.some((item) => item.id === message.id)) return prev;
-              return [...prev, message];
-            });
-
-            if (message.sender_id !== currentUserId) {
-              await dbService.markConversationRead(conversationId);
-              await unreadService.refresh(currentUserId);
-            }
-          } else if (event.eventType === 'UPDATE') {
-            setMessages((prev) => prev.map((item) => item.id === message.id ? message : item));
-          } else if (event.eventType === 'DELETE') {
-            setMessages((prev) => prev.filter((item) => item.id !== message.id));
-          }
-        }
-
-        await refreshConversations();
-      }
-    );
-
     return () => {
       isMounted = false;
       unsubscribeConversations();
-      unsubscribeMessages();
     };
   }, [conversationId, currentUserId]);
 
