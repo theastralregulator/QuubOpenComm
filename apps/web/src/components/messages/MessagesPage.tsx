@@ -1,19 +1,20 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
 import { 
   MessageSquare, Send, ArrowLeft, ShieldAlert, 
   RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle,
-  Mic, Image as ImageIcon, Video as VideoIcon, FileText
+  Mic, Image as ImageIcon, Video as VideoIcon, FileText,
+  Trash2, Reply, SmilePlus, FolderOpen, MoreHorizontal, CornerDownRight
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { unreadService } from '../../lib/unreadService';
-import { ConversationViewModel, DbMessage } from '../../types';
+import { ConversationViewModel, DbMessage, DbMessageReaction } from '../../types';
 import UserAvatar from '../common/UserAvatar';
 import WorkContractBanner from '../contracts/WorkContractBanner';
 import VoiceRecorder from './VoiceRecorder';
 import MediaMessage from './MediaMessage';
 import MediaAttachmentPicker from './MediaAttachmentPicker';
+import { MediaFilesPanel } from './MediaFilesPanel';
 
 export interface ConversationGroup {
   participantId: string;
@@ -42,9 +43,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationViewModel[]>([]);
-  
+
   const handleSetConversations = (convList: ConversationViewModel[]) => {
-    // 1. Group conversations by unique context key (otherParticipantId + conversationType + applicationId)
     const groupedByContext = new Map<string, ConversationViewModel[]>();
 
     for (const c of convList) {
@@ -54,23 +54,19 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       groupedByContext.set(key, group);
     }
 
-    // 2. Select canonical conversation for each context key
     const canonicalConversations: ConversationViewModel[] = [];
     for (const [_, group] of groupedByContext.entries()) {
       group.sort((a, b) => {
         const isArchivedA = Boolean(a.archivedAt);
         const isArchivedB = Boolean(b.archivedAt);
-        // Priority 1: Active (non-archived) before archived
         if (isArchivedA !== isArchivedB) {
           return isArchivedA ? 1 : -1;
         }
-        // Priority 2: Newest message/activity time
         const timeA = new Date(a.lastMessageTime || a.createdAt || 0).getTime();
         const timeB = new Date(b.lastMessageTime || b.createdAt || 0).getTime();
         if (timeA !== timeB) {
           return timeB - timeA;
         }
-        // Priority 3: Stable ID tie-break
         return a.id.localeCompare(b.id);
       });
 
@@ -79,6 +75,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     setConversations(canonicalConversations);
   };
+
   const [loadingConvs, setLoadingConvs] = useState<boolean>(true);
   const [convsError, setConvsError] = useState<string | null>(null);
 
@@ -94,6 +91,22 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // New Chat Interactions State
+  const [replyingToMessage, setReplyingToMessage] = useState<DbMessage | null>(null);
+  const [messageReactions, setMessageReactions] = useState<Record<string, DbMessageReaction[]>>({});
+  const [isMediaPanelOpen, setIsMediaPanelOpen] = useState<boolean>(false);
+  const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<DbMessage | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState<boolean>(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
+  const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
+
+  // Typing & Presence State
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [isOtherUserOnline, setIsOtherUserOnline] = useState<boolean>(false);
+  const lastTypingSentRef = useRef<number>(0);
+  const typingTimeoutRef = useRef<any>(null);
+
   useEffect(() => {
     if (isSearchOpen) {
       searchInputRef.current?.focus();
@@ -105,10 +118,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Active conversation selection
   const activeConv = conversations.find(c => c.id === conversationId);
 
-  // Media Messaging State
   const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean; documentEnabled?: boolean }>({
     mediaMessagingEnabled: false,
     voiceEnabled: false,
@@ -147,7 +158,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         return;
       }
 
-      // Normalize MIME type defensively and ensure upload Blob has clean mime type
       let cleanMimeType = file.type ? file.type.split(';')[0].trim().toLowerCase() : '';
       if (!cleanMimeType) {
         if (mediaType === 'audio') cleanMimeType = 'audio/webm';
@@ -163,65 +173,27 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       const uploadFile = file.type !== cleanMimeType ? new Blob([file], { type: cleanMimeType }) : file;
 
       const uploadToStorage = async (intentTarget: any) => {
-        let targetHost = 'unknown';
-        try {
-          targetHost = new URL(intentTarget.uploadUrl).hostname;
-        } catch (e) {}
-
         let putRes: Response;
-        try {
-          if (intentTarget.uploadMethod === 'POST' && intentTarget.formDataParams) {
-            const formData = new FormData();
-            Object.entries(intentTarget.formDataParams).forEach(([k, v]) => {
-              formData.append(k, v as string);
-            });
-            formData.append('file', uploadFile);
-            putRes = await fetch(intentTarget.uploadUrl, {
-              method: 'POST',
-              body: formData
-            });
-          } else {
-            putRes = await fetch(intentTarget.uploadUrl, {
-              method: 'PUT',
-              headers: intentTarget.headers || { 'Content-Type': cleanMimeType },
-              body: uploadFile
-            });
-          }
-        } catch (err: any) {
-          console.error('[MediaUpload] direct-upload-error', {
-            provider: intentTarget.provider,
-            hostname: targetHost,
-            errorName: err?.name,
-            errorMessage: err?.message
+        if (intentTarget.uploadMethod === 'POST' && intentTarget.formDataParams) {
+          const formData = new FormData();
+          Object.entries(intentTarget.formDataParams).forEach(([k, v]) => {
+            formData.append(k, v as string);
           });
-          throw err;
+          formData.append('file', uploadFile);
+          putRes = await fetch(intentTarget.uploadUrl, {
+            method: 'POST',
+            body: formData
+          });
+        } else {
+          putRes = await fetch(intentTarget.uploadUrl, {
+            method: 'PUT',
+            headers: intentTarget.headers || { 'Content-Type': cleanMimeType },
+            body: uploadFile
+          });
         }
 
         if (!putRes.ok) {
-          const errorText = await putRes.text().catch(() => '');
-          let xmlCode = '';
-          let cloudinaryMessage = '';
-
-          try {
-            const parsed = JSON.parse(errorText);
-            if (parsed.error && parsed.error.message) {
-              cloudinaryMessage = parsed.error.message;
-            }
-          } catch (e) {}
-
-          const codeMatch = errorText.match(/<Code>(.*?)<\/Code>/i);
-          if (codeMatch && codeMatch[1]) {
-            xmlCode = codeMatch[1];
-          }
-
-          console.error('[MediaUpload] direct-upload-rejected', {
-            provider: intentTarget.provider,
-            hostname: targetHost,
-            status: putRes.status,
-            xmlCode: xmlCode || undefined,
-            cloudinaryMessage: cloudinaryMessage || undefined
-          });
-          throw new Error(`Storage upload rejected (HTTP ${putRes.status}${xmlCode ? ` ${xmlCode}` : ''}${cloudinaryMessage ? `: ${cloudinaryMessage}` : ''})`);
+          throw new Error(`Storage upload rejected (HTTP ${putRes.status})`);
         }
       };
 
@@ -257,7 +229,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         return finalizeData;
       };
 
-      // 1. Initial Upload Intent (Server determines primary provider)
       const intentRes = await fetch('/api/media-upload-intent', {
         method: 'POST',
         headers: {
@@ -269,7 +240,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           mediaType,
           mimeType: cleanMimeType,
           fileSizeBytes: uploadFile.size,
-          durationMs
+          durationMs,
+          replyToMessageId: replyingToMessage?.id
         })
       });
 
@@ -279,16 +251,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       }
 
       let activeTarget = primaryIntent;
-      let binaryUploaded = false;
 
-      // 2. Direct upload to primary target (Fallback allowed ONLY if binary upload to storage fails)
       try {
         await uploadToStorage(primaryIntent);
-        binaryUploaded = true;
       } catch (primaryErr: any) {
-        console.warn('[MediaUpload] primary-binary-upload-failed', { intentId: primaryIntent.intentId, reason: primaryErr?.message });
-
-        // Single Controlled Server Fallback Retry
         const fallbackRes = await fetch('/api/media-upload-fallback-intent', {
           method: 'POST',
           headers: {
@@ -299,93 +265,101 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         });
 
         const fallbackIntent = await fallbackRes.json().catch(() => ({}));
-        if (!fallbackRes.ok || !fallbackIntent.uploadUrl || !fallbackIntent.intentId) {
-          throw new Error(fallbackIntent.error || primaryErr?.message || 'Media upload failed. Please try again.');
+        if (!fallbackRes.ok || !fallbackIntent.uploadUrl) {
+          throw new Error('Primary and fallback storage upload failed');
         }
 
-        console.info('[MediaUpload] executing-server-authorized-fallback-upload', { fallbackProvider: fallbackIntent.provider });
-        await uploadToStorage(fallbackIntent);
         activeTarget = fallbackIntent;
-        binaryUploaded = true;
+        await uploadToStorage(fallbackIntent);
       }
 
-      // 3. Finalize upload (If finalize fails, retry SAME intent safely without provider switching)
-      if (binaryUploaded) {
-        try {
-          await finalizeUploadedIntent(activeTarget);
-        } catch (finalizeErr: any) {
-          console.warn('[MediaUpload] initial-finalize-failed-retrying-same-intent', { intentId: activeTarget.intentId, reason: finalizeErr?.message });
-          await finalizeUploadedIntent(activeTarget);
-        }
-      }
+      await finalizeUploadedIntent(activeTarget);
 
       setSelectedMedia(null);
       setIsVoiceRecording(false);
+      setReplyingToMessage(null);
+
+      const refreshedMsgs = await dbService.getConversationMessages(conversationId);
+      setMessages(refreshedMsgs);
+
+      const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
+      handleSetConversations(updatedConvs);
 
     } catch (err: any) {
-      console.error('[Media Send Flow Error]:', err);
-      triggerToast('Media upload failed. Please try again.');
+      console.error('Media upload error:', err);
+      triggerToast(err.message || 'Media upload failed.');
     } finally {
       setIsUploadingMedia(false);
     }
   };
 
-  // 1. Authenticate user & load conversations
-  const loadConversations = async (includeArchived = Boolean(conversationId)) => {
-    setLoadingConvs(true);
-    setConvsError(null);
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        setCurrentUserId(null);
-        setConvsError('Authentication required to access messages.');
-        setLoadingConvs(false);
-        return;
-      }
-      setCurrentUserId(user.id);
-
-      const convList = await dbService.getMyConversations({ includeArchived });
-      handleSetConversations(convList);
-    } catch (err: any) {
-      console.error('Error loading conversations:', err);
-      setConvsError(err.message || 'Failed to load conversations.');
-    } finally {
-      setLoadingConvs(false);
-    }
-  };
-
   useEffect(() => {
-    loadConversations(Boolean(conversationId));
+    async function initAuth() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setCurrentUserId(user.id);
+        }
+      } catch (err) {
+        console.error('Failed to get current user:', err);
+      }
+    }
+    initAuth();
   }, []);
 
-  // 2. Load messages when conversationId changes
   useEffect(() => {
-    if (!conversationId) {
+    if (!currentUserId) return;
+    let isMounted = true;
+    setLoadingConvs(true);
+
+    async function loadConversations() {
+      try {
+        const convList = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
+        if (isMounted) {
+          handleSetConversations(convList);
+          setLoadingConvs(false);
+        }
+      } catch (err: any) {
+        console.error('Error loading conversations:', err);
+        if (isMounted) {
+          setConvsError('Failed to load conversations');
+          setLoadingConvs(false);
+        }
+      }
+    }
+
+    loadConversations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUserId, conversationId]);
+
+  useEffect(() => {
+    if (!conversationId || !currentUserId) {
       setMessages([]);
       return;
     }
 
     let isMounted = true;
+    setLoadingMessages(true);
+    setMessagesError(null);
 
     async function fetchMessages() {
-      setLoadingMessages(true);
-      setMessagesError(null);
       try {
-        const msgs = await dbService.getConversationMessages(conversationId!);
+        const data = await dbService.getConversationMessages(conversationId!);
         if (isMounted) {
-          setMessages(msgs);
-          // Mark conversation as read if active
+          setMessages(data);
+          setLoadingMessages(false);
           await dbService.markConversationRead(conversationId!);
-          await unreadService.refresh(currentUserId);
-          // Refresh conversation list to update unread badge counts
-          const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
-          if (isMounted) handleSetConversations(updatedConvs);
+          await unreadService.refresh(currentUserId!);
         }
       } catch (err: any) {
         console.error('Error fetching messages:', err);
-        if (isMounted) setMessagesError(err.message || 'Failed to load messages.');
-      } finally {
-        if (isMounted) setLoadingMessages(false);
+        if (isMounted) {
+          setMessagesError('Failed to load thread messages');
+          setLoadingMessages(false);
+        }
       }
     }
 
@@ -394,9 +368,127 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     return () => {
       isMounted = false;
     };
+  }, [conversationId, currentUserId]);
+
+  // Realtime Broadcast (Typing) & Presence (Online Status)
+  useEffect(() => {
+    if (!conversationId || !currentUserId) return;
+
+    const channel = supabase.channel(`conversation:${conversationId}`, {
+      config: { private: true }
+    });
+
+    channel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const { userId, userName, typing } = payload.payload || {};
+        if (userId && userId !== currentUserId) {
+          setTypingUsers(prev => {
+            const next = new Set(prev);
+            if (typing && userName) {
+              next.add(userName);
+            } else if (userName) {
+              next.delete(userName);
+            }
+            return next;
+          });
+        }
+      })
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        let otherOnline = false;
+        const otherParticipantId = activeConv?.otherParticipantId;
+        if (otherParticipantId) {
+          for (const key in state) {
+            const presences = state[key] as any[];
+            if (presences.some(p => p.userId === otherParticipantId)) {
+              otherOnline = true;
+              break;
+            }
+          }
+        }
+        setIsOtherUserOnline(otherOnline);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      channel.untrack();
+      supabase.removeChannel(channel);
+      setTypingUsers(new Set());
+      setIsOtherUserOnline(false);
+    };
+  }, [conversationId, currentUserId, activeConv?.otherParticipantId]);
+
+  // Reactions Realtime Subscription
+  useEffect(() => {
+    if (!conversationId) return;
+
+    dbService.getConversationReactions(conversationId).then(data => {
+      const map: Record<string, DbMessageReaction[]> = {};
+      for (const r of data) {
+        if (!map[r.message_id]) map[r.message_id] = [];
+        map[r.message_id].push(r);
+      }
+      setMessageReactions(map);
+    });
+
+    const rxChannel = supabase
+      .channel(`reactions:${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reactions',
+          filter: `conversation_id=eq.${conversationId}`
+        },
+        () => {
+          dbService.getConversationReactions(conversationId).then(data => {
+            const map: Record<string, DbMessageReaction[]> = {};
+            for (const r of data) {
+              if (!map[r.message_id]) map[r.message_id] = [];
+              map[r.message_id].push(r);
+            }
+            setMessageReactions(map);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(rxChannel);
+    };
   }, [conversationId]);
 
-  // 3. Shared real-time subscriptions for messages and conversations
+  const sendTypingStatus = (typing: boolean) => {
+    if (!conversationId || !currentUserId || activeConv?.archivedAt) return;
+    const channel = supabase.channel(`conversation:${conversationId}`, { config: { private: true } });
+    channel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { userId: currentUserId, userName: 'User', typing }
+    });
+  };
+
+  const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setChatInput(e.target.value);
+    if (activeConv?.archivedAt) return;
+
+    const now = Date.now();
+    if (now - lastTypingSentRef.current > 1000) {
+      sendTypingStatus(true);
+      lastTypingSentRef.current = now;
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      sendTypingStatus(false);
+    }, 2000);
+  };
+
   useEffect(() => {
     if (!currentUserId) return;
     let isMounted = true;
@@ -444,32 +536,31 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // 4. Auto-scroll to bottom of thread
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loadingMessages]);
 
-  // 5. Send Text Message
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!conversationId || activeConv?.archivedAt || !chatInput.trim() || isSending) return;
 
+    sendTypingStatus(false);
     const textToSend = chatInput.trim();
     const tempId = `temp-${Date.now()}`;
-    
+
     setPendingMessages(prev => [...prev, { id: tempId, text: textToSend, status: 'sending' }]);
     setChatInput('');
     setIsSending(true);
 
     try {
-      const sentMsg = await dbService.sendTextMessage(conversationId, textToSend);
+      const sentMsg = await dbService.sendTextMessage(conversationId, textToSend, replyingToMessage?.id);
       if (sentMsg) {
         setPendingMessages(prev => prev.filter(m => m.id !== tempId));
         setMessages((prev) => {
           if (prev.some((m) => m.id === sentMsg.id)) return prev;
           return [...prev, sentMsg];
         });
-        // Refresh conversations list to update preview
+        setReplyingToMessage(null);
         const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
         handleSetConversations(updatedConvs);
       }
@@ -486,6 +577,15 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  const handleJumpToMessage = (targetMsgId: string) => {
+    const el = document.getElementById(`msg-${targetMsgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(targetMsgId);
+      setTimeout(() => setHighlightedMessageId(null), 2500);
     }
   };
 
@@ -524,7 +624,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     inboxConversations.forEach(c => {
       const pid = c.otherParticipantId;
       const actTime = c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : (c.createdAt ? new Date(c.createdAt).getTime() : 0);
-      
+
       if (!groupMap.has(pid)) {
         groupMap.set(pid, {
           participantId: pid,
@@ -564,10 +664,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groupedConversations;
     const query = searchQuery.toLowerCase();
-    
+
     return groupedConversations.filter(g => {
       if (g.participantName.toLowerCase().includes(query)) return true;
-      
+
       return g.conversations.some(c => {
         const titleMatch = c.otherParticipantTitle?.toLowerCase().includes(query);
         const typeLabel = c.conversationType === 'worker_direct' ? 'direct worker enquiry' : 'job application';
@@ -585,168 +685,98 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       }`}
       style={{ paddingBottom: conversationId ? 'env(safe-area-inset-bottom)' : undefined }}
     >
-
-      {/* Main Container Card */}
       <div className="flex-1 bg-white dark:bg-[#0B0F19] md:border border-slate-200 dark:border-slate-800 md:rounded-[24px] overflow-hidden shadow-sm flex flex-col md:flex-row relative h-full min-h-0">
-        
+
         {/* ================= LEFT PANE: INBOX LIST ================= */}
         <div className={`w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 dark:border-slate-800/80 flex flex-col min-h-0 overflow-hidden shrink-0 bg-slate-50/50 dark:bg-[#080C14] ${
           conversationId ? 'hidden md:flex' : 'flex'
         }`}>
-          
-          {/* Inbox List Header */}
           <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800/80 flex flex-col gap-2 shrink-0 bg-slate-50/70 dark:bg-[#080C14]">
             <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              Messages
-            </span>
-            <button
-              onClick={() => setIsSearchOpen(prev => !prev)}
-              className={`p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
-                isSearchOpen ? 'bg-slate-200 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400' : ''
-              }`}
-              title={isSearchOpen ? 'Close Search' : 'Search conversations'}
-            >
-              {isSearchOpen ? <X className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
-            </button>
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Conversations</span>
+              <button
+                onClick={() => setIsSearchOpen(!isSearchOpen)}
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors"
+                title="Search conversations"
+              >
+                {isSearchOpen ? <X className="w-4 h-4" /> : <Search className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {isSearchOpen && (
+              <div className="relative animate-in fade-in slide-in-from-top-1 duration-150">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search messages or people..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              </div>
+            )}
           </div>
 
-            {/* Compact Animated Search Field */}
-            <AnimatePresence>
-              {isSearchOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden pt-1"
-                >
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Search className="h-3.5 w-3.5 text-slate-400" />
-                    </div>
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      placeholder="Search participant or job..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="block w-full pl-8 pr-8 py-1.5 border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-medium transition-all shadow-xs"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Conversations Scroll Area */}
-          <div className="flex-1 min-h-0 overflow-y-auto touch-pan-y pb-24 md:pb-4 divide-y divide-slate-100 dark:divide-slate-800/50">
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/40">
             {loadingConvs ? (
-              <div className="p-4 space-y-4 animate-pulse">
-                {[1, 2, 3].map((i) => (
+              <div className="p-4 space-y-3 animate-pulse">
+                {[1, 2, 3].map(i => (
                   <div key={i} className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
-                      <div className="h-3 w-48 bg-slate-200 dark:bg-slate-800 rounded" />
+                    <div className="w-10 h-10 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-24" />
+                      <div className="h-2.5 bg-slate-200 dark:bg-slate-800 rounded w-36" />
                     </div>
                   </div>
                 ))}
               </div>
-            ) : convsError ? (
-              <div className="p-6 text-center space-y-3">
-                <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
-                <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{convsError}</p>
-                <button
-                  onClick={() => loadConversations(Boolean(conversationId))}
-                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg"
-                >
-                  Retry
-                </button>
-              </div>
             ) : filteredGroups.length === 0 ? (
-              <div className="p-8 text-center space-y-3 my-auto">
-                <Search className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto" />
-                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No conversations found</h4>
-              </div>
-            ) : conversations.length === 0 ? (
-              <div className="p-8 text-center space-y-3 my-auto">
-                <MessageSquare className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto" />
-                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">No conversations yet</h4>
-                <p className="text-xs text-slate-400 leading-relaxed max-w-[240px] mx-auto">
-                  Apply for a job or contact a worker to start a conversation.
-                </p>
-                <div className="flex gap-2 justify-center pt-2">
-                  <button onClick={() => navigate('/jobs')} className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-lg transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-500/20">Find Jobs</button>
-                  <button onClick={() => navigate('/workers')} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg transition-colors hover:bg-slate-200 dark:hover:bg-slate-700">Browse Workers</button>
-                </div>
+              <div className="p-8 text-center text-slate-400 text-xs">
+                No conversations found.
               </div>
             ) : (
-              filteredGroups.map((group) => {
-                const isActive = group.conversations.some(c => c.id === conversationId);
-                const isUnread = group.totalUnread > 0;
-                const isMulti = group.conversations.length > 1;
+              filteredGroups.map(group => {
+                const isSelected = activeConv?.otherParticipantId === group.participantId;
+                const activeInGroup = group.conversations.find(c => c.id === conversationId) || group.conversations[0];
 
                 return (
                   <div
                     key={group.participantId}
                     onClick={() => {
-                      if (isMulti) {
-                        setSelectedParticipantGroup(group);
-                      } else {
-                        navigate(`/messages/${group.conversations[0].id}`);
-                      }
+                      setSelectedParticipantGroup(group);
+                      navigate(`/messages/${activeInGroup.id}`);
                     }}
-                    className={`p-3.5 sm:p-4 flex items-start gap-3 transition-all cursor-pointer relative border-l-4 ${
-                      isActive
-                        ? 'bg-indigo-50/80 dark:bg-indigo-500/10 border-indigo-600 dark:border-indigo-400 shadow-xs'
-                        : 'border-transparent hover:bg-slate-100/70 dark:hover:bg-slate-800/40'
+                    className={`p-3.5 flex items-center gap-3 cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-purple-50/80 dark:bg-purple-950/30 border-l-4 border-purple-600'
+                        : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/40'
                     }`}
                   >
                     <UserAvatar
                       avatarUrl={group.participantAvatar}
                       fullName={group.participantName}
                       size="md"
-                      className="shrink-0 mt-0.5 shadow-xs"
+                      className="shrink-0"
                     />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1 gap-1">
-                        <h4 className={`text-xs sm:text-sm truncate ${isUnread ? 'font-black text-slate-900 dark:text-white' : 'font-bold text-slate-800 dark:text-slate-200'}`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
                           {group.participantName}
                         </h4>
-                        <span className={`text-[10px] shrink-0 ${isUnread ? 'font-bold text-indigo-600 dark:text-indigo-400' : 'font-semibold text-slate-400'}`}>
-                          {group.latestActivityFormatted}
-                        </span>
+                        {group.latestActivityFormatted && (
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            {group.latestActivityFormatted}
+                          </span>
+                        )}
                       </div>
-                      
-                      {isMulti ? (
-                        <p className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 truncate mb-1">
-                          {group.conversations.length} conversations
-                        </p>
-                      ) : (
-                        <p 
-                          className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate mb-1 max-w-[200px]" 
-                          title={group.conversations[0].otherParticipantTitle || (group.conversations[0].conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
-                        >
-                          {group.conversations[0].otherParticipantTitle || (group.conversations[0].conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
-                        </p>
-                      )}
-                      
-                      <p className={`text-xs truncate ${isUnread ? 'font-bold text-slate-900 dark:text-slate-100' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
-                        {group.latestMessageText === 'No messages yet' ? 'Start the conversation' : group.latestMessageText}
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        {group.latestMessageText || 'No messages yet'}
                       </p>
                     </div>
 
                     {group.totalUnread > 0 && (
-                      <span className="shrink-0 px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black shadow-xs">
+                      <span className="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold shrink-0">
                         {group.totalUnread}
                       </span>
                     )}
@@ -761,7 +791,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         <div className={`flex-1 flex flex-col h-full min-h-0 bg-white dark:bg-[#0B0F19] overflow-hidden ${
           !conversationId ? 'hidden md:flex' : 'flex'
         }`}>
-          
           {conversationId && activeConv ? (
             <>
               {/* Thread Header - Fixed at Top */}
@@ -781,9 +810,17 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     className="shrink-0"
                   />
                   <div className="min-w-0">
-                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate leading-tight">
-                      {activeConv.otherParticipantName}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate leading-tight">
+                        {activeConv.otherParticipantName}
+                      </h3>
+                      {isOtherUserOnline && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/50">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Online
+                        </span>
+                      )}
+                    </div>
                     <p 
                       className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate max-w-[300px]"
                       title={activeConv.otherParticipantTitle || (activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
@@ -791,6 +828,17 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       {activeConv.otherParticipantTitle || (activeConv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
                     </p>
                   </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsMediaPanelOpen(true)}
+                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-medium border border-slate-200 dark:border-slate-800"
+                    title="Media & Files"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    <span className="hidden sm:inline">Media & Files</span>
+                  </button>
                 </div>
               </div>
 
@@ -818,7 +866,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 </div>
               )}
 
-              {/* Messages Thread Content - Only this section scrolls */}
+              {/* Messages Thread Content */}
               <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30 touch-pan-y overscroll-contain">
                 {loadingMessages ? (
                   <div className="p-8 space-y-4 animate-pulse">
@@ -844,11 +892,29 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       : '';
                     const isRead = Boolean(msg.read_at) || msg.unread === false;
+                    const isDeleted = Boolean(msg.deleted_at);
+
+                    const replyParent = msg.reply_to_message_id
+                      ? messages.find(m => m.id === msg.reply_to_message_id)
+                      : null;
+
+                    const rxList = messageReactions[msg.id] || [];
+                    const rxCounts: Record<string, { count: number; hasMine: boolean }> = {};
+                    rxList.forEach(r => {
+                      if (!rxCounts[r.emoji]) rxCounts[r.emoji] = { count: 0, hasMine: false };
+                      rxCounts[r.emoji].count += 1;
+                      if (r.user_id === currentUserId) rxCounts[r.emoji].hasMine = true;
+                    });
+
+                    const isHighlighted = highlightedMessageId === msg.id;
 
                     return (
                       <div
                         key={msg.id}
-                        className={`flex items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}
+                        id={`msg-${msg.id}`}
+                        className={`flex items-end gap-2 group relative transition-colors duration-500 rounded-2xl p-1 ${
+                          isHighlighted ? 'bg-amber-100/60 dark:bg-amber-950/40 ring-2 ring-amber-400' : ''
+                        } ${isMe ? 'justify-end' : 'justify-start'}`}
                       >
                         {!isMe && (
                           <UserAvatar
@@ -858,41 +924,179 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                             className="shrink-0 mb-1"
                           />
                         )}
-                        <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
-                          {msg.message_type && msg.message_type !== 'text' ? (
-                            <MediaMessage messageId={msg.id} mediaType={msg.message_type} isSelf={isMe} isRead={isRead} />
-                          ) : (
+                        <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 relative ${isMe ? 'items-end' : 'items-start'}`}>
+
+                          {/* Quoted Reply Block */}
+                          {msg.reply_to_message_id && (
                             <div
-                              title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                              aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                              className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
-                                isMe
-                                  ? isRead
-                                    ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                    : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
-                                  : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
-                              }`}
+                              onClick={() => handleJumpToMessage(msg.reply_to_message_id!)}
+                              className="cursor-pointer p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-purple-500 text-[11px] text-slate-600 dark:text-slate-300 mb-1 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-colors flex items-center gap-1.5"
                             >
-                              {msg.text}
+                              <CornerDownRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                              <div className="truncate">
+                                {replyParent ? (
+                                  replyParent.deleted_at ? (
+                                    <span className="italic text-slate-400">Deleted message</span>
+                                  ) : (
+                                    <>
+                                      <span className="font-semibold text-slate-900 dark:text-white mr-1.5">
+                                        {replyParent.sender_name}:
+                                      </span>
+                                      <span>{replyParent.text}</span>
+                                    </>
+                                  )
+                                ) : (
+                                  <span className="italic text-slate-400">Quoted message</span>
+                                )}
+                              </div>
                             </div>
                           )}
-                          <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                            <span>{sentTime}</span>
-                            {isMe && (
-                              <>
-                                <span>·</span>
-                                <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
-                                  {isRead ? 'Read' : 'Sent'}
-                                </span>
-                              </>
-                            )}
-                          </div>
+
+                          {/* Deleted Message Bubble OR Normal Message */}
+                          {isDeleted ? (
+                            <div className="p-2.5 px-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs italic font-medium flex items-center gap-1.5 border border-slate-200/60 dark:border-slate-800/60">
+                              <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              <span>This message was deleted</span>
+                            </div>
+                          ) : (
+                            <div className="relative group/bubble">
+                              {msg.message_type && msg.message_type !== 'text' ? (
+                                <MediaMessage messageId={msg.id} mediaType={msg.message_type} isSelf={isMe} isRead={isRead} />
+                              ) : (
+                                <div
+                                  title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                                  aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                                  className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
+                                    isMe
+                                      ? isRead
+                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                        : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+                                      : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
+                                  }`}
+                                >
+                                  {msg.text}
+                                </div>
+                              )}
+
+                              {/* Per-Message Action Trigger & Menu */}
+                              {!activeConv.archivedAt && (
+                                <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
+                                  isMe ? '-left-14' : '-right-14'
+                                }`}>
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
+                                      className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-xs border border-slate-200 dark:border-slate-700"
+                                      title="Actions"
+                                    >
+                                      <MoreHorizontal className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {activeMenuMsgId === msg.id && (
+                                      <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 min-w-[120px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}>
+                                        <button
+                                          onClick={() => {
+                                            setReplyingToMessage(msg);
+                                            setActiveMenuMsgId(null);
+                                            textareaRef.current?.focus();
+                                          }}
+                                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                        >
+                                          <Reply className="w-3.5 h-3.5 text-blue-500" />
+                                          <span>Reply</span>
+                                        </button>
+
+                                        <button
+                                          onClick={() => {
+                                            setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
+                                            setActiveMenuMsgId(null);
+                                          }}
+                                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                        >
+                                          <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
+                                          <span>React</span>
+                                        </button>
+
+                                        {isMe && msg.role !== 'system' && (
+                                          <button
+                                            onClick={() => {
+                                              setDeleteConfirmMessage(msg);
+                                              setActiveMenuMsgId(null);
+                                            }}
+                                            className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                            <span>Delete</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Reaction Picker Bar */}
+                              {activeReactionPickerMsgId === msg.id && (
+                                <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-xl p-1.5 z-40 flex items-center gap-1 animate-in zoom-in-95 duration-100`}>
+                                  {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                    <button
+                                      key={emoji}
+                                      onClick={() => {
+                                        dbService.toggleMessageReaction(msg.id, msg.conversation_id, emoji);
+                                        setActiveReactionPickerMsgId(null);
+                                      }}
+                                      className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-base transition-transform hover:scale-125"
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Grouped Reaction Chips */}
+                          {!isDeleted && Object.keys(rxCounts).length > 0 && (
+                            <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              {Object.entries(rxCounts).map(([emoji, data]) => (
+                                <button
+                                  key={emoji}
+                                  disabled={activeConv.archivedAt}
+                                  onClick={() => dbService.toggleMessageReaction(msg.id, msg.conversation_id, emoji)}
+                                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 border transition-all ${
+                                    data.hasMine
+                                      ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold'
+                                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span>{emoji}</span>
+                                  <span>{data.count}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Timestamp & Read/Sent Status */}
+                          {!isDeleted && (
+                            <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              <span>{sentTime}</span>
+                              {isMe && (
+                                <>
+                                  <span>·</span>
+                                  <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
+                                    {isRead ? 'Read' : 'Sent'}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
+
                         </div>
                       </div>
                     );
                   })
                 )}
-                
+
                 {/* Pending Messages Optimistic UI */}
                 {pendingMessages.map((pMsg) => (
                   <div key={pMsg.id} className="flex items-end gap-2 justify-end">
@@ -923,7 +1127,42 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Redesigned Compact Composer with Media Support */}
+              {/* Typing Indicator Display */}
+              {typingUsers.size > 0 && (
+                <div className="px-4 py-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 italic flex items-center gap-1.5 shrink-0">
+                  <span className="flex gap-0.5">
+                    <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <span>{Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing…</span>
+                </div>
+              )}
+
+              {/* Quoted Reply Bar in Composer */}
+              {replyingToMessage && !activeConv.archivedAt && (
+                <div className="p-2 px-3 bg-purple-50 dark:bg-purple-950/40 border-b border-purple-100 dark:border-purple-900/50 flex items-center justify-between gap-2 shrink-0 animate-in slide-in-from-bottom-2 duration-150">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Reply className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                    <div className="min-w-0 text-xs">
+                      <span className="font-semibold text-slate-900 dark:text-white mr-1.5">
+                        Replying to {replyingToMessage.sender_name}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400 truncate block sm:inline">
+                        {replyingToMessage.text}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setReplyingToMessage(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Composer */}
               {activeConv.archivedAt ? (
                 <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-[#0E1320] text-center text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0">
                   This work conversation has been archived.
@@ -949,49 +1188,45 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         <FileText className="w-6 h-6" />
                       </div>
                     ) : (
-                      <div className="w-12 h-12 bg-indigo-900/40 text-indigo-400 rounded-xl flex items-center justify-center border border-indigo-700/50">
+                      <div className="w-12 h-12 bg-purple-900/40 text-purple-400 rounded-xl flex items-center justify-center border border-purple-700/50">
                         <VideoIcon className="w-6 h-6" />
                       </div>
                     )}
-                    <div className="flex flex-col text-left truncate">
-                      <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{selectedMedia.file.name}</span>
-                      <span className="text-[10px] text-slate-500 font-mono">{(selectedMedia.file.size / (1024 * 1024)).toFixed(2)} MB</span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                        {selectedMedia.file.name}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {(selectedMedia.file.size / (1024 * 1024)).toFixed(2)} MB
+                      </p>
                     </div>
                   </div>
-
                   <div className="flex items-center space-x-2 shrink-0">
                     <button
                       type="button"
+                      disabled={isUploadingMedia}
                       onClick={() => {
-                        URL.revokeObjectURL(selectedMedia.previewUrl);
+                        if (selectedMedia.previewUrl) URL.revokeObjectURL(selectedMedia.previewUrl);
                         setSelectedMedia(null);
                       }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                      className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl border border-slate-200 dark:border-slate-700"
                     >
                       <X className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
                       disabled={isUploadingMedia}
-                      onClick={() => {
-                        void handleUploadAndSendMedia(
-                          selectedMedia.file,
-                          selectedMedia.mediaType,
-                          selectedMedia.durationMs,
-                          selectedMedia.width,
-                          selectedMedia.height
-                        );
-                      }}
-                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white rounded-xl text-xs font-extrabold flex items-center space-x-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                      onClick={() => handleUploadAndSendMedia(selectedMedia.file, selectedMedia.mediaType, selectedMedia.durationMs, selectedMedia.width, selectedMedia.height)}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center space-x-1.5 disabled:opacity-50"
                     >
                       {isUploadingMedia ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Uploading...</span>
+                          <span>Sending...</span>
                         </>
                       ) : (
                         <>
-                          <Send className="w-3.5 h-3.5" />
+                          <Send className="w-4 h-4" />
                           <span>Send</span>
                         </>
                       )}
@@ -999,75 +1234,57 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
-                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-full px-3 py-1.5 focus-within:border-blue-500 transition-colors">
-                    {/* Media Attachment Picker Button */}
+                <form onSubmit={handleSendMessage} className="p-2.5 sm:p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19] shrink-0">
+                  <div className="flex items-end gap-2 bg-slate-50 dark:bg-[#080C14] border border-slate-200 dark:border-slate-800/80 rounded-2xl p-1.5 focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all">
                     <MediaAttachmentPicker
-                      documentEnabled={Boolean(mediaStatus.documentEnabled)}
                       onFileSelected={(file, mediaType, previewUrl, durationMs, width, height) => {
-                        if (!mediaStatus.mediaMessagingEnabled) {
-                          triggerToast('Media messaging is temporarily unavailable.');
-                          return;
-                        }
-                        setSelectedMedia({ file, mediaType, previewUrl, durationMs, width, height });
+                        setSelectedMedia({ file, mediaType: mediaType as any, previewUrl, durationMs, width, height });
                       }}
-                      disabled={!mediaStatus.mediaMessagingEnabled || isSending}
+                      disabled={isSending || isUploadingMedia}
+                      documentEnabled={mediaStatus.documentEnabled}
                     />
-
-                    {/* Microphone Voice Recorder Button */}
-                    <button
-                      type="button"
-                      disabled={!mediaStatus.mediaMessagingEnabled || isSending}
-                      onClick={() => {
-                        if (!mediaStatus.mediaMessagingEnabled) {
-                          triggerToast('Media messaging is temporarily unavailable.');
-                          return;
-                        }
-                        setIsVoiceRecording(true);
-                      }}
-                      title={mediaStatus.mediaMessagingEnabled ? 'Record Voice Note' : 'Media messaging is temporarily unavailable.'}
-                      aria-label="Record Voice Note"
-                      className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-40"
-                    >
-                      <Mic className="w-5 h-5" />
-                    </button>
 
                     <textarea
                       ref={textareaRef}
                       value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
+                      onChange={handleChatInputChange}
                       onKeyDown={handleKeyDown}
-                      maxLength={4000}
-                      rows={1}
                       placeholder="Type a message..."
-                      className="flex-1 max-h-[100px] min-h-[36px] bg-transparent text-slate-900 dark:text-white text-xs sm:text-sm font-medium focus:outline-none resize-none px-1 py-2 leading-snug"
+                      rows={1}
+                      className="flex-1 bg-transparent border-0 resize-none max-h-32 text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none p-1.5"
                     />
+
+                    {mediaStatus.voiceEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setIsVoiceRecording(true)}
+                        className="p-2 text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 rounded-xl hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors shrink-0"
+                        title="Record voice note"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
+                    )}
+
                     <button
                       type="submit"
                       disabled={!chatInput.trim() || isSending}
-                      className={`h-9 w-9 rounded-full text-white font-bold text-xs flex items-center justify-center transition-all shrink-0 ${
-                        !chatInput.trim() || isSending
-                          ? 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed text-slate-500'
-                          : 'bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-xs active:scale-95'
-                      }`}
-                      title="Send Message"
+                      className="p-2 rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:hover:bg-purple-600 transition-colors shrink-0 shadow-xs"
+                      title="Send message"
                     >
-                      {isSending ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4 ml-0.5" />
-                      )}
+                      {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     </button>
                   </div>
                 </form>
               )}
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3 text-slate-400">
-              <MessageSquare className="w-12 h-12 text-slate-300 dark:text-slate-700" />
-              <h3 className="text-base font-bold text-slate-700 dark:text-slate-300">Select a conversation</h3>
-              <p className="text-xs max-w-sm leading-relaxed">
-                Choose a conversation from the left menu or message an employer/applicant to start chatting.
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-[#080C14]/50">
+              <div className="w-16 h-16 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-4">
+                <MessageSquare className="w-8 h-8" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">Your OpenComm Messages</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
+                Select a conversation from the left pane to view messages, media, and file attachments.
               </p>
             </div>
           )}
@@ -1075,93 +1292,59 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
       </div>
 
-      {/* Context Picker Modal */}
-      <AnimatePresence>
-        {selectedParticipantGroup && (
-          <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
-              onClick={() => setSelectedParticipantGroup(null)}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 100, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 100, scale: 0.95 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="relative w-full max-w-md bg-white dark:bg-[#0B0F19] rounded-[32px] md:rounded-[24px] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
-            >
-              <div className="p-4 md:p-5 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
-                <div className="flex items-center gap-3">
-                  <UserAvatar
-                    avatarUrl={selectedParticipantGroup.participantAvatar}
-                    fullName={selectedParticipantGroup.participantName}
-                    size="sm"
-                  />
-                  <div>
-                    <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">Select context</h3>
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                      {selectedParticipantGroup.conversations.length} conversations with {selectedParticipantGroup.participantName}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelectedParticipantGroup(null)}
-                  className="p-2 -mr-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+      {/* Media & Files Panel Drawer */}
+      <MediaFilesPanel
+        isOpen={isMediaPanelOpen}
+        onClose={() => setIsMediaPanelOpen(false)}
+        conversationId={conversationId || ''}
+        onJumpToMessage={handleJumpToMessage}
+      />
 
-              <div className="flex-1 overflow-y-auto overscroll-contain p-2">
-                <div className="space-y-1">
-                  {selectedParticipantGroup.conversations.map(conv => {
-                    const isUnread = conv.unreadCount > 0;
-                    return (
-                      <button
-                        key={conv.id}
-                        onClick={() => {
-                          setSelectedParticipantGroup(null);
-                          navigate(`/messages/${conv.id}`);
-                        }}
-                        className="w-full text-left p-3.5 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group flex flex-col gap-1 border border-slate-100 dark:border-slate-800/60"
-                      >
-                        <div className="flex items-center justify-between w-full gap-2">
-                          <span 
-                            className="text-xs font-black text-slate-900 dark:text-white truncate flex-1"
-                            title={conv.otherParticipantTitle || (conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
-                          >
-                            {conv.otherParticipantTitle || (conv.conversationType === 'worker_direct' ? 'Direct Worker Enquiry' : 'Job Application')}
-                          </span>
-                          <span className={`text-[10px] ${isUnread ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-semibold text-slate-400'}`}>
-                            {conv.lastMessageTime}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
-                          {conv.conversationType === 'worker_direct' ? 'Direct Hire Enquiry' : 'Job Application'}
-                        </span>
-                        <div className="flex items-center justify-between w-full pt-0.5">
-                          <span className={`text-xs truncate pr-4 ${isUnread ? 'font-bold text-slate-800 dark:text-slate-200' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
-                            {conv.lastMessageText === 'No messages yet' ? 'Start the conversation' : conv.lastMessageText}
-                          </span>
-                          {isUnread && (
-                            <span className="shrink-0 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-extrabold shadow-xs">
-                              {conv.unreadCount}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmMessage && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
+              <div className="p-2 rounded-xl bg-rose-100 dark:bg-rose-950/50">
+                <Trash2 className="w-5 h-5" />
               </div>
-            </motion.div>
+              <h3 className="font-bold text-slate-900 dark:text-white text-sm">Delete message?</h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Delete this message for everyone? Attached media (if any) will be permanently deleted.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                disabled={isDeletingMessage}
+                onClick={() => setDeleteConfirmMessage(null)}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isDeletingMessage}
+                onClick={async () => {
+                  setIsDeletingMessage(true);
+                  try {
+                    await dbService.deleteMessage(deleteConfirmMessage.id);
+                    setMessages(prev => prev.map(m => m.id === deleteConfirmMessage.id ? { ...m, text: 'This message was deleted', deleted_at: new Date().toISOString() } : m));
+                    triggerToast('Message deleted');
+                    setDeleteConfirmMessage(null);
+                  } catch (err: any) {
+                    triggerToast(err.message || 'Failed to delete message.');
+                  } finally {
+                    setIsDeletingMessage(false);
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeletingMessage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                <span>Delete</span>
+              </button>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
-
+        </div>
+      )}
     </div>
   );
 }

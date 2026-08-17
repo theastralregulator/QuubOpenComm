@@ -57,11 +57,41 @@ export interface DbMessage {
   sender_name: string;
   sender_avatar: string | null;
   text: string;
-  message_type?: 'text' | 'image' | 'video' | 'audio' | string;
+  message_type?: 'text' | 'image' | 'video' | 'audio' | 'document' | string;
   unread: boolean;
   role: string;
   created_at: string;
   read_at: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  reply_to_message_id?: string | null;
+}
+
+export interface DbMessageReaction {
+  id: string;
+  message_id: string;
+  conversation_id: string;
+  user_id: string;
+  emoji: '👍' | '❤️' | '😂' | '😮' | '😢' | '🙏' | string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SharedMediaItem {
+  media_id: string;
+  message_id: string;
+  conversation_id: string;
+  sender_id: string;
+  media_type: 'image' | 'video' | 'audio' | 'document' | string;
+  mime_type: string;
+  file_size_bytes: number;
+  duration_ms?: number | null;
+  width?: number | null;
+  height?: number | null;
+  original_filename?: string | null;
+  status: string;
+  created_at: string;
+  message_deleted_at?: string | null;
 }
 
 export interface Message {

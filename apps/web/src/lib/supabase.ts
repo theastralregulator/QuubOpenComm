@@ -2589,7 +2589,7 @@ export const dbService = {
     return data || [];
   },
 
-  async sendTextMessage(conversationId: string, text: string): Promise<DbMessage | null> {
+  async sendTextMessage(conversationId: string, text: string, replyToMessageId?: string | null): Promise<DbMessage | null> {
     if (!supabase) return null;
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) throw new Error('Authentication required');
@@ -2607,7 +2607,7 @@ export const dbService = {
     const senderName = prof?.full_name || prof?.username || user.email || 'User';
     const senderAvatar = prof?.avatar_url || null;
 
-    const payload = {
+    const payload: any = {
       conversation_id: conversationId,
       sender_id: user.id,
       sender_name: senderName,
@@ -2616,6 +2616,10 @@ export const dbService = {
       unread: true,
       role: 'user'
     };
+
+    if (replyToMessageId) {
+      payload.reply_to_message_id = replyToMessageId;
+    }
 
     const { data, error } = await supabase
       .from('messages')
@@ -2636,7 +2640,111 @@ export const dbService = {
       })
       .eq('id', conversationId);
 
+    return data as DbMessage;
+  },
+
+  async toggleMessageReaction(messageId: string, conversationId: string, emoji: string): Promise<void> {
+    if (!supabase) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: existing } = await supabase
+      .from('message_reactions')
+      .select('*')
+      .eq('message_id', messageId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existing) {
+      if (existing.emoji === emoji) {
+        await supabase
+          .from('message_reactions')
+          .delete()
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('message_reactions')
+          .update({ emoji, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      }
+    } else {
+      await supabase
+        .from('message_reactions')
+        .insert({
+          message_id: messageId,
+          conversation_id: conversationId,
+          user_id: user.id,
+          emoji
+        });
+    }
+  },
+
+  async getConversationReactions(conversationId: string): Promise<any[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('message_reactions')
+      .select('*')
+      .eq('conversation_id', conversationId);
+
+    if (error || !data) return [];
     return data;
+  },
+
+  async getConversationSharedMedia(conversationId: string): Promise<any[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .rpc('get_conversation_shared_media_v2', { p_conversation_id: conversationId });
+
+    if (error || !data) {
+      const { data: rawMedia } = await supabase
+        .from('message_media')
+        .select('id, message_id, conversation_id, uploader_id, media_type, mime_type, file_size_bytes, duration_ms, width, height, original_filename, status, created_at')
+        .eq('conversation_id', conversationId)
+        .neq('status', 'deleted')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (!rawMedia) return [];
+      return rawMedia.map((m: any) => ({
+        media_id: m.id,
+        message_id: m.message_id,
+        conversation_id: m.conversation_id,
+        sender_id: m.uploader_id,
+        media_type: m.media_type,
+        mime_type: m.mime_type,
+        file_size_bytes: m.file_size_bytes,
+        duration_ms: m.duration_ms,
+        width: m.width,
+        height: m.height,
+        original_filename: m.original_filename,
+        status: m.status,
+        created_at: m.created_at
+      }));
+    }
+
+    return data;
+  },
+
+  async deleteMessage(messageId: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return false;
+
+    const res = await fetch('/api/message-delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ messageId })
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || 'Failed to delete message');
+    }
+
+    return true;
   },
 
   async markConversationRead(conversationId: string): Promise<boolean> {

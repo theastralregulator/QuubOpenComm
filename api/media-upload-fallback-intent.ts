@@ -130,7 +130,8 @@ export default async function handler(req: any, res: any) {
           mime_type: origIntent.mime_type,
           file_size_bytes: origIntent.file_size_bytes,
           status: 'pending',
-          expires_at: expiresAt
+          expires_at: expiresAt,
+          reply_to_message_id: origIntent.reply_to_message_id || null
         })
         .select('id')
         .single();

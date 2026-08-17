@@ -14,7 +14,7 @@ export default async function handler(req: any, res: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs } = req.body || {};
+  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs, replyToMessageId } = req.body || {};
 
   if (!conversationId || !mediaType || !mimeType || !fileSizeBytes) {
     return res.status(400).json({ error: 'Missing required upload parameters' });
@@ -40,6 +40,27 @@ export default async function handler(req: any, res: any) {
   const adminClient = getServiceRoleSupabase();
   if (!adminClient) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
+  }
+
+  // Validate replyToMessageId if provided
+  let validReplyTargetId: string | null = null;
+  if (replyToMessageId && typeof replyToMessageId === 'string') {
+    const { data: targetMsg } = await adminClient
+      .from('messages')
+      .select('id, conversation_id, deleted_at')
+      .eq('id', replyToMessageId)
+      .maybeSingle();
+
+    if (!targetMsg) {
+      return res.status(400).json({ error: 'Reply target message does not exist.' });
+    }
+    if (targetMsg.conversation_id !== conversationId) {
+      return res.status(400).json({ error: 'Reply target message belongs to a different conversation.' });
+    }
+    if (targetMsg.deleted_at) {
+      return res.status(400).json({ error: 'Cannot reply to a deleted message.' });
+    }
+    validReplyTargetId = targetMsg.id;
   }
 
   let resolvedProvider: StorageProviderType | null = null;
@@ -68,7 +89,8 @@ export default async function handler(req: any, res: any) {
         mime_type: cleanMimeType,
         file_size_bytes: Number(fileSizeBytes),
         status: 'pending',
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        reply_to_message_id: validReplyTargetId
       })
       .select('id')
       .single();
