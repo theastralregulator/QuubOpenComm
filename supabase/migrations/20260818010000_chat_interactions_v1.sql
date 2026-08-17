@@ -140,7 +140,7 @@ ALTER TABLE public.message_reactions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.message_reactions FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.message_reactions TO authenticated;
 
--- Reaction Integrity Trigger (Enforces immutability of message_id, conversation_id, user_id on UPDATE)
+-- Reaction Integrity Trigger (SECURITY DEFINER canonical target validation & immutability)
 CREATE OR REPLACE FUNCTION public.validate_message_reaction_target()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -196,7 +196,7 @@ CREATE TRIGGER trg_validate_message_reaction_target
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_message_reaction_target();
 
--- Reaction RLS Policies (Using participant helper, no NEW.* or OLD.* inside policy expressions)
+-- Reaction RLS Policies (Simplified & robust for conversation_members users)
 DROP POLICY IF EXISTS "Participants can view message reactions" ON public.message_reactions;
 CREATE POLICY "Participants can view message reactions"
   ON public.message_reactions FOR SELECT
@@ -212,13 +212,6 @@ CREATE POLICY "Participants can insert own reaction"
   WITH CHECK (
     auth.uid() = user_id
     AND public.is_current_user_conversation_participant(conversation_id, true)
-    AND EXISTS (
-      SELECT 1 FROM public.messages m
-      WHERE m.id = message_id
-        AND m.conversation_id = conversation_id
-        AND m.deleted_at IS NULL
-        AND m.role = 'user'
-    )
   );
 
 DROP POLICY IF EXISTS "Users can update own reaction" ON public.message_reactions;
@@ -232,13 +225,6 @@ CREATE POLICY "Users can update own reaction"
   WITH CHECK (
     auth.uid() = user_id
     AND public.is_current_user_conversation_participant(conversation_id, true)
-    AND EXISTS (
-      SELECT 1 FROM public.messages m
-      WHERE m.id = message_id
-        AND m.conversation_id = conversation_id
-        AND m.deleted_at IS NULL
-        AND m.role = 'user'
-    )
   );
 
 DROP POLICY IF EXISTS "Users can delete own reaction" ON public.message_reactions;

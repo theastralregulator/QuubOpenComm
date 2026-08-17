@@ -1,5 +1,5 @@
 import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
-import { deleteStorageObject, StorageProviderType } from './_lib/media/providers.js';
+import { deleteStorageObject, StorageProviderType, MediaType } from './_lib/media/providers.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -65,30 +65,46 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ success: true, idempotent: true });
     }
 
-    // 4. Fetch attached media (if any)
-    const { data: mediaItems } = await adminClient
+    // 4. Fetch attached media with full metadata (media_type, mime_type)
+    const { data: mediaItems, error: mediaErr } = await adminClient
       .from('message_media')
-      .select('id, storage_provider, object_key, status')
+      .select('id, storage_provider, object_key, media_type, mime_type, status')
       .eq('message_id', messageId);
+
+    if (mediaErr) {
+      console.error('Error fetching attached media items:', mediaErr);
+      return res.status(500).json({ error: 'Failed to verify message media attachments.' });
+    }
 
     // 5. IF ATTACHED MEDIA EXISTS, DELETE PROVIDER OBJECT FIRST!
     if (mediaItems && mediaItems.length > 0) {
       for (const media of mediaItems) {
         if (media.status !== 'deleted' && media.object_key) {
+          let providerDeleted = false;
           try {
-            await deleteStorageObject(
+            providerDeleted = await deleteStorageObject(
               media.storage_provider as StorageProviderType,
-              media.object_key
+              media.object_key,
+              media.media_type as MediaType,
+              media.mime_type
             );
           } catch (deleteErr: any) {
-            console.error('[MessageDelete] Provider object deletion failed:', {
+            console.error('[MessageDelete] Provider object deletion error:', {
               messageId,
               mediaId: media.id,
               provider: media.storage_provider,
               objectKey: media.object_key,
               error: deleteErr?.message
             });
-            // Abort soft delete if provider storage deletion failed
+          }
+
+          if (!providerDeleted) {
+            console.error('[MessageDelete] Provider deletion returned false:', {
+              messageId,
+              mediaId: media.id,
+              provider: media.storage_provider,
+              objectKey: media.object_key
+            });
             return res.status(500).json({
               error: 'Failed to delete attached storage media file. Message deletion cancelled.'
             });
