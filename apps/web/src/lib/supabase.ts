@@ -504,14 +504,15 @@ export const dbService = {
         .maybeSingle();
 
       if (error) {
-        console.error('getMyUserSettings Supabase error:', error.message);
+        console.error('getMyUserSettings Supabase query error:', error.message);
+        return null;
       }
 
       if (data) {
         return mapDbUserSettings(data);
       }
 
-      // If no row exists yet, attempt to safely create default settings
+      // Query succeeded cleanly (error == null) but no row exists yet for this user.
       const defaultPayload = {
         user_id: userId,
         profile_visibility: 'public',
@@ -535,21 +536,13 @@ export const dbService = {
         .maybeSingle();
 
       if (createError) {
-        console.warn('Could not auto-create user_settings row (table may not be migrated yet):', createError.message);
-        return mapDbUserSettings({ ...defaultPayload, user_id: userId });
+        console.warn('Could not auto-create user_settings row:', createError.message);
+        return null;
       }
 
       return mapDbUserSettings(createdData || defaultPayload);
     }
-    // Local fallback
-    const userId = await getCurrentUserId();
-    const profiles = openCommDb.getProfiles();
-    const profile = profiles.find(p => p.id === userId);
-    if (!profile) return null;
-    return mapDbUserSettings({
-      user_id: profile.id,
-      language_preference: profile.preferred_language
-    });
+    return null;
   },
 
   /**

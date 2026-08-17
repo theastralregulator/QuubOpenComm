@@ -678,7 +678,12 @@ BEGIN
     RAISE EXCEPTION 'Cannot send media to an archived conversation.';
   END IF;
 
-  IF NOT public.is_current_user_conversation_participant(p_conversation_id, true) THEN
+  IF v_conv.creator_id <> p_user_id
+     AND v_conv.member_id <> p_user_id
+     AND NOT EXISTS (
+       SELECT 1 FROM public.conversation_members cm
+       WHERE cm.conversation_id = p_conversation_id AND cm.user_id = p_user_id
+     ) THEN
     RAISE EXCEPTION 'Not authorized to send messages in this conversation.';
   END IF;
 

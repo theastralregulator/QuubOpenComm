@@ -391,7 +391,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // User Settings Preference for Online Status
+  // User Settings Preference for Online Status (Fail-Closed: Defaults to false on error/unresolved)
   const [showOnlineStatus, setShowOnlineStatus] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -399,10 +399,10 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     if (!currentUserId) return;
     dbService.getMyUserSettings().then(res => {
       if (isMounted) {
-        setShowOnlineStatus(res?.showOnlineStatus ?? true);
+        setShowOnlineStatus(res?.showOnlineStatus ?? false);
       }
     }).catch(() => {
-      if (isMounted) setShowOnlineStatus(true);
+      if (isMounted) setShowOnlineStatus(false);
     });
     return () => { isMounted = false; };
   }, [currentUserId]);
