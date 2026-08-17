@@ -37,6 +37,27 @@ interface MessagesPageProps {
   triggerToast: (msg: string) => void;
 }
 
+function areMessageListsEquivalent(prev: DbMessage[], next: DbMessage[]): boolean {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.text !== b.text ||
+      a.deleted_at !== b.deleted_at ||
+      a.read_at !== b.read_at ||
+      a.unread !== b.unread ||
+      a.message_type !== b.message_type ||
+      a.reply_to_message_id !== b.reply_to_message_id
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
@@ -70,7 +91,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         return a.id.localeCompare(b.id);
       });
 
-      canonicalConversations.push(group[0]);
+      const currentInGroup = conversationId ? group.find(c => c.id === conversationId) : null;
+      canonicalConversations.push(currentInGroup || group[0]);
     }
 
     setConversations(canonicalConversations);
@@ -114,30 +136,35 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const refreshConversationsDebouncedRef = useRef<any>(null);
   const typingExpirationsRef = useRef<Map<string, any>>(new Map());
 
-  // Fetch Chat Interactions V1 Capability
-  useEffect(() => {
-    fetch('/api/chat-status')
-      .then(res => res.json())
-      .then(data => {
-        if (data && typeof data.chatInteractionsEnabled === 'boolean') {
-          setChatInteractionsEnabled(data.chatInteractionsEnabled);
-        }
-      })
-      .catch(err => console.warn('Chat status check error:', err));
-  }, []);
+  // Conversation Refresh Queue & Generation Refs
+  const conversationRefreshGenerationRef = useRef<number>(0);
+  const refreshInFlightRef = useRef<boolean>(false);
+  const refreshPendingRef = useRef<boolean>(false);
 
-  useEffect(() => {
-    if (isSearchOpen) {
-      searchInputRef.current?.focus();
-    } else {
-      setSearchQuery('');
-    }
-  }, [isSearchOpen]);
-
+  // Scroll & Container Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
+  const isInitialLoadRef = useRef<boolean>(true);
 
-  const activeConv = conversations.find(c => c.id === conversationId);
+  // Stable Active Conversation State
+  const [stableActiveConv, setStableActiveConv] = useState<ConversationViewModel | null>(null);
+
+  useEffect(() => {
+    if (!conversationId) {
+      setStableActiveConv(null);
+      isInitialLoadRef.current = true;
+      lastAutoScrolledMessageIdRef.current = null;
+      return;
+    }
+    const found = conversations.find(c => c.id === conversationId);
+    if (found) {
+      setStableActiveConv(found);
+    }
+  }, [conversations, conversationId]);
+
+  const activeConv = stableActiveConv || conversations.find(c => c.id === conversationId);
 
   const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean; documentEnabled?: boolean }>({
     mediaMessagingEnabled: false,
@@ -409,26 +436,45 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     return () => { isMounted = false; };
   }, [currentUserId]);
 
-  // Silent Reconciliation Helper for Active Conversation Messages
+  // Silent Reconciliation Helper for Active Conversation Messages (Equivalence-Checked)
   const refreshActiveConversationMessages = useCallback(async (targetConvId?: string) => {
     const convId = targetConvId || conversationId;
     if (!convId) return;
     try {
       const latest = await dbService.getConversationMessages(convId);
-      setMessages(latest);
+      setMessages((prev) => {
+        if (areMessageListsEquivalent(prev, latest)) return prev;
+        return latest;
+      });
     } catch (err) {
       console.error('Error in silent active conversation message reconciliation:', err);
     }
   }, [conversationId]);
 
-  // Debounced Conversation List Refresh Helper
+  // Debounced & Queue-Protected Conversation List Refresh Helper
   const refreshConversationsList = useCallback(async () => {
     if (!currentUserId) return;
+    if (refreshInFlightRef.current) {
+      refreshPendingRef.current = true;
+      return;
+    }
+
+    refreshInFlightRef.current = true;
+    const gen = ++conversationRefreshGenerationRef.current;
+
     try {
       const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
-      handleSetConversations(updatedConvs);
+      if (gen === conversationRefreshGenerationRef.current) {
+        handleSetConversations(updatedConvs);
+      }
     } catch (err) {
       console.warn('Error refreshing conversation list:', err);
+    } finally {
+      refreshInFlightRef.current = false;
+      if (refreshPendingRef.current) {
+        refreshPendingRef.current = false;
+        void refreshConversationsList();
+      }
     }
   }, [currentUserId, conversationId]);
 
@@ -438,7 +484,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     }
     refreshConversationsDebouncedRef.current = setTimeout(() => {
       void refreshConversationsList();
-    }, 500);
+    }, 600);
   }, [refreshConversationsList]);
 
   // Dedicated Active Conversation Realtime Postgres Changes Channel
@@ -494,9 +540,26 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           const message = payload.new as DbMessage;
           if (!message || message.conversation_id !== conversationId) return;
 
-          setMessages((prev) =>
-            prev.map((m) => (m.id === message.id ? message : m))
-          );
+          setMessages((prev) => {
+            const index = prev.findIndex((m) => m.id === message.id);
+            if (index === -1) return prev;
+
+            const existing = prev[index];
+            if (
+              existing.text === message.text &&
+              existing.deleted_at === message.deleted_at &&
+              existing.read_at === message.read_at &&
+              existing.unread === message.unread &&
+              existing.reply_to_message_id === message.reply_to_message_id &&
+              existing.message_type === message.message_type
+            ) {
+              return prev;
+            }
+
+            const next = [...prev];
+            next[index] = { ...existing, ...message };
+            return next;
+          });
 
           triggerDebouncedConversationRefresh();
         }
@@ -766,9 +829,36 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
+  // Smart Auto-Scroll Effect (Only scroll on new message arrival if user is near bottom or user sent it)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loadingMessages]);
+    if (loadingMessages || messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage) return;
+
+    const container = messagesContainerRef.current;
+    let isNearBottom = true;
+    if (container) {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      isNearBottom = distanceFromBottom <= 150;
+    }
+
+    if (isInitialLoadRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      lastAutoScrolledMessageIdRef.current = lastMessage.id;
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    const isNewMessage = lastMessage.id !== lastAutoScrolledMessageIdRef.current;
+    if (isNewMessage) {
+      const isMe = lastMessage.sender_id === currentUserId;
+      if (isMe || isNearBottom) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+      lastAutoScrolledMessageIdRef.current = lastMessage.id;
+    }
+  }, [messages, loadingMessages, currentUserId]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1100,7 +1190,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
               )}
 
               {/* Messages Thread Content */}
-              <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30 touch-pan-y overscroll-contain">
+              <div ref={messagesContainerRef} className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto space-y-3 bg-slate-50/30 dark:bg-[#070A12]/30 touch-pan-y overscroll-contain">
                 {loadingMessages ? (
                   <div className="p-8 space-y-4 animate-pulse">
                     {[1, 2, 3].map((i) => (
