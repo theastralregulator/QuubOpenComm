@@ -11,6 +11,10 @@ ALTER TABLE public.messages
 CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON public.messages(reply_to_message_id) WHERE reply_to_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_deleted ON public.messages(deleted_at) WHERE deleted_at IS NOT NULL;
 
+-- Column-level Privilege Hardening on public.messages
+REVOKE UPDATE, DELETE, TRUNCATE ON public.messages FROM PUBLIC, anon, authenticated;
+GRANT UPDATE (unread, read_at) ON public.messages TO authenticated;
+
 -- 2. Add reply_to_message_id to public.media_upload_intents
 ALTER TABLE public.media_upload_intents
   ADD COLUMN IF NOT EXISTS reply_to_message_id uuid NULL REFERENCES public.messages(id) ON DELETE SET NULL;
@@ -52,7 +56,69 @@ CREATE TRIGGER trg_validate_message_reply_target
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_message_reply_target();
 
--- 4. Create public.message_reactions table
+-- 4. Narrowly Scoped SECURITY DEFINER Participant Authorization Helper (Operates only on auth.uid())
+CREATE OR REPLACE FUNCTION public.is_current_user_conversation_participant(
+  p_conversation_id uuid,
+  p_require_active boolean DEFAULT false
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_conv RECORD;
+BEGIN
+  IF v_uid IS NULL OR p_conversation_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  SELECT creator_id, member_id, archived_at INTO v_conv
+  FROM public.conversations
+  WHERE id = p_conversation_id;
+
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  IF p_require_active AND v_conv.archived_at IS NOT NULL THEN
+    RETURN false;
+  END IF;
+
+  IF v_conv.creator_id = v_uid OR v_conv.member_id = v_uid THEN
+    RETURN true;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 FROM public.conversation_members cm
+    WHERE cm.conversation_id = p_conversation_id AND cm.user_id = v_uid
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.is_current_user_conversation_participant(uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_current_user_conversation_participant(uuid, boolean) TO authenticated;
+
+-- 5. Hardened Client Message INSERT Policy (Restricts direct browser inserts strictly to normal text user messages)
+DROP POLICY IF EXISTS "Conversation participants can send messages" ON public.messages;
+DROP POLICY IF EXISTS "Authenticated users can insert own text messages" ON public.messages;
+CREATE POLICY "Authenticated users can insert own text messages"
+  ON public.messages FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = sender_id
+    AND (SELECT account_status FROM public.profiles WHERE id = auth.uid()) = 'active'
+    AND public.is_current_user_conversation_participant(conversation_id, true)
+    AND role = 'user'
+    AND message_type = 'text'
+    AND unread = true
+    AND read_at IS NULL
+    AND deleted_at IS NULL
+    AND deleted_by IS NULL
+  );
+
+-- 6. Create public.message_reactions table
 CREATE TABLE IF NOT EXISTS public.message_reactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id uuid NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
@@ -70,6 +136,10 @@ CREATE INDEX IF NOT EXISTS idx_message_reactions_msg ON public.message_reactions
 
 ALTER TABLE public.message_reactions ENABLE ROW LEVEL SECURITY;
 
+-- Least-Privilege Table Grants for message_reactions
+REVOKE ALL ON public.message_reactions FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.message_reactions TO authenticated;
+
 -- Reaction Integrity Trigger (Enforces immutability of message_id, conversation_id, user_id on UPDATE)
 CREATE OR REPLACE FUNCTION public.validate_message_reaction_target()
 RETURNS trigger
@@ -79,7 +149,6 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_msg public.messages%ROWTYPE;
-  v_conv public.conversations%ROWTYPE;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     IF NEW.message_id IS DISTINCT FROM OLD.message_id THEN
@@ -113,12 +182,8 @@ BEGIN
     RAISE EXCEPTION 'Reactions are permitted only on normal user messages.';
   END IF;
 
-  SELECT * INTO v_conv
-  FROM public.conversations
-  WHERE id = NEW.conversation_id;
-
-  IF v_conv.archived_at IS NOT NULL THEN
-    RAISE EXCEPTION 'Cannot add or modify reactions in an archived conversation.';
+  IF NOT public.is_current_user_conversation_participant(NEW.conversation_id, true) THEN
+    RAISE EXCEPTION 'Cannot add or modify reactions in an inactive or unauthorized conversation.';
   END IF;
 
   RETURN NEW;
@@ -131,24 +196,13 @@ CREATE TRIGGER trg_validate_message_reaction_target
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_message_reaction_target();
 
--- Reaction RLS Policies (No NEW.* or OLD.* inside policy expressions)
+-- Reaction RLS Policies (Using participant helper, no NEW.* or OLD.* inside policy expressions)
 DROP POLICY IF EXISTS "Participants can view message reactions" ON public.message_reactions;
 CREATE POLICY "Participants can view message reactions"
   ON public.message_reactions FOR SELECT
   TO authenticated
   USING (
-    EXISTS (
-      SELECT 1 FROM public.conversations c
-      WHERE c.id = conversation_id
-        AND (
-          c.creator_id = auth.uid()
-          OR c.member_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM public.conversation_members cm
-            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-          )
-        )
-    )
+    public.is_current_user_conversation_participant(conversation_id, false)
   );
 
 DROP POLICY IF EXISTS "Participants can insert own reaction" ON public.message_reactions;
@@ -157,22 +211,13 @@ CREATE POLICY "Participants can insert own reaction"
   TO authenticated
   WITH CHECK (
     auth.uid() = user_id
+    AND public.is_current_user_conversation_participant(conversation_id, true)
     AND EXISTS (
       SELECT 1 FROM public.messages m
-      JOIN public.conversations c ON c.id = m.conversation_id
       WHERE m.id = message_id
         AND m.conversation_id = conversation_id
         AND m.deleted_at IS NULL
         AND m.role = 'user'
-        AND c.archived_at IS NULL
-        AND (
-          c.creator_id = auth.uid()
-          OR c.member_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM public.conversation_members cm
-            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-          )
-        )
     )
   );
 
@@ -182,37 +227,17 @@ CREATE POLICY "Users can update own reaction"
   TO authenticated
   USING (
     auth.uid() = user_id
-    AND EXISTS (
-      SELECT 1 FROM public.conversations c
-      WHERE c.id = conversation_id
-        AND (
-          c.creator_id = auth.uid()
-          OR c.member_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM public.conversation_members cm
-            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-          )
-        )
-    )
+    AND public.is_current_user_conversation_participant(conversation_id, true)
   )
   WITH CHECK (
     auth.uid() = user_id
+    AND public.is_current_user_conversation_participant(conversation_id, true)
     AND EXISTS (
       SELECT 1 FROM public.messages m
-      JOIN public.conversations c ON c.id = m.conversation_id
       WHERE m.id = message_id
         AND m.conversation_id = conversation_id
         AND m.deleted_at IS NULL
         AND m.role = 'user'
-        AND c.archived_at IS NULL
-        AND (
-          c.creator_id = auth.uid()
-          OR c.member_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM public.conversation_members cm
-            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-          )
-        )
     )
   );
 
@@ -222,19 +247,7 @@ CREATE POLICY "Users can delete own reaction"
   TO authenticated
   USING (
     auth.uid() = user_id
-    AND EXISTS (
-      SELECT 1 FROM public.conversations c
-      WHERE c.id = conversation_id
-        AND c.archived_at IS NULL
-        AND (
-          c.creator_id = auth.uid()
-          OR c.member_id = auth.uid()
-          OR EXISTS (
-            SELECT 1 FROM public.conversation_members cm
-            WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-          )
-        )
-    )
+    AND public.is_current_user_conversation_participant(conversation_id, true)
   );
 
 -- Add message_reactions to supabase_realtime publication
@@ -248,7 +261,7 @@ BEGIN
   END IF;
 END $$;
 
--- 5. Service-Role Only RPC for Message Soft Deletion
+-- 7. Service-Role Only RPC for Message Soft Deletion
 CREATE OR REPLACE FUNCTION public.finalize_user_message_delete_internal(
   p_user_id uuid,
   p_message_id uuid
@@ -278,8 +291,9 @@ BEGIN
     RAISE EXCEPTION 'Only the original sender may delete their message.';
   END IF;
 
-  IF v_msg.role IN ('system', 'assistant') THEN
-    RAISE EXCEPTION 'Official system messages cannot be deleted.';
+  -- Positive Rule: role MUST be 'user'
+  IF v_msg.role <> 'user' THEN
+    RAISE EXCEPTION 'Only normal user messages can be deleted.';
   END IF;
 
   -- Idempotent check
@@ -314,7 +328,7 @@ $$;
 REVOKE ALL ON FUNCTION public.finalize_user_message_delete_internal(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_user_message_delete_internal(uuid, uuid) TO service_role;
 
--- 6. Delete-Aware No-Arg get_unread_counts RPC (Preserving Exact Production Contract)
+-- 8. Delete-Aware No-Arg get_unread_counts RPC (Preserving Exact Production Contract)
 CREATE OR REPLACE FUNCTION public.get_unread_counts()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -385,7 +399,7 @@ $$;
 REVOKE ALL ON FUNCTION public.get_unread_counts() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_unread_counts() TO authenticated;
 
--- 7. Delete-Aware Conversation Sync Function & Triggers (No updated_at column reference)
+-- 9. Delete-Aware Conversation Sync Function & Triggers (No updated_at column reference)
 CREATE OR REPLACE FUNCTION public.sync_conversation_after_message()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -444,7 +458,7 @@ CREATE TRIGGER trg_sync_conversation_after_message
   FOR EACH ROW
   EXECUTE FUNCTION public.sync_conversation_after_message();
 
--- 8. 15-Argument Production Canonical Media Finalizer RPC (with Reply Support)
+-- 10. 15-Argument Production Canonical Media Finalizer RPC (with Reply Support)
 CREATE OR REPLACE FUNCTION public.finalize_media_message_internal(
   p_user_id uuid,
   p_upload_intent_id uuid,
@@ -485,7 +499,7 @@ BEGIN
     RAISE EXCEPTION 'Upload intent is required.';
   END IF;
 
-  -- 1. Enforce active account for p_user_id (profiles.account_status)
+  -- Enforce active account for p_user_id (profiles.account_status)
   SELECT account_status INTO v_user_status
   FROM public.profiles
   WHERE id = p_user_id;
@@ -494,7 +508,7 @@ BEGIN
     RAISE EXCEPTION 'User account is inactive or suspended.';
   END IF;
 
-  -- 2. Lock and fetch canonical upload intent row (including reply_to_message_id)
+  -- Lock and fetch canonical upload intent row (including reply_to_message_id)
   SELECT id, user_id, conversation_id, provider, object_key, media_type, mime_type, file_size_bytes, status, expires_at, final_message_id, final_media_id, reply_to_message_id
   INTO v_intent
   FROM public.media_upload_intents
@@ -505,7 +519,7 @@ BEGIN
     RAISE EXCEPTION 'Upload intent not found.';
   END IF;
 
-  -- 3. Strict Binding & Validation against Canonical Intent Metadata
+  -- Strict Binding & Validation against Canonical Intent Metadata
   IF v_intent.user_id <> p_user_id THEN
     RAISE EXCEPTION 'Upload intent ownership mismatch.';
   END IF;
@@ -540,7 +554,7 @@ BEGIN
     RAISE EXCEPTION 'Upload intent has expired.';
   END IF;
 
-  -- 4. State Flow & Idempotency Validation (Supports 'finalizing' state from intent claim)
+  -- State Flow & Idempotency Validation (Supports 'finalizing' state from intent claim)
   IF v_intent.status = 'finalized' AND v_intent.final_message_id IS NOT NULL THEN
     RETURN jsonb_build_object(
       'message_id', v_intent.final_message_id,
@@ -557,7 +571,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- 5. Media-Type & Storage Provider General Validations
+  -- Media-Type & Storage Provider General Validations
   IF p_message_type NOT IN ('image', 'video', 'audio', 'document') THEN
     RAISE EXCEPTION 'Invalid message_type.';
   END IF;
@@ -590,7 +604,7 @@ BEGIN
     RAISE EXCEPTION 'Invalid image/video height.';
   END IF;
 
-  -- 6. Canonical Media Policy Validations
+  -- Canonical Media Policy Validations
   -- Audio: Max 5MB (5242880 bytes), Max 5 min (300000 ms), preview_text = 'Voice message'
   IF p_media_type = 'audio' THEN
     IF v_clean_mime NOT IN ('audio/webm', 'audio/ogg', 'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/x-m4a', 'audio/mp4', 'audio/aac') THEN
@@ -662,7 +676,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- 7. Check conversation authorization (supports creator_id, member_id, conversation_members)
+  -- Check conversation authorization
   SELECT id, creator_id, member_id, archived_at
   INTO v_conv
   FROM public.conversations
@@ -676,16 +690,11 @@ BEGIN
     RAISE EXCEPTION 'Cannot send media to an archived conversation.';
   END IF;
 
-  IF v_conv.creator_id <> p_user_id
-     AND v_conv.member_id <> p_user_id
-     AND NOT EXISTS (
-       SELECT 1 FROM public.conversation_members cm
-       WHERE cm.conversation_id = p_conversation_id AND cm.user_id = p_user_id
-     ) THEN
+  IF NOT public.is_current_user_conversation_participant(p_conversation_id, true) THEN
     RAISE EXCEPTION 'Not authorized to send messages in this conversation.';
   END IF;
 
-  -- 8. Fetch sender profile metadata from profile_directory
+  -- Fetch sender profile metadata from profile_directory
   SELECT COALESCE(full_name, username, 'OpenComm User'), avatar_url
   INTO v_sender_name, v_sender_avatar
   FROM public.profile_directory
@@ -695,7 +704,7 @@ BEGIN
     v_sender_name := 'OpenComm User';
   END IF;
 
-  -- 9. Insert into messages table (including reply_to_message_id)
+  -- Insert into messages table (including reply_to_message_id)
   INSERT INTO public.messages (
     conversation_id,
     sender_id,
@@ -722,7 +731,7 @@ BEGIN
   )
   RETURNING id INTO v_msg_id;
 
-  -- 10. Insert into message_media table using exact production schema columns
+  -- Insert into message_media table using exact production schema columns
   INSERT INTO public.message_media (
     message_id,
     conversation_id,
@@ -761,13 +770,13 @@ BEGIN
   )
   RETURNING id INTO v_media_id;
 
-  -- 11. Update conversation preview using production schema columns
+  -- Update conversation preview using production schema columns
   UPDATE public.conversations
   SET last_message_text = p_preview_text,
       last_message_time = now()
   WHERE id = p_conversation_id;
 
-  -- 12. Mark upload intent finalized and clear finalizing_at lease
+  -- Mark upload intent finalized and clear finalizing_at lease
   UPDATE public.media_upload_intents
   SET status = 'finalized',
       finalizing_at = NULL,
@@ -783,11 +792,11 @@ BEGIN
 END;
 $$;
 
--- 13. Re-enforce strict service-role permissions lockdown
+-- Re-enforce strict service-role permissions lockdown
 REVOKE EXECUTE ON FUNCTION public.finalize_media_message_internal(uuid, uuid, uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_media_message_internal(uuid, uuid, uuid, text, text, text, text, text, text, bigint, integer, integer, integer, text, text) TO service_role;
 
--- 9. Participant-Authorized get_conversation_shared_media_v2 RPC
+-- 11. Participant-Authorized get_conversation_shared_media_v2 RPC
 CREATE OR REPLACE FUNCTION public.get_conversation_shared_media_v2(
   p_conversation_id uuid
 )
@@ -812,18 +821,7 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM public.conversations c
-    WHERE c.id = p_conversation_id
-      AND (
-        c.creator_id = auth.uid()
-        OR c.member_id = auth.uid()
-        OR EXISTS (
-          SELECT 1 FROM public.conversation_members cm
-          WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-        )
-      )
-  ) THEN
+  IF NOT public.is_current_user_conversation_participant(p_conversation_id, false) THEN
     RAISE EXCEPTION 'Not authorized to access media for this conversation.';
   END IF;
 
@@ -855,7 +853,43 @@ $$;
 REVOKE ALL ON FUNCTION public.get_conversation_shared_media_v2(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_conversation_shared_media_v2(uuid) TO authenticated;
 
--- 10. Private Realtime Topic RLS Policies for conversation:<UUID>
+-- 12. Safe SECURITY DEFINER Private Realtime Topic Access Authorization Helper
+CREATE OR REPLACE FUNCTION public.can_current_user_access_conversation_topic(
+  p_topic text,
+  p_require_active boolean DEFAULT false
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL OR p_topic IS NULL THEN
+    RETURN false;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE ('conversation:' || c.id::text) = p_topic
+      AND (p_require_active IS FALSE OR c.archived_at IS NULL)
+      AND (
+        c.creator_id = v_uid
+        OR c.member_id = v_uid
+        OR EXISTS (
+          SELECT 1 FROM public.conversation_members cm
+          WHERE cm.conversation_id = c.id AND cm.user_id = v_uid
+        )
+      )
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.can_current_user_access_conversation_topic(text, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_current_user_access_conversation_topic(text, boolean) TO authenticated;
+
+-- 13. Private Realtime Topic RLS Policies for conversation:<UUID> (Using topic helper)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'realtime' AND tablename = 'messages') THEN
@@ -867,19 +901,7 @@ BEGIN
       TO authenticated
       WITH CHECK (
         extension IN ('broadcast', 'presence')
-        AND EXISTS (
-          SELECT 1 FROM public.conversations c
-          WHERE ('conversation:' || c.id::text) = realtime.topic()
-            AND c.archived_at IS NULL
-            AND (
-              c.creator_id = auth.uid()
-              OR c.member_id = auth.uid()
-              OR EXISTS (
-                SELECT 1 FROM public.conversation_members cm
-                WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-              )
-            )
-        )
+        AND public.can_current_user_access_conversation_topic(realtime.topic(), true)
       );
 
     DROP POLICY IF EXISTS "Participants can listen to conversation topic" ON realtime.messages;
@@ -888,18 +910,7 @@ BEGIN
       TO authenticated
       USING (
         extension IN ('broadcast', 'presence')
-        AND EXISTS (
-          SELECT 1 FROM public.conversations c
-          WHERE ('conversation:' || c.id::text) = realtime.topic()
-            AND (
-              c.creator_id = auth.uid()
-              OR c.member_id = auth.uid()
-              OR EXISTS (
-                SELECT 1 FROM public.conversation_members cm
-                WHERE cm.conversation_id = c.id AND cm.user_id = auth.uid()
-              )
-            )
-        )
+        AND public.can_current_user_access_conversation_topic(realtime.topic(), false)
       );
   END IF;
 END $$;

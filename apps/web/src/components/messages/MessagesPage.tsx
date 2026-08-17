@@ -393,7 +393,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   // Single-Channel Realtime Broadcast (Typing) & Presence (Online Status)
   useEffect(() => {
-    if (!chatInteractionsEnabled || !conversationId || !currentUserId) {
+    if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) {
       setTypingUsers(new Set());
       setIsOtherUserOnline(false);
       return;
@@ -1060,7 +1060,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                               )}
 
                               {/* Per-Message Action Trigger & Menu */}
-                              {chatInteractionsEnabled && !activeConv.archivedAt && (
+                              {chatInteractionsEnabled && (isMe ? (msg.role === 'user' && !isDeleted) : (!activeConv.archivedAt)) && (
                                 <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
                                   isMe ? '-left-14' : '-right-14'
                                 }`}>
@@ -1075,30 +1075,34 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
                                     {activeMenuMsgId === msg.id && (
                                       <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 min-w-[120px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}>
-                                        <button
-                                          onClick={() => {
-                                            setReplyingToMessage(msg);
-                                            setActiveMenuMsgId(null);
-                                            textareaRef.current?.focus();
-                                          }}
-                                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                        >
-                                          <Reply className="w-3.5 h-3.5 text-blue-500" />
-                                          <span>Reply</span>
-                                        </button>
+                                        {!activeConv.archivedAt && (
+                                          <>
+                                            <button
+                                              onClick={() => {
+                                                setReplyingToMessage(msg);
+                                                setActiveMenuMsgId(null);
+                                                textareaRef.current?.focus();
+                                              }}
+                                              className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                            >
+                                              <Reply className="w-3.5 h-3.5 text-blue-500" />
+                                              <span>Reply</span>
+                                            </button>
 
-                                        <button
-                                          onClick={() => {
-                                            setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
-                                            setActiveMenuMsgId(null);
-                                          }}
-                                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                        >
-                                          <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
-                                          <span>React</span>
-                                        </button>
+                                            <button
+                                              onClick={() => {
+                                                setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
+                                                setActiveMenuMsgId(null);
+                                              }}
+                                              className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                            >
+                                              <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
+                                              <span>React</span>
+                                            </button>
+                                          </>
+                                        )}
 
-                                        {isMe && msg.role !== 'system' && (
+                                        {isMe && msg.role === 'user' && !isDeleted && (
                                           <button
                                             onClick={() => {
                                               setDeleteConfirmMessage(msg);
