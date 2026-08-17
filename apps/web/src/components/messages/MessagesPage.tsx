@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   MessageSquare, Send, ArrowLeft, ShieldAlert, 
@@ -391,7 +391,40 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // Single-Channel Realtime Broadcast (Typing) & Presence (Online Status)
+  // User Settings Preference for Online Status
+  const [showOnlineStatus, setShowOnlineStatus] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!currentUserId) return;
+    dbService.getMyUserSettings().then(res => {
+      if (isMounted) {
+        setShowOnlineStatus(res?.showOnlineStatus ?? true);
+      }
+    }).catch(() => {
+      if (isMounted) setShowOnlineStatus(true);
+    });
+    return () => { isMounted = false; };
+  }, [currentUserId]);
+
+  // Canonical Reaction Refresh Helper
+  const refreshConversationReactions = useCallback(async (targetConvId?: string) => {
+    const convId = targetConvId || conversationId;
+    if (!convId) return;
+    try {
+      const rxData = await dbService.getConversationReactions(convId);
+      const grouped: Record<string, DbMessageReaction[]> = {};
+      (rxData || []).forEach((r: any) => {
+        if (!grouped[r.message_id]) grouped[r.message_id] = [];
+        grouped[r.message_id].push(r);
+      });
+      setMessageReactions(grouped);
+    } catch (err) {
+      console.error('Error refreshing reactions:', err);
+    }
+  }, [conversationId]);
+
+  // Single-Channel Realtime Broadcast (Typing & Reactions) & Presence (Online Status)
   useEffect(() => {
     if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) {
       setTypingUsers(new Set());
@@ -439,6 +472,12 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           }
         }
       })
+      .on('broadcast', { event: 'reaction_changed' }, (payload) => {
+        const { conversationId: targetConvId } = payload.payload || {};
+        if (targetConvId && targetConvId === conversationId) {
+          void refreshConversationReactions(conversationId);
+        }
+      })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
         let otherOnline = false;
@@ -453,7 +492,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           }
         }
         setIsOtherUserOnline(otherOnline);
-      })
+      });
+
     const initRealtimeAuthAndSubscribe = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -467,7 +507,9 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           conversationRealtimeChannelRef.current = channel;
-          await channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() });
+          if (showOnlineStatus === true) {
+            await channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() });
+          }
         }
       });
     };
@@ -494,51 +536,43 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       setIsOtherUserOnline(false);
       lastTypingSentRef.current = 0;
     };
-  }, [chatInteractionsEnabled, conversationId, currentUserId, activeConv?.otherParticipantId, activeConv?.otherParticipantName]);
+  }, [chatInteractionsEnabled, conversationId, currentUserId, activeConv?.otherParticipantId, activeConv?.otherParticipantName, activeConv?.archivedAt, showOnlineStatus, refreshConversationReactions]);
 
-  // Reactions Realtime Subscription
+  // Initial Reactions Fetching
   useEffect(() => {
     if (!chatInteractionsEnabled || !conversationId) {
       setMessageReactions({});
       return;
     }
+    void refreshConversationReactions(conversationId);
+  }, [chatInteractionsEnabled, conversationId, refreshConversationReactions]);
 
-    dbService.getConversationReactions(conversationId).then(data => {
-      const map: Record<string, DbMessageReaction[]> = {};
-      for (const r of data) {
-        if (!map[r.message_id]) map[r.message_id] = [];
-        map[r.message_id].push(r);
-      }
-      setMessageReactions(map);
-    });
+  const handleToggleReaction = async (msg: any, emoji: string) => {
+    if (!conversationId || !chatInteractionsEnabled) return;
+    try {
+      await dbService.toggleMessageReaction(msg.id, conversationId, emoji);
+      await refreshConversationReactions(conversationId);
 
-    const rxChannel = supabase
-      .channel(`reactions:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'message_reactions',
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        () => {
-          dbService.getConversationReactions(conversationId).then(data => {
-            const map: Record<string, DbMessageReaction[]> = {};
-            for (const r of data) {
-              if (!map[r.message_id]) map[r.message_id] = [];
-              map[r.message_id].push(r);
+      if (conversationRealtimeChannelRef.current) {
+        try {
+          await conversationRealtimeChannelRef.current.send({
+            type: 'broadcast',
+            event: 'reaction_changed',
+            payload: {
+              conversationId,
+              messageId: msg.id
             }
-            setMessageReactions(map);
           });
+        } catch (bErr) {
+          console.warn('Reaction broadcast warning:', bErr);
         }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(rxChannel);
-    };
-  }, [chatInteractionsEnabled, conversationId]);
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle reaction:', err);
+      setMessagesError(err?.message || 'Failed to update reaction.');
+      setTimeout(() => setMessagesError(null), 3000);
+    }
+  };
 
   const sendTypingStatus = (typing: boolean) => {
     if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) return;
@@ -552,8 +586,15 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   };
 
   const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setChatInput(e.target.value);
+    const val = e.target.value;
+    setChatInput(val);
     if (!chatInteractionsEnabled || activeConv?.archivedAt) return;
+
+    if (val.trim() === '') {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      sendTypingStatus(false);
+      return;
+    }
 
     const now = Date.now();
     if (now - lastTypingSentRef.current > 1000) {
@@ -1127,7 +1168,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                                     <button
                                       key={emoji}
                                       onClick={() => {
-                                        dbService.toggleMessageReaction(msg.id, msg.conversation_id, emoji);
+                                        void handleToggleReaction(msg, emoji);
                                         setActiveReactionPickerMsgId(null);
                                       }}
                                       className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-base transition-transform hover:scale-125"
@@ -1147,7 +1188,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                                 <button
                                   key={emoji}
                                   disabled={activeConv.archivedAt}
-                                  onClick={() => dbService.toggleMessageReaction(msg.id, msg.conversation_id, emoji)}
+                                  onClick={() => void handleToggleReaction(msg, emoji)}
                                   className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 border transition-all ${
                                     data.hasMine
                                       ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold'
@@ -1333,6 +1374,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                       ref={textareaRef}
                       value={chatInput}
                       onChange={handleChatInputChange}
+                      onBlur={() => sendTypingStatus(false)}
                       onKeyDown={handleKeyDown}
                       placeholder="Type a message..."
                       rows={1}

@@ -428,6 +428,65 @@ async function getCurrentUserId(): Promise<string> {
 }
 
 
+export function mapDbUserSettings(row: any): UserSettings {
+  if (!row) {
+    return {
+      userId: '',
+      profileVisibility: 'public',
+      messagePermissions: 'everyone',
+      hireRequestPermissions: 'everyone',
+      showOnlineStatus: true,
+      showExactLocation: false,
+      searchEngineIndexing: true,
+      themePreference: 'system',
+      languagePreference: 'en',
+      timezone: 'UTC',
+      dateFormat: 'YYYY-MM-DD',
+      showReviewsPublicly: true,
+      showCompletedWorkCount: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  return {
+    userId: row.user_id || '',
+    profileVisibility: row.profile_visibility ?? 'public',
+    messagePermissions: row.message_permissions ?? 'everyone',
+    hireRequestPermissions: row.hire_request_permissions ?? 'everyone',
+    showOnlineStatus: row.show_online_status ?? true,
+    showExactLocation: row.show_exact_location ?? false,
+    searchEngineIndexing: row.search_engine_indexing ?? true,
+    themePreference: row.theme_preference ?? (localStorage.getItem('opencomm_user_theme') || 'system'),
+    languagePreference: row.language_preference ?? 'en',
+    timezone: row.timezone ?? 'UTC',
+    dateFormat: row.date_format ?? 'YYYY-MM-DD',
+    showReviewsPublicly: row.show_reviews_publicly ?? true,
+    showCompletedWorkCount: row.show_completed_work_count ?? true,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString()
+  };
+}
+
+export function mapUserSettingsToDb(settings: Partial<UserSettings>): Record<string, any> {
+  const payload: Record<string, any> = {};
+  if (settings.userId !== undefined) payload.user_id = settings.userId;
+  if (settings.profileVisibility !== undefined) payload.profile_visibility = settings.profileVisibility;
+  if (settings.messagePermissions !== undefined) payload.message_permissions = settings.messagePermissions;
+  if (settings.hireRequestPermissions !== undefined) payload.hire_request_permissions = settings.hireRequestPermissions;
+  if (settings.showOnlineStatus !== undefined) payload.show_online_status = settings.showOnlineStatus;
+  if (settings.showExactLocation !== undefined) payload.show_exact_location = settings.showExactLocation;
+  if (settings.searchEngineIndexing !== undefined) payload.search_engine_indexing = settings.searchEngineIndexing;
+  if (settings.themePreference !== undefined) payload.theme_preference = settings.themePreference;
+  if (settings.languagePreference !== undefined) payload.language_preference = settings.languagePreference;
+  if (settings.timezone !== undefined) payload.timezone = settings.timezone;
+  if (settings.dateFormat !== undefined) payload.date_format = settings.dateFormat;
+  if (settings.showReviewsPublicly !== undefined) payload.show_reviews_publicly = settings.showReviewsPublicly;
+  if (settings.showCompletedWorkCount !== undefined) payload.show_completed_work_count = settings.showCompletedWorkCount;
+  payload.updated_at = new Date().toISOString();
+  return payload;
+}
+
 export const dbService = {
   // --------- User Settings & Support Ticket Service Wrappers ---------
   /**
@@ -436,40 +495,61 @@ export const dbService = {
   async getMyUserSettings(): Promise<UserSettings | null> {
     if (supabase) {
       const userId = await getCurrentUserId();
+      if (!userId) return null;
+
       const { data, error } = await supabase
         .from('user_settings')
         .select('*')
         .eq('user_id', userId)
         .maybeSingle();
+
       if (error) {
         console.error('getMyUserSettings Supabase error:', error.message);
-        return null;
       }
-      return data as UserSettings;
+
+      if (data) {
+        return mapDbUserSettings(data);
+      }
+
+      // If no row exists yet, attempt to safely create default settings
+      const defaultPayload = {
+        user_id: userId,
+        profile_visibility: 'public',
+        message_permissions: 'everyone',
+        hire_request_permissions: 'everyone',
+        show_online_status: true,
+        show_exact_location: false,
+        search_engine_indexing: true,
+        theme_preference: localStorage.getItem('opencomm_user_theme') || 'system',
+        language_preference: 'en',
+        timezone: 'UTC',
+        date_format: 'YYYY-MM-DD',
+        show_reviews_publicly: true,
+        show_completed_work_count: true
+      };
+
+      const { data: createdData, error: createError } = await supabase
+        .from('user_settings')
+        .insert(defaultPayload)
+        .select()
+        .maybeSingle();
+
+      if (createError) {
+        console.warn('Could not auto-create user_settings row (table may not be migrated yet):', createError.message);
+        return mapDbUserSettings({ ...defaultPayload, user_id: userId });
+      }
+
+      return mapDbUserSettings(createdData || defaultPayload);
     }
-    // Local fallback – use stored profile as placeholder
+    // Local fallback
     const userId = await getCurrentUserId();
     const profiles = openCommDb.getProfiles();
     const profile = profiles.find(p => p.id === userId);
     if (!profile) return null;
-    // Map profile fields to UserSettings shape where possible
-    return {
-      userId: profile.id,
-      profileVisibility: 'public',
-      messagePermissions: 'everyone',
-      hireRequestPermissions: 'everyone',
-      showOnlineStatus: true,
-      showExactLocation: false,
-      searchEngineIndexing: true,
-      themePreference: localStorage.getItem('opencomm_user_theme') || 'system',
-      languagePreference: profile.preferred_language || 'en',
-      timezone: 'UTC',
-      dateFormat: 'YYYY-MM-DD',
-      showReviewsPublicly: true,
-      showCompletedWorkCount: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    } as UserSettings;
+    return mapDbUserSettings({
+      user_id: profile.id,
+      language_preference: profile.preferred_language
+    });
   },
 
   /**
@@ -478,22 +558,29 @@ export const dbService = {
   async updateMyUserSettings(updates: Partial<UserSettings>): Promise<UserSettings | null> {
     if (supabase) {
       const userId = await getCurrentUserId();
+      if (!userId) return null;
+
+      const payload = mapUserSettingsToDb(updates);
+      payload.user_id = userId;
+
       const { data, error } = await supabase
         .from('user_settings')
-        .upsert({ ...updates, user_id: userId }, { onConflict: 'user_id' })
+        .upsert(payload, { onConflict: 'user_id' })
         .select()
         .single();
+
       if (error) {
         console.error('updateMyUserSettings Supabase error:', error.message);
-        return null;
+        throw new Error(error.message || 'Failed to save settings.');
       }
-      // Cache theme locally to avoid flicker
+
       if (updates.themePreference) {
         localStorage.setItem('opencomm_user_theme', updates.themePreference);
       }
-      return data as UserSettings;
+
+      return mapDbUserSettings(data);
     }
-    // Local fallback – update profile cache (no real settings persistence)
+
     if (updates.themePreference) {
       localStorage.setItem('opencomm_user_theme', updates.themePreference);
     }

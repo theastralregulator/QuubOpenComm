@@ -136,9 +136,11 @@ CREATE INDEX IF NOT EXISTS idx_message_reactions_msg ON public.message_reactions
 
 ALTER TABLE public.message_reactions ENABLE ROW LEVEL SECURITY;
 
--- Least-Privilege Table Grants for message_reactions
+-- Least-Privilege Column-Level Grants for message_reactions
 REVOKE ALL ON public.message_reactions FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.message_reactions TO authenticated;
+GRANT SELECT, DELETE ON public.message_reactions TO authenticated;
+GRANT INSERT (message_id, conversation_id, user_id, emoji) ON public.message_reactions TO authenticated;
+GRANT UPDATE (emoji, updated_at) ON public.message_reactions TO authenticated;
 
 -- Reaction Integrity Trigger (SECURITY DEFINER canonical target validation & immutability)
 CREATE OR REPLACE FUNCTION public.validate_message_reaction_target()
