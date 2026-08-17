@@ -148,23 +148,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
   const isInitialLoadRef = useRef<boolean>(true);
 
-  // Stable Active Conversation State
-  const [stableActiveConv, setStableActiveConv] = useState<ConversationViewModel | null>(null);
 
-  useEffect(() => {
-    if (!conversationId) {
-      setStableActiveConv(null);
-      isInitialLoadRef.current = true;
-      lastAutoScrolledMessageIdRef.current = null;
-      return;
-    }
-    const found = conversations.find(c => c.id === conversationId);
-    if (found) {
-      setStableActiveConv(found);
-    }
-  }, [conversations, conversationId]);
-
-  const activeConv = stableActiveConv || conversations.find(c => c.id === conversationId);
 
   const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean; documentEnabled?: boolean }>({
     mediaMessagingEnabled: false,
@@ -176,6 +160,58 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<{ file: File; mediaType: 'image' | 'video' | 'document'; previewUrl: string; durationMs?: number; width?: number; height?: number } | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+
+  // Fetch Chat Interactions V1 Capability
+  useEffect(() => {
+    fetch('/api/chat-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data && typeof data.chatInteractionsEnabled === 'boolean') {
+          setChatInteractionsEnabled(data.chatInteractionsEnabled);
+        }
+      })
+      .catch(err => console.warn('Chat status check error:', err));
+  }, []);
+
+  // Search Input Focus/Clear Effect
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+    } else {
+      setSearchQuery('');
+    }
+  }, [isSearchOpen]);
+
+  // Conversation Switch Reset Effect
+  const previousConversationIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (previousConversationIdRef.current !== conversationId) {
+      isInitialLoadRef.current = true;
+      lastAutoScrolledMessageIdRef.current = null;
+      setReplyingToMessage(null);
+      setActiveMenuMsgId(null);
+      setActiveReactionPickerMsgId(null);
+      previousConversationIdRef.current = conversationId;
+    }
+  }, [conversationId]);
+
+  // Stable Active Conversation State (ID-Safe)
+  const [stableActiveConv, setStableActiveConv] = useState<ConversationViewModel | null>(null);
+
+  useEffect(() => {
+    if (!conversationId) {
+      setStableActiveConv(null);
+      return;
+    }
+    const found = conversations.find(c => c.id === conversationId);
+    if (found) {
+      setStableActiveConv(found);
+    }
+  }, [conversations, conversationId]);
+
+  const liveActiveConv = conversations.find(c => c.id === conversationId);
+  const activeConv = stableActiveConv?.id === conversationId ? stableActiveConv : liveActiveConv;
 
   useEffect(() => {
     fetch('/api/media-status')
