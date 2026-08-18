@@ -15,6 +15,7 @@ import VoiceRecorder from './VoiceRecorder';
 import MediaMessage from './MediaMessage';
 import MediaAttachmentPicker from './MediaAttachmentPicker';
 import { MediaFilesPanel } from './MediaFilesPanel';
+import { getPublicProfilesByIds } from '../../lib/profileService';
 
 export interface ConversationGroup {
   participantId: string;
@@ -126,15 +127,20 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
   const [activeReactionPickerMsgId, setActiveReactionPickerMsgId] = useState<string | null>(null);
 
-  // Typing & Presence State
-  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  // Typing & Presence State (typingUsers is Map<userId, displayName>)
+  const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
   const [isOtherUserOnline, setIsOtherUserOnline] = useState<boolean>(false);
+  const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>('User');
   const lastTypingSentRef = useRef<number>(0);
   const typingTimeoutRef = useRef<any>(null);
   const conversationRealtimeChannelRef = useRef<any>(null);
   const activeMessagesRealtimeChannelRef = useRef<any>(null);
   const refreshConversationsDebouncedRef = useRef<any>(null);
   const typingExpirationsRef = useRef<Map<string, any>>(new Map());
+
+  // Realtime Version & Forced Scroll Refs
+  const realtimeMessageVersionRef = useRef<number>(0);
+  const forceScrollToMessageIdRef = useRef<string | null>(null);
 
   // Conversation Refresh Queue & Generation Refs
   const conversationRefreshGenerationRef = useRef<number>(0);
@@ -212,6 +218,26 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   const liveActiveConv = conversations.find(c => c.id === conversationId);
   const activeConv = stableActiveConv?.id === conversationId ? stableActiveConv : liveActiveConv;
+
+  // Load Current User Canonical Public Display Name
+  useEffect(() => {
+    let isMounted = true;
+    if (!currentUserId) return;
+
+    getPublicProfilesByIds([currentUserId])
+      .then((map) => {
+        if (!isMounted) return;
+        const p = map.get(currentUserId);
+        if (p && (p.fullName || p.name)) {
+          setCurrentUserDisplayName(p.fullName || p.name || 'User');
+        }
+      })
+      .catch((err) => console.warn('Error fetching current user display name:', err));
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUserId]);
 
   useEffect(() => {
     fetch('/api/media-status')
@@ -472,20 +498,57 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     return () => { isMounted = false; };
   }, [currentUserId]);
 
-  // Silent Reconciliation Helper for Active Conversation Messages (Equivalence-Checked)
-  const refreshActiveConversationMessages = useCallback(async (targetConvId?: string) => {
-    const convId = targetConvId || conversationId;
-    if (!convId) return;
-    try {
-      const latest = await dbService.getConversationMessages(convId);
-      setMessages((prev) => {
-        if (areMessageListsEquivalent(prev, latest)) return prev;
-        return latest;
-      });
-    } catch (err) {
-      console.error('Error in silent active conversation message reconciliation:', err);
-    }
-  }, [conversationId]);
+  // Local Summary Patch Helper (NO full getMyConversations refetch for active chat)
+  const patchLocalConversationSummary = useCallback(
+    (targetConvId: string, lastText: string, lastTime: string) => {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== targetConvId) return c;
+          return {
+            ...c,
+            lastMessageText: lastText,
+            lastMessageTime: lastTime,
+            latestActivityTime: new Date(lastTime).getTime(),
+            totalUnread: c.id === conversationId ? 0 : c.totalUnread
+          };
+        })
+      );
+    },
+    [conversationId]
+  );
+
+  // Silent Reconciliation Helper for Active Conversation Messages (Version & Equivalence Checked)
+  const refreshActiveConversationMessages = useCallback(
+    async (targetConvId?: string) => {
+      const convId = targetConvId || conversationId;
+      if (!convId) return;
+
+      const startVersion = realtimeMessageVersionRef.current;
+
+      try {
+        const latest = await dbService.getConversationMessages(convId);
+
+        // Stale Reconciliation Guard
+        if (startVersion !== realtimeMessageVersionRef.current) {
+          return;
+        }
+
+        setMessages((prev) => {
+          const latestIds = new Set(latest.map((m) => m.id));
+          const missingPrevId = prev.some((m) => !m.id.startsWith('temp-') && !latestIds.has(m.id));
+          if (missingPrevId) {
+            return prev;
+          }
+
+          if (areMessageListsEquivalent(prev, latest)) return prev;
+          return latest;
+        });
+      } catch (err) {
+        console.error('Error in silent active conversation message reconciliation:', err);
+      }
+    },
+    [conversationId]
+  );
 
   // Debounced & Queue-Protected Conversation List Refresh Helper
   const refreshConversationsList = useCallback(async () => {
@@ -543,25 +606,47 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           const message = payload.new as DbMessage;
           if (!message || message.conversation_id !== conversationId) return;
 
+          realtimeMessageVersionRef.current += 1;
+          forceScrollToMessageIdRef.current = message.id;
+
           setMessages((prev) => {
+            let nextList: DbMessage[];
             if (prev.some((m) => m.id === message.id)) {
-              return prev.map((m) => (m.id === message.id ? message : m));
+              nextList = prev.map((m) => (m.id === message.id ? message : m));
+            } else {
+              nextList = [...prev, message];
             }
-            return [...prev, message];
+            return nextList.sort(
+              (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+            );
           });
 
+          // Immediate force-scroll to bottom for new realtime message
+          requestAnimationFrame(() => {
+            const container = messagesContainerRef.current;
+            if (container) {
+              container.scrollTo({
+                top: container.scrollHeight,
+                behavior: 'smooth'
+              });
+            }
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          });
+
+          // Asynchronous non-blocking mark read and global unread refresh
           if (message.sender_id !== currentUserId) {
-            void (async () => {
-              try {
-                await dbService.markConversationRead(conversationId);
-                await unreadService.refresh(currentUserId);
-              } catch (e) {
-                console.warn('Async mark read error on INSERT:', e);
-              }
-            })();
+            void dbService
+              .markConversationRead(conversationId)
+              .then(() => unreadService.refresh(currentUserId))
+              .catch((e) => console.warn('Async mark read error on INSERT:', e));
           }
 
-          triggerDebouncedConversationRefresh();
+          // Patch summary locally (NO full getMyConversations refetch for active conversation)
+          patchLocalConversationSummary(
+            conversationId,
+            message.text || 'Media message',
+            message.created_at || new Date().toISOString()
+          );
         }
       )
       .on(
@@ -575,6 +660,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         (payload) => {
           const message = payload.new as DbMessage;
           if (!message || message.conversation_id !== conversationId) return;
+
+          realtimeMessageVersionRef.current += 1;
 
           setMessages((prev) => {
             const index = prev.findIndex((m) => m.id === message.id);
@@ -596,8 +683,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             next[index] = { ...existing, ...message };
             return next;
           });
-
-          triggerDebouncedConversationRefresh();
         }
       );
 
@@ -617,7 +702,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       supabase.removeChannel(channel);
       activeMessagesRealtimeChannelRef.current = null;
     };
-  }, [conversationId, currentUserId, refreshActiveConversationMessages, triggerDebouncedConversationRefresh]);
+  }, [conversationId, currentUserId, refreshActiveConversationMessages, patchLocalConversationSummary]);
 
   // Lightweight Reconciliation on Visibility / Focus Recovery
   useEffect(() => {
@@ -664,7 +749,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   // Single-Channel Realtime Broadcast (Typing & Reactions) & Presence (Online Status)
   useEffect(() => {
     if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) {
-      setTypingUsers(new Set());
+      setTypingUsers(new Map());
       setIsOtherUserOnline(false);
       return;
     }
@@ -675,38 +760,53 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     channel
       .on('broadcast', { event: 'typing' }, (payload) => {
-        const { userId, typing } = payload.payload || {};
+        const { conversationId: topicConvId, userId, senderName, typing } = payload.payload || {};
+        if (!userId || userId === currentUserId) return;
+        if (topicConvId && topicConvId !== conversationId) return;
+
         const otherParticipantId = activeConv?.otherParticipantId;
-        const otherParticipantName = activeConv?.otherParticipantName || 'User';
+        if (otherParticipantId && userId !== otherParticipantId) {
+          const inThread = messages.some((m) => m.sender_id === userId);
+          if (!inThread) return;
+        }
 
-        if (userId && userId === otherParticipantId) {
-          if (typing) {
-            setTypingUsers(prev => new Set(prev).add(otherParticipantName));
-
-            if (typingExpirationsRef.current.has(userId)) {
-              clearTimeout(typingExpirationsRef.current.get(userId));
+        if (typing) {
+          let resolvedName = senderName;
+          if (!resolvedName) {
+            const lastMsgFromSender = [...messages].reverse().find((m) => m.sender_id === userId);
+            if (lastMsgFromSender?.sender_name) {
+              resolvedName = lastMsgFromSender.sender_name;
+            } else if (activeConv?.otherParticipantId === userId && activeConv.otherParticipantName) {
+              resolvedName = activeConv.otherParticipantName;
+            } else {
+              resolvedName = 'User';
             }
-            const timer = setTimeout(() => {
-              setTypingUsers(prev => {
-                const next = new Set(prev);
-                next.delete(otherParticipantName);
-                return next;
-              });
-              typingExpirationsRef.current.delete(userId);
-            }, 3000);
-            typingExpirationsRef.current.set(userId, timer);
+          }
 
-          } else {
-            if (typingExpirationsRef.current.has(userId)) {
-              clearTimeout(typingExpirationsRef.current.get(userId));
-              typingExpirationsRef.current.delete(userId);
-            }
-            setTypingUsers(prev => {
-              const next = new Set(prev);
-              next.delete(otherParticipantName);
+          setTypingUsers((prev) => new Map(prev).set(userId, resolvedName));
+
+          if (typingExpirationsRef.current.has(userId)) {
+            clearTimeout(typingExpirationsRef.current.get(userId));
+          }
+          const timer = setTimeout(() => {
+            setTypingUsers((prev) => {
+              const next = new Map(prev);
+              next.delete(userId);
               return next;
             });
+            typingExpirationsRef.current.delete(userId);
+          }, 3000);
+          typingExpirationsRef.current.set(userId, timer);
+        } else {
+          if (typingExpirationsRef.current.has(userId)) {
+            clearTimeout(typingExpirationsRef.current.get(userId));
+            typingExpirationsRef.current.delete(userId);
           }
+          setTypingUsers((prev) => {
+            const next = new Map(prev);
+            next.delete(userId);
+            return next;
+          });
         }
       })
       .on('broadcast', { event: 'reaction_changed' }, (payload) => {
@@ -722,7 +822,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         if (otherParticipantId) {
           for (const key in state) {
             const presences = state[key] as any[];
-            if (presences.some(p => p.userId === otherParticipantId)) {
+            if (presences.some((p) => p.userId === otherParticipantId)) {
               otherOnline = true;
               break;
             }
@@ -755,25 +855,38 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      typingExpirationsRef.current.forEach(t => clearTimeout(t));
+      typingExpirationsRef.current.forEach((t) => clearTimeout(t));
       typingExpirationsRef.current.clear();
 
       if (conversationRealtimeChannelRef.current) {
-        conversationRealtimeChannelRef.current.send({
-          type: 'broadcast',
-          event: 'typing',
-          payload: { userId: currentUserId, typing: false }
-        }).catch(() => {});
+        conversationRealtimeChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'typing',
+            payload: { conversationId, userId: currentUserId, senderName: currentUserDisplayName, typing: false }
+          })
+          .catch(() => {});
         conversationRealtimeChannelRef.current.untrack().catch(() => {});
       }
 
       supabase.removeChannel(channel);
       conversationRealtimeChannelRef.current = null;
-      setTypingUsers(new Set());
+      setTypingUsers(new Map());
       setIsOtherUserOnline(false);
       lastTypingSentRef.current = 0;
     };
-  }, [chatInteractionsEnabled, conversationId, currentUserId, activeConv?.otherParticipantId, activeConv?.otherParticipantName, activeConv?.archivedAt, showOnlineStatus, refreshConversationReactions]);
+  }, [
+    chatInteractionsEnabled,
+    conversationId,
+    currentUserId,
+    currentUserDisplayName,
+    activeConv?.otherParticipantId,
+    activeConv?.otherParticipantName,
+    activeConv?.archivedAt,
+    showOnlineStatus,
+    refreshConversationReactions,
+    messages
+  ]);
 
   // Initial Reactions Fetching
   useEffect(() => {
@@ -814,11 +927,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const sendTypingStatus = (typing: boolean) => {
     if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) return;
     if (conversationRealtimeChannelRef.current) {
-      conversationRealtimeChannelRef.current.send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: { userId: currentUserId, typing }
-      }).catch(() => {});
+      conversationRealtimeChannelRef.current
+        .send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: {
+            conversationId,
+            userId: currentUserId,
+            senderName: currentUserDisplayName,
+            typing
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -856,7 +976,14 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     const unsubscribeConversations = unreadService.subscribeConversationEvents(
       currentUserId,
-      () => { void refreshConversations(); }
+      (event) => {
+        const eventConvId = (event?.new as any)?.conversation_id || (event?.new as any)?.id || (event?.old as any)?.id;
+        if (eventConvId && eventConvId === conversationId) {
+          // Skip full getMyConversations refetch for active conversation row changes
+          return;
+        }
+        void refreshConversations();
+      }
     );
 
     return () => {
@@ -865,19 +992,12 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // Smart Auto-Scroll Effect (Only scroll on new message arrival if user is near bottom or user sent it)
+  // Smart Auto-Scroll Effect (Forced realtime scroll, or new message if near bottom or sent by me)
   useEffect(() => {
     if (loadingMessages || messages.length === 0) return;
 
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
-
-    const container = messagesContainerRef.current;
-    let isNearBottom = true;
-    if (container) {
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      isNearBottom = distanceFromBottom <= 150;
-    }
 
     if (isInitialLoadRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -887,12 +1007,23 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     }
 
     const isNewMessage = lastMessage.id !== lastAutoScrolledMessageIdRef.current;
-    if (isNewMessage) {
+    const isForced = forceScrollToMessageIdRef.current === lastMessage.id;
+
+    if (isNewMessage || isForced) {
+      const container = messagesContainerRef.current;
+      let isNearBottom = true;
+      if (container) {
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        isNearBottom = distanceFromBottom <= 150;
+      }
+
       const isMe = lastMessage.sender_id === currentUserId;
-      if (isMe || isNearBottom) {
+      if (isForced || isMe || isNearBottom) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }
+
       lastAutoScrolledMessageIdRef.current = lastMessage.id;
+      forceScrollToMessageIdRef.current = null;
     }
   }, [messages, loadingMessages, currentUserId]);
 
@@ -1498,7 +1629,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
                     <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
                   </span>
-                  <span>{Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing…</span>
+                  <span>{Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing…</span>
                 </div>
               )}
 
