@@ -130,7 +130,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   // Typing & Presence State (typingUsers is Map<userId, displayName>)
   const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
   const [isOtherUserOnline, setIsOtherUserOnline] = useState<boolean>(false);
-  const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>('User');
+  const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string | null>(null);
   const lastTypingSentRef = useRef<number>(0);
   const typingTimeoutRef = useRef<any>(null);
   const conversationRealtimeChannelRef = useRef<any>(null);
@@ -153,6 +153,13 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
   const isInitialLoadRef = useRef<boolean>(true);
+
+  // Stable Synchronized Messages Ref for Channel Handlers
+  const messagesRef = useRef<DbMessage[]>([]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
 
 
@@ -391,11 +398,8 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       setIsVoiceRecording(false);
       setReplyingToMessage(null);
 
-      const refreshedMsgs = await dbService.getConversationMessages(conversationId);
-      setMessages(refreshedMsgs);
-
-      const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
-      handleSetConversations(updatedConvs);
+      // Safe version-guarded silent reconciliation (Realtime INSERT handles instant UI display)
+      void refreshActiveConversationMessages(conversationId);
 
     } catch (err: any) {
       console.error('Media upload error:', err);
@@ -500,16 +504,21 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   // Local Summary Patch Helper (NO full getMyConversations refetch for active chat)
   const patchLocalConversationSummary = useCallback(
-    (targetConvId: string, lastText: string, lastTime: string) => {
+    (targetConvId: string, lastText: string, createdIsoTime: string) => {
+      const formattedTime = new Date(createdIsoTime).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id !== targetConvId) return c;
           return {
             ...c,
             lastMessageText: lastText,
-            lastMessageTime: lastTime,
-            latestActivityTime: new Date(lastTime).getTime(),
-            totalUnread: c.id === conversationId ? 0 : c.totalUnread
+            lastMessageAt: createdIsoTime,
+            lastMessageTime: formattedTime,
+            unreadCount: c.id === conversationId ? 0 : c.unreadCount
           };
         })
       );
@@ -619,18 +628,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             return nextList.sort(
               (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
             );
-          });
-
-          // Immediate force-scroll to bottom for new realtime message
-          requestAnimationFrame(() => {
-            const container = messagesContainerRef.current;
-            if (container) {
-              container.scrollTo({
-                top: container.scrollHeight,
-                behavior: 'smooth'
-              });
-            }
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
           });
 
           // Asynchronous non-blocking mark read and global unread refresh
@@ -766,15 +763,19 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
         const otherParticipantId = activeConv?.otherParticipantId;
         if (otherParticipantId && userId !== otherParticipantId) {
-          const inThread = messages.some((m) => m.sender_id === userId);
+          const inThread = messagesRef.current.some((m) => m.sender_id === userId);
           if (!inThread) return;
         }
 
         if (typing) {
-          let resolvedName = senderName;
+          let resolvedName: string | undefined = undefined;
+          if (senderName && typeof senderName === 'string' && senderName.trim() && senderName !== 'User' && senderName !== 'OpenComm User') {
+            resolvedName = senderName.trim();
+          }
+
           if (!resolvedName) {
-            const lastMsgFromSender = [...messages].reverse().find((m) => m.sender_id === userId);
-            if (lastMsgFromSender?.sender_name) {
+            const lastMsgFromSender = [...messagesRef.current].reverse().find((m) => m.sender_id === userId);
+            if (lastMsgFromSender?.sender_name && lastMsgFromSender.sender_name !== 'User' && lastMsgFromSender.sender_name !== 'OpenComm User') {
               resolvedName = lastMsgFromSender.sender_name;
             } else if (activeConv?.otherParticipantId === userId && activeConv.otherParticipantName) {
               resolvedName = activeConv.otherParticipantName;
@@ -783,7 +784,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
             }
           }
 
-          setTypingUsers((prev) => new Map(prev).set(userId, resolvedName));
+          setTypingUsers((prev) => new Map(prev).set(userId, resolvedName!));
 
           if (typingExpirationsRef.current.has(userId)) {
             clearTimeout(typingExpirationsRef.current.get(userId));
@@ -863,7 +864,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           .send({
             type: 'broadcast',
             event: 'typing',
-            payload: { conversationId, userId: currentUserId, senderName: currentUserDisplayName, typing: false }
+            payload: { conversationId, userId: currentUserId, senderName: currentUserDisplayName || undefined, typing: false }
           })
           .catch(() => {});
         conversationRealtimeChannelRef.current.untrack().catch(() => {});
@@ -884,8 +885,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     activeConv?.otherParticipantName,
     activeConv?.archivedAt,
     showOnlineStatus,
-    refreshConversationReactions,
-    messages
+    refreshConversationReactions
   ]);
 
   // Initial Reactions Fetching
@@ -1049,8 +1049,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           return [...prev, sentMsg];
         });
         setReplyingToMessage(null);
-        const updatedConvs = await dbService.getMyConversations({ includeArchived: Boolean(conversationId) });
-        handleSetConversations(updatedConvs);
+        patchLocalConversationSummary(conversationId, textToSend, sentMsg.created_at || new Date().toISOString());
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
