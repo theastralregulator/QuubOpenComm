@@ -50,6 +50,7 @@ import NegotiationPage from './components/hiring/NegotiationPage';
 import WorkContractPage from './components/contracts/WorkContractPage';
 import NotificationsPage from './components/notifications/NotificationsPage';
 import NotificationSettingsPage from './components/notifications/NotificationSettingsPage';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 import { ProfilePhotoUpload } from './components/ProfilePhotoUpload';
 import LocationSelector from './components/common/LocationSelector';
 import { MAJOR_LANGUAGES, formatLocationSummary } from './lib/locationService';
@@ -596,40 +597,14 @@ export default function App() {
     };
   }, [showAuthModal, navigate]);
 
-  // Protect routes and trigger sign in if needed
-  function ProtectedRoute({ children }: { children: React.ReactNode }) {
-    if (isAuthLoading || isSavingProfileRef.current) {
-      return (
-        <div className="flex items-center justify-center min-h-screen">
-          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
-        </div>
-      );
-    }
-
-    useEffect(() => {
-      if (!isLoggedIn) {
-        navigate(`/login?redirect=${encodeURIComponent(path)}`);
-        triggerToast("Please sign in to access this page.");
-      } else if (!isEmailVerified) {
-        navigate('/verify-email');
-        triggerToast("Please verify your email address to continue.");
-      } else if (!isOnboardingCompleted) {
-        navigate('/signup');
-        triggerToast("Please complete your profile details to continue.");
-      }
-    }, [isLoggedIn, isEmailVerified, isOnboardingCompleted]);
-
-    if (!isLoggedIn) {
-      return <Navigate to={`/login?redirect=${encodeURIComponent(path)}`} replace />;
-    }
-    if (!isEmailVerified) {
-      return <Navigate to="/verify-email" replace />;
-    }
-    if (!isOnboardingCompleted) {
-      return <Navigate to="/signup" replace />;
-    }
-    return <>{children}</>;
-  }
+  const protectedRouteProps = {
+    isAuthLoading,
+    isSavingProfile: isSavingProfileRef.current,
+    isLoggedIn,
+    isEmailVerified,
+    isOnboardingCompleted,
+    currentPath: path
+  };
 
   const [showForgotPasswordPanel, setShowForgotPasswordPanel] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
@@ -3008,7 +2983,7 @@ export default function App() {
 
           {/* Messages View */}
           <Route path="/messages" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <motion.div
                 key="messages-view"
                 initial={{ opacity: 0, y: 12 }}
@@ -3021,7 +2996,7 @@ export default function App() {
             </ProtectedRoute>
           } />
           <Route path="/messages/:conversationId" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <motion.div
                 key="messages-view-detail"
                 initial={{ opacity: 0, y: 12 }}
@@ -3036,75 +3011,75 @@ export default function App() {
 
           {/* Profile Pages */}
           <Route path="/profile/my-job-posts" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <MyJobPostsPage />
             </ProtectedRoute>
           } />
 
           <Route path="/profile/manage-applications" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <Navigate to="/profile/my-job-posts" replace />
             </ProtectedRoute>
           } />
 
           <Route path="/profile/jobs-applied" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <MyJobsAppliedPage handleStartConversation={handleOpenConversationForApplication} />
             </ProtectedRoute>
           } />
 
           <Route path="/jobs/:jobId/applications" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <ManageApplicationsPage handleStartConversation={handleOpenConversationForApplication} />
             </ProtectedRoute>
           } />
 
           {/* Hiring Workflow Routes */}
           <Route path="/profile/hire-requests" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <HireRequestsPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/hire-requests/:requestId" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <HireRequestDetailsPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/hire-requests/:requestId/negotiation" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <NegotiationPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/applications/:applicationId/negotiation" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <NegotiationPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/work-contracts/:contractId" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <WorkContractPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/profile/notifications" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <NotificationsPage />
             </ProtectedRoute>
           } />
 
           <Route path="/profile/notification-settings" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <NotificationSettingsPage />
             </ProtectedRoute>
           } />
-          <Route path="/profile/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/profile/settings" element={<ProtectedRoute {...protectedRouteProps}><SettingsPage /></ProtectedRoute>} />
 
           <Route path="/profile" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <motion.div
                 key="profile-view"
                 initial={{ opacity: 0, y: 12 }}
@@ -3214,7 +3189,7 @@ export default function App() {
 
           {/* Saved Jobs Shortcut */}
           <Route path="/profile/saved-jobs" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <motion.div
                 key="saved-jobs-view"
                 initial={{ opacity: 0, y: 12 }}
@@ -3235,7 +3210,7 @@ export default function App() {
 
           {/* Saved Workers Shortcut */}
           <Route path="/profile/saved-workers" element={
-            <ProtectedRoute>
+            <ProtectedRoute {...protectedRouteProps}>
               <motion.div
                 key="saved-workers-view"
                 initial={{ opacity: 0, y: 12 }}

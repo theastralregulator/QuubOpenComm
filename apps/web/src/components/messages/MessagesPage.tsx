@@ -713,7 +713,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       if (document.visibilityState === 'visible') {
         lastReconcileTime = now;
         void refreshActiveConversationMessages(conversationId);
-        triggerDebouncedConversationRefresh();
       }
     };
 
@@ -724,7 +723,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [conversationId, currentUserId, refreshActiveConversationMessages, triggerDebouncedConversationRefresh]);
+  }, [conversationId, currentUserId, refreshActiveConversationMessages]);
 
   // Canonical Reaction Refresh Helper
   const refreshConversationReactions = useCallback(async (targetConvId?: string) => {
