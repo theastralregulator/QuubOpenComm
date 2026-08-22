@@ -661,6 +661,7 @@ DECLARE
   v_msg_id uuid;
   v_text text;
   v_created_at timestamptz;
+  v_room_status text;
 BEGIN
   -- Acquire explicit row lock on intent row
   SELECT * INTO v_intent
@@ -707,6 +708,19 @@ BEGIN
     RETURN jsonb_build_object(
       'success', false,
       'error', 'Reply target mismatch with intent authorization'
+    );
+  END IF;
+
+  -- Recheck negotiation room active status with row lock (FOR SHARE) immediately before INSERT
+  SELECT status INTO v_room_status
+  FROM public.negotiation_rooms
+  WHERE id = p_room_id
+  FOR SHARE;
+
+  IF NOT FOUND OR v_room_status <> 'active' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Negotiation room is no longer active'
     );
   END IF;
 

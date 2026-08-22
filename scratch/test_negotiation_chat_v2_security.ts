@@ -92,14 +92,21 @@ function runPreflightAndUnitChecks() {
     'Canonical Finalizer: Compares reply_to_message_id using IS DISTINCT FROM against intent authorization'
   );
 
-  // 8. Direct Privilege Revocation on negotiation_messages
+  // 8. DB Invariant: Recheck Negotiation Room Status WITH FOR SHARE in Finalizer
+  const finalizerRoomShareCheck = /finalize_negotiation_media_message_internal[\s\S]*?SELECT status[\s\S]*?FROM public\.negotiation_rooms[\s\S]*?FOR SHARE/i.test(migrationSql);
+  assert(
+    finalizerRoomShareCheck,
+    'Finalizer DB Invariant: Rechecks negotiation room active status with FOR SHARE lock right before INSERT'
+  );
+
+  // 9. Direct Privilege Revocation on negotiation_messages
   const directRevoke = /REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public\.negotiation_messages FROM PUBLIC, anon, authenticated;/i.test(migrationSql);
   assert(
     directRevoke,
     'Privilege Hardening: Direct INSERT, UPDATE, DELETE, TRUNCATE on negotiation_messages is REVOKED from authenticated'
   );
 
-  // 9. Online Status Fail-Closed Logic in Frontend
+  // 10. Online Status Fail-Closed Logic in Frontend
   const onlinePrivacyCheck = /showOnlineStatus === true/i.test(negotiationPageCode);
   const onlinePrivacyNegativeCheck = !/showOnlineStatus !== false/i.test(negotiationPageCode);
   assert(
@@ -107,7 +114,7 @@ function runPreflightAndUnitChecks() {
     'Online Status Privacy: NegotiationPage strictly evaluates showOnlineStatus === true (fail-closed)'
   );
 
-  // 10. Reaction Realtime Flow: Error checking, local refresh, and broadcast
+  // 11. Reaction Realtime Flow: Error checking, local refresh, and broadcast
   const reactionRpcErrorCheck = /if \(rpcErr\)/i.test(negotiationPageCode);
   const reactionBroadcastPayload = /event: 'reaction_changed'/i.test(negotiationPageCode) && /roomId: details\.negotiation_room\.id/i.test(negotiationPageCode);
   assert(
@@ -115,29 +122,29 @@ function runPreflightAndUnitChecks() {
     'Reaction Realtime: handleToggleReaction checks RPC error, refreshes local state, and broadcasts reaction_changed'
   );
 
-  // 11. Fallback API: originalProvider validation
+  // 12. Fallback API: originalProvider validation
   const fallbackOriginalProviderCheck = /originalProvider !== 'b2' && originalProvider !== 'cloudinary'/i.test(fallbackApiCode);
   assert(
     fallbackOriginalProviderCheck,
     'Fallback API: Validates originalProvider strictly against b2 or cloudinary'
   );
 
-  // 12. Provider/MIME Validation in Media Finalizer
+  // 13. Provider/MIME Validation in Media Finalizer
   const finalizeMimeValidation = /provider === 'cloudinary'[\s\S]*?resType[\s\S]*?allowedImageFormats/i.test(finalizeApiCode) && /isMimeCompatible/i.test(finalizeApiCode);
   assert(
     finalizeMimeValidation,
     'Media Finalizer: Contains full provider/MIME format validation matching permanent media rules'
   );
 
-  // 13. Locked Room Invariant: Pointer down & UI check room status !== active
+  // 14. Locked Room Invariant & Room Switch Reset in Frontend
   const pointerDownLockedCheck = /handleBubblePointerDown[\s\S]*?room\?\.status !== 'active'/i.test(negotiationPageCode);
-  const isRoomLockedCheck = /const isRoomLocked = room\?\.status !== 'active'/i.test(negotiationPageCode);
+  const resetRefsOnRoomSwitch = /fetchWorkflowDetails[\s\S]*?initialScrollCompletedRef\.current = false/i.test(negotiationPageCode);
   assert(
-    pointerDownLockedCheck && isRoomLockedCheck,
-    'Locked Room Rules: Pointer down and UI evaluate room status !== active'
+    pointerDownLockedCheck && resetRefsOnRoomSwitch,
+    'Frontend Invariants: Pointer down checks room status !== active and room switch resets initial position refs'
   );
 
-  // 14. Document Security Scanner Unit Tests
+  // 15. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
@@ -149,7 +156,7 @@ function runPreflightAndUnitChecks() {
 
   console.log(`\n=== SUMMARY: ${passedCount}/${totalCount} STATIC PREFLIGHT + UNIT CHECKS PASSED ===`);
   if (passedCount === totalCount) {
-    console.log('SUCCESS: All 14 static preflight + unit checks passed cleanly.');
+    console.log(`SUCCESS: All ${totalCount} static preflight + unit checks passed cleanly.`);
   } else {
     process.exit(1);
   }

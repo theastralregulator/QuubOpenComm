@@ -83,6 +83,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   const initialScrollModeRef = useRef<'unread' | 'latest' | null>(null);
   const initialPinToBottomRef = useRef<boolean>(true);
   const pinTimeoutRef = useRef<any>(null);
+  const realtimeScrollTargetRef = useRef<string | null>(null);
 
   // Long press refs
   const longPressTimerRef = useRef<any>(null);
@@ -107,7 +108,30 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     fetchWorkflowDetails();
   }, [requestId, applicationId]);
 
+  const markCurrentNegotiationReadIfVisible = useCallback((roomId: string) => {
+    if (!negotiationChatV2Enabled || !currentUserId || !details?.negotiation_room?.id) return;
+    if (details.negotiation_room.id !== roomId) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+    supabase.rpc('mark_negotiation_room_read', { p_room_id: roomId }).catch(() => {});
+  }, [negotiationChatV2Enabled, currentUserId, details?.negotiation_room?.id]);
+
   const fetchWorkflowDetails = async () => {
+    // Reset initial chat position refs & temporary UI BEFORE any await when room changes
+    initialUnreadMessageIdRef.current = null;
+    initialScrollCompletedRef.current = false;
+    initialScrollModeRef.current = null;
+    initialPinToBottomRef.current = true;
+
+    if (pinTimeoutRef.current) {
+      clearTimeout(pinTimeoutRef.current);
+      pinTimeoutRef.current = null;
+    }
+
+    setReplyingToMessage(null);
+    setActiveMenuMsgId(null);
+    setActiveReactionPickerMsgId(null);
+
     if (!targetId) return;
     setLoading(true);
     setError(null);
@@ -146,6 +170,26 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     }
   };
 
+  // Realtime incoming read recovery on tab visibility / window focus
+  useEffect(() => {
+    if (!negotiationChatV2Enabled || !details?.negotiation_room?.id) return;
+    const roomId = details.negotiation_room.id;
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void markCurrentNegotiationReadIfVisible(roomId);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [negotiationChatV2Enabled, details?.negotiation_room?.id, markCurrentNegotiationReadIfVisible]);
+
   // Realtime subscription for negotiation messages (INSERT & UPDATE)
   useEffect(() => {
     if (!details?.negotiation_room?.id || !supabase) return;
@@ -166,15 +210,30 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
         (payload: any) => {
           if (payload.eventType === 'INSERT') {
             const newMsg = payload.new;
+            if (negotiationChatV2Enabled) {
+              realtimeScrollTargetRef.current = newMsg.id;
+            }
+
             setDetails((prev: any) => {
               if (!prev) return prev;
               const existing = prev.negotiation_messages || [];
-              if (existing.some((m: any) => m.id === newMsg.id)) return prev;
+              const nextMessages = existing.some((m: any) => m.id === newMsg.id)
+                ? existing.map((m: any) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
+                : [...existing, newMsg];
+
+              nextMessages.sort(
+                (a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+              );
+
               return {
                 ...prev,
-                negotiation_messages: [...existing, newMsg]
+                negotiation_messages: nextMessages
               };
             });
+
+            if (negotiationChatV2Enabled && newMsg.sender_id !== currentUserId) {
+              void markCurrentNegotiationReadIfVisible(roomId);
+            }
           } else if (payload.eventType === 'UPDATE') {
             const updatedMsg = payload.new;
             setDetails((prev: any) => {
@@ -182,7 +241,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
               const existing = prev.negotiation_messages || [];
               return {
                 ...prev,
-                negotiation_messages: existing.map((m: any) => m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m)
+                negotiation_messages: existing.map((m: any) => (m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m))
               };
             });
           }
@@ -193,7 +252,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [details?.negotiation_room?.id]);
+  }, [details?.negotiation_room?.id, negotiationChatV2Enabled, currentUserId, markCurrentNegotiationReadIfVisible]);
 
   // Single Private Realtime Channel Ref & Presence Tracking Status
   const negotiationRealtimeChannelRef = useRef<any>(null);
@@ -364,6 +423,20 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
       });
     });
   }, [negotiationChatV2Enabled, loading, details?.negotiation_messages]);
+
+  // V2 Realtime New Message Dedicated Auto-Scroll Effect (Executes EXACTLY ONCE on new INSERT)
+  useEffect(() => {
+    if (!negotiationChatV2Enabled || !details?.negotiation_messages || !realtimeScrollTargetRef.current) return;
+    const lastMsg = details.negotiation_messages[details.negotiation_messages.length - 1];
+
+    if (lastMsg && lastMsg.id === realtimeScrollTargetRef.current) {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end'
+      });
+      realtimeScrollTargetRef.current = null;
+    }
+  }, [negotiationChatV2Enabled, details?.negotiation_messages]);
 
   // Pointer events for long press
   const handleBubblePointerDown = (msg: any, e: React.PointerEvent) => {
