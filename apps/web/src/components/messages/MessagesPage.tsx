@@ -179,9 +179,14 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   // Scroll & Container Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
-  const isInitialLoadRef = useRef<boolean>(true);
+
+  // Single Deterministic Initial Scroll Controller Refs
+  const initialUnreadMessageIdRef = useRef<string | null>(null);
+  const initialScrollCompletedRef = useRef<boolean>(false);
+  const initialScrollModeRef = useRef<'unread' | 'latest' | null>(null);
   const initialPinToBottomRef = useRef<boolean>(true);
   const pinTimeoutRef = useRef<any>(null);
 
@@ -232,7 +237,9 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
   useEffect(() => {
     if (previousConversationIdRef.current !== conversationId) {
-      isInitialLoadRef.current = true;
+      initialUnreadMessageIdRef.current = null;
+      initialScrollCompletedRef.current = false;
+      initialScrollModeRef.current = null;
       initialPinToBottomRef.current = true;
       lastAutoScrolledMessageIdRef.current = null;
       setReplyingToMessage(null);
@@ -259,7 +266,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const liveActiveConv = conversations.find(c => c.id === conversationId);
   const activeConv = stableActiveConv?.id === conversationId ? stableActiveConv : liveActiveConv;
 
-  // Load Current User Canonical Public Display Name (Reset on Account Switch)
+  // Load Current User Canonical Authenticated Profile Identity (Reset on Account Switch)
   useEffect(() => {
     let isMounted = true;
     if (!currentUserId) {
@@ -272,19 +279,53 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     setCurrentUserDisplayName(null);
     currentUserIdentityRef.current = null;
 
-    getPublicProfilesByIds([currentUserId])
-      .then((map) => {
-        if (!isMounted) return;
-        const p = map.get(currentUserId);
-        if (p && (p.fullName || p.name)) {
-          const resolvedName = (p.fullName || p.name || '').trim();
-          if (resolvedName && resolvedName !== 'User' && resolvedName !== 'OpenComm User') {
-            setCurrentUserDisplayName(resolvedName);
-            currentUserIdentityRef.current = { userId: currentUserId, displayName: resolvedName };
+    const isGenericName = (n?: string | null) => {
+      if (!n) return true;
+      const trimmed = n.trim();
+      return !trimmed || trimmed === 'User' || trimmed === 'OpenComm User';
+    };
+
+    async function loadSelfIdentity() {
+      let resolvedName: string | null = null;
+
+      // 1. Primary: dbService.getProfile(currentUserId).full_name
+      try {
+        const prof = await dbService.getProfile(currentUserId!);
+        if (prof) {
+          const fn = (prof.full_name || (prof as any).name || (prof as any).fullName || '').trim();
+          if (!isGenericName(fn)) {
+            resolvedName = fn;
           }
         }
-      })
-      .catch((err) => console.warn('Error fetching current user display name:', err));
+      } catch (err) {
+        console.warn('Error fetching own profile via dbService:', err);
+      }
+
+      // 2. Fallback: Supabase Auth current user metadata
+      if (!resolvedName) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user && user.id === currentUserId) {
+            const meta = user.user_metadata || {};
+            const metaName = (meta.full_name || meta.name || meta.display_name || meta.fullName || '').trim();
+            if (!isGenericName(metaName)) {
+              resolvedName = metaName;
+            }
+          }
+        } catch (err) {
+          console.warn('Error fetching user metadata:', err);
+        }
+      }
+
+      if (!isMounted) return;
+
+      if (resolvedName && !isGenericName(resolvedName)) {
+        setCurrentUserDisplayName(resolvedName);
+        currentUserIdentityRef.current = { userId: currentUserId!, displayName: resolvedName };
+      }
+    }
+
+    void loadSelfIdentity();
 
     return () => {
       isMounted = false;
@@ -510,10 +551,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       try {
         const data = await dbService.getConversationMessages(conversationId!);
         if (isMounted) {
-          setMessages(data);
+          const sorted = [...(data || [])].sort(
+            (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+          );
+
+          // BEFORE marking read, calculate firstUnreadIncoming
+          const firstUnreadIncoming = sorted.find(
+            (m) => m.sender_id !== currentUserId && (m.unread === true || Boolean((m as any).unread)) && !m.deleted_at
+          );
+          initialUnreadMessageIdRef.current = firstUnreadIncoming?.id || null;
+
+          setMessages(sorted);
           setLoadingMessages(false);
-          await dbService.markConversationRead(conversationId!);
-          await unreadService.refresh(currentUserId!);
         }
       } catch (err: any) {
         console.error('Error fetching messages:', err);
@@ -805,43 +854,59 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
         if (!userId || userId === currentUserId) return;
         if (topicConvId && topicConvId !== conversationId) return;
 
-        const otherParticipantId = activeConv?.otherParticipantId;
-        if (otherParticipantId && userId !== otherParticipantId) {
-          const inThread = messagesRef.current.some((m) => m.sender_id === userId);
-          if (!inThread) return;
-        }
-
         if (typing) {
-          let resolvedName: string | undefined = undefined;
-          if (senderName && typeof senderName === 'string' && senderName.trim() && senderName !== 'User' && senderName !== 'OpenComm User') {
-            resolvedName = senderName.trim();
-          }
+          const isGeneric = (n?: string | null) => !n || !n.trim() || n.trim() === 'User' || n.trim() === 'OpenComm User';
 
-          if (!resolvedName) {
-            const lastMsgFromSender = [...messagesRef.current].reverse().find((m) => m.sender_id === userId);
-            if (lastMsgFromSender?.sender_name && lastMsgFromSender.sender_name !== 'User' && lastMsgFromSender.sender_name !== 'OpenComm User') {
-              resolvedName = lastMsgFromSender.sender_name;
-            } else if (activeConv?.otherParticipantId === userId && activeConv.otherParticipantName) {
-              resolvedName = activeConv.otherParticipantName;
-            } else {
-              resolvedName = 'User';
+          const resolveName = async () => {
+            // 1. valid payload.senderName
+            if (senderName && typeof senderName === 'string' && !isGeneric(senderName)) {
+              return senderName.trim();
             }
-          }
 
-          setTypingUsers((prev) => new Map(prev).set(userId, resolvedName!));
+            // 2. valid local message sender_name where message.sender_id === userId
+            const matchingMsg = messagesRef.current.find((m) => m.sender_id === userId && !isGeneric(m.sender_name));
+            if (matchingMsg && matchingMsg.sender_name && !isGeneric(matchingMsg.sender_name)) {
+              return matchingMsg.sender_name.trim();
+            }
 
-          if (typingExpirationsRef.current.has(userId)) {
-            clearTimeout(typingExpirationsRef.current.get(userId));
-          }
-          const timer = setTimeout(() => {
-            setTypingUsers((prev) => {
-              const next = new Map(prev);
-              next.delete(userId);
-              return next;
-            });
-            typingExpirationsRef.current.delete(userId);
-          }, 3000);
-          typingExpirationsRef.current.set(userId, timer);
+            // 3. fetch exact payload.userId public profile if necessary
+            try {
+              const profileMap = await getPublicProfilesByIds([userId]);
+              const p = profileMap.get(userId);
+              if (p && (p.fullName || p.name) && !isGeneric(p.fullName || p.name)) {
+                return (p.fullName || p.name)!.trim();
+              }
+            } catch (err) {
+              // Ignore fetch error
+            }
+
+            // 4. activeConv.otherParticipantName ONLY IF activeConv.otherParticipantId === userId
+            if (activeConv && activeConv.otherParticipantId === userId && !isGeneric(activeConv.otherParticipantName)) {
+              return activeConv.otherParticipantName.trim();
+            }
+
+            // 5. "User"
+            return 'User';
+          };
+
+          void resolveName().then((resolvedName) => {
+            if (!resolvedName || userId === currentUserId) return;
+
+            setTypingUsers((prev) => new Map(prev).set(userId, resolvedName));
+
+            if (typingExpirationsRef.current.has(userId)) {
+              clearTimeout(typingExpirationsRef.current.get(userId));
+            }
+            const timer = setTimeout(() => {
+              setTypingUsers((prev) => {
+                const next = new Map(prev);
+                next.delete(userId);
+                return next;
+              });
+              typingExpirationsRef.current.delete(userId);
+            }, 3000);
+            typingExpirationsRef.current.set(userId, timer);
+          });
         } else {
           if (typingExpirationsRef.current.has(userId)) {
             clearTimeout(typingExpirationsRef.current.get(userId));
@@ -972,7 +1037,16 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) return;
     if (conversationRealtimeChannelRef.current) {
       const identity = currentUserIdentityRef.current;
-      const validSenderName = identity?.userId === currentUserId ? identity.displayName : (currentUserDisplayName || undefined);
+      const isGeneric = (n?: string | null) => !n || !n.trim() || n.trim() === 'User' || n.trim() === 'OpenComm User';
+
+      const validName = (identity && identity.userId === currentUserId && !isGeneric(identity.displayName))
+        ? identity.displayName.trim()
+        : (!isGeneric(currentUserDisplayName) ? currentUserDisplayName!.trim() : null);
+
+      if (typing && !validName) {
+        // DO NOT broadcast a knowingly incorrect "OpenComm User" senderName
+        return;
+      }
 
       conversationRealtimeChannelRef.current
         .send({
@@ -981,7 +1055,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           payload: {
             conversationId,
             userId: currentUserId,
-            senderName: validSenderName,
+            senderName: validName || undefined,
             typing
           }
         })
@@ -1039,51 +1113,88 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // Initial Positioning Effect (Exact Bottom Scroll on Load)
+  // Single Deterministic Initial Position Controller
   useLayoutEffect(() => {
     if (!conversationId || loadingMessages || messages.length === 0) return;
-    if (!messagesContainerRef.current || !messagesEndRef.current) return;
+    if (!messagesContainerRef.current || !messagesContentRef.current) return;
     if (activeConv?.id !== conversationId) return;
+    if (initialScrollCompletedRef.current) return;
 
-    if (isInitialLoadRef.current) {
-      const container = messagesContainerRef.current;
-      container.scrollTop = container.scrollHeight;
-      messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage) {
-        lastAutoScrolledMessageIdRef.current = lastMessage.id;
-      }
-      isInitialLoadRef.current = false;
-    }
-  }, [messages, loadingMessages, conversationId, activeConv?.id]);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (initialScrollCompletedRef.current) return;
+        const container = messagesContainerRef.current;
+        if (!container) return;
 
-  // Initial Media Load Bottom Pinning Effect (ResizeObserver)
+        const unreadId = initialUnreadMessageIdRef.current;
+        let unreadEl: HTMLElement | null = null;
+        if (unreadId) {
+          unreadEl = document.getElementById('new-messages-separator') || document.getElementById(`msg-${unreadId}`);
+        }
+
+        if (unreadEl) {
+          initialScrollModeRef.current = 'unread';
+          unreadEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+        } else {
+          initialScrollModeRef.current = 'latest';
+          container.scrollTop = container.scrollHeight;
+          const lastMessage = messages[messages.length - 1];
+          if (lastMessage) {
+            lastAutoScrolledMessageIdRef.current = lastMessage.id;
+          }
+        }
+
+        initialScrollCompletedRef.current = true;
+
+        // Mark read AFTER initial positioning is established
+        if (conversationId && currentUserId) {
+          dbService
+            .markConversationRead(conversationId)
+            .then(() => unreadService.refresh(currentUserId))
+            .catch((err) => console.warn('markConversationRead error:', err));
+        }
+      });
+    });
+  }, [messages, loadingMessages, conversationId, activeConv?.id, currentUserId]);
+
+  // Initial Media/Layout Settling Effect on INNER CONTENT WRAPPER (messagesContentRef)
   useEffect(() => {
     if (!conversationId || loadingMessages || messages.length === 0) return;
     const container = messagesContainerRef.current;
-    if (!container) return;
+    const content = messagesContentRef.current;
+    if (!container || !content) return;
 
     if (pinTimeoutRef.current) clearTimeout(pinTimeoutRef.current);
     initialPinToBottomRef.current = true;
 
-    const scrollToBottom = () => {
-      if (initialPinToBottomRef.current && container) {
+    const reAnchorPosition = () => {
+      if (!initialPinToBottomRef.current || !container) return;
+
+      if (initialScrollModeRef.current === 'latest') {
         container.scrollTop = container.scrollHeight;
+      } else if (initialScrollModeRef.current === 'unread') {
+        const unreadId = initialUnreadMessageIdRef.current;
+        const unreadEl = unreadId ? (document.getElementById('new-messages-separator') || document.getElementById(`msg-${unreadId}`)) : null;
+        if (unreadEl) {
+          unreadEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+        } else {
+          container.scrollTop = container.scrollHeight;
+        }
       }
     };
 
     const resizeObserver = new ResizeObserver(() => {
       if (initialPinToBottomRef.current) {
-        scrollToBottom();
+        reAnchorPosition();
       }
     });
 
-    resizeObserver.observe(container);
+    resizeObserver.observe(content);
 
     const handleUserScroll = () => {
       if (!initialPinToBottomRef.current) return;
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (distanceFromBottom > 80) {
+      if (distanceFromBottom > 80 || container.scrollTop < 10) {
         initialPinToBottomRef.current = false;
       }
     };
@@ -1092,18 +1203,18 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     pinTimeoutRef.current = setTimeout(() => {
       initialPinToBottomRef.current = false;
-    }, 1200);
+    }, 1500);
 
     return () => {
       resizeObserver.disconnect();
       container.removeEventListener('scroll', handleUserScroll);
       if (pinTimeoutRef.current) clearTimeout(pinTimeoutRef.current);
     };
-  }, [conversationId, loadingMessages]);
+  }, [conversationId, loadingMessages, messages.length]);
 
   // Smart Auto-Scroll Effect for Subsequent Realtime Messages
   useEffect(() => {
-    if (loadingMessages || messages.length === 0 || isInitialLoadRef.current) return;
+    if (loadingMessages || messages.length === 0 || !initialScrollCompletedRef.current) return;
 
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
@@ -1484,24 +1595,77 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     No messages yet. Send a message to start the conversation!
                   </div>
                 ) : (
-                  sortedMessages.map((msg, idx) => {
-                    const isMe = msg.sender_id === currentUserId;
-                    const sentTime = msg.created_at
-                      ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : '';
-                    const isRead = Boolean(msg.read_at) || msg.unread === false;
-                    const isDeleted = chatInteractionsEnabled && Boolean(msg.deleted_at);
+                  <div ref={messagesContentRef} className="space-y-3">
+                    {sortedMessages.map((msg, idx) => {
+                      const isMe = msg.sender_id === currentUserId;
+                      const sentTime = msg.created_at
+                        ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '';
+                      const isRead = Boolean(msg.read_at) || msg.unread === false;
+                      const isDeleted = chatInteractionsEnabled && Boolean(msg.deleted_at);
 
-                    const prevMsg = idx > 0 ? sortedMessages[idx - 1] : null;
-                    const currentDateStr = msg.created_at ? new Date(msg.created_at).toDateString() : '';
-                    const prevDateStr = prevMsg?.created_at ? new Date(prevMsg.created_at).toDateString() : '';
-                    const showDateSeparator = currentDateStr !== prevDateStr && currentDateStr !== '';
+                      const prevMsg = idx > 0 ? sortedMessages[idx - 1] : null;
+                      const currentDateStr = msg.created_at ? new Date(msg.created_at).toDateString() : '';
+                      const prevDateStr = prevMsg?.created_at ? new Date(prevMsg.created_at).toDateString() : '';
+                      const showDateSeparator = currentDateStr !== prevDateStr && currentDateStr !== '';
 
-                    const isSystemMsg = msg.role === 'system' || msg.role === 'assistant' || msg.message_type === 'system' || msg.message_type === 'workflow';
+                      const isFirstUnread = initialUnreadMessageIdRef.current && msg.id === initialUnreadMessageIdRef.current;
+                      const isSystemMsg = msg.role === 'system' || msg.role === 'assistant' || msg.message_type === 'system' || msg.message_type === 'workflow';
 
-                    if (isSystemMsg) {
+                      if (isSystemMsg) {
+                        return (
+                          <React.Fragment key={msg.id}>
+                            {isFirstUnread && (
+                              <div id="new-messages-separator" className="flex items-center justify-center my-4">
+                                <div className="flex-1 border-t border-purple-300/50 dark:border-purple-800/50" />
+                                <span className="px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-950/60 text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                                  New messages
+                                </span>
+                                <div className="flex-1 border-t border-purple-300/50 dark:border-purple-800/50" />
+                              </div>
+                            )}
+                            {showDateSeparator && (
+                              <div className="flex justify-center my-4">
+                                <span className="px-3 py-1 rounded-full bg-slate-200/60 dark:bg-slate-800/60 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border border-slate-300/40 dark:border-slate-700/40">
+                                  {formatDateSeparator(msg.created_at)}
+                                </span>
+                              </div>
+                            )}
+                            <div id={`msg-${msg.id}`} className="flex justify-center my-3 text-center px-4">
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800/80 text-[11px] font-medium text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60 shadow-2xs max-w-[90%] break-words">
+                                <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                <span>{msg.text}</span>
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        );
+                      }
+
+                      const replyParent = (chatInteractionsEnabled && msg.reply_to_message_id)
+                        ? sortedMessages.find(m => m.id === msg.reply_to_message_id)
+                        : null;
+
+                      const rxList = chatInteractionsEnabled ? (messageReactions[msg.id] || []) : [];
+                      const rxCounts: Record<string, { count: number; hasMine: boolean }> = {};
+                      rxList.forEach(r => {
+                        if (!rxCounts[r.emoji]) rxCounts[r.emoji] = { count: 0, hasMine: false };
+                        rxCounts[r.emoji].count += 1;
+                        if (r.user_id === currentUserId) rxCounts[r.emoji].hasMine = true;
+                      });
+
+                      const isHighlighted = chatInteractionsEnabled && highlightedMessageId === msg.id;
+
                       return (
                         <React.Fragment key={msg.id}>
+                          {isFirstUnread && (
+                            <div id="new-messages-separator" className="flex items-center justify-center my-4">
+                              <div className="flex-1 border-t border-purple-300/50 dark:border-purple-800/50" />
+                              <span className="px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-950/60 text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                                New messages
+                              </span>
+                              <div className="flex-1 border-t border-purple-300/50 dark:border-purple-800/50" />
+                            </div>
+                          )}
                           {showDateSeparator && (
                             <div className="flex justify-center my-4">
                               <span className="px-3 py-1 rounded-full bg-slate-200/60 dark:bg-slate-800/60 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border border-slate-300/40 dark:border-slate-700/40">
@@ -1509,267 +1673,235 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                               </span>
                             </div>
                           )}
-                          <div id={`msg-${msg.id}`} className="flex justify-center my-3 text-center px-4">
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800/80 text-[11px] font-medium text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60 shadow-2xs max-w-[90%] break-words">
-                              <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                              <span>{msg.text}</span>
+                          <div
+                            id={`msg-${msg.id}`}
+                            className={`flex items-end gap-2 group relative transition-colors duration-500 rounded-2xl p-1 ${
+                              isHighlighted ? 'bg-amber-100/60 dark:bg-amber-950/40 ring-2 ring-amber-400' : ''
+                            } ${isMe ? 'justify-end' : 'justify-start'}`}
+                          >
+                            {!isMe && (
+                              <UserAvatar
+                                avatarUrl={msg.sender_avatar || activeConv.otherParticipantAvatar}
+                                fullName={msg.sender_name}
+                                size="sm"
+                                className="shrink-0 mb-1"
+                              />
+                            )}
+                            <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 relative ${isMe ? 'items-end' : 'items-start'}`}>
+
+                              {/* Quoted Reply Block */}
+                              {chatInteractionsEnabled && msg.reply_to_message_id && (
+                                <div
+                                  onClick={() => handleJumpToMessage(msg.reply_to_message_id!)}
+                                  className="cursor-pointer p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-purple-500 text-[11px] text-slate-600 dark:text-slate-300 mb-1 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-colors flex items-center gap-1.5"
+                                >
+                                  <CornerDownRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                  <div className="truncate">
+                                    {replyParent ? (
+                                      replyParent.deleted_at ? (
+                                        <span className="italic text-slate-400">Deleted message</span>
+                                      ) : (
+                                        <>
+                                          <span className="font-semibold text-slate-900 dark:text-white mr-1.5">
+                                            {replyParent.sender_name}:
+                                          </span>
+                                          <span>{replyParent.text}</span>
+                                        </>
+                                      )
+                                    ) : (
+                                      <span className="italic text-slate-400">Quoted message</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Deleted Message Bubble OR Normal Message */}
+                              {isDeleted ? (
+                                <div className="p-2.5 px-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs italic font-medium flex items-center gap-1.5 border border-slate-200/60 dark:border-slate-800/60">
+                                  <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                                  <span>This message was deleted</span>
+                                </div>
+                              ) : (
+                                <div className="relative group/bubble">
+                                  {msg.message_type && msg.message_type !== 'text' ? (
+                                    <MediaMessage
+                                      messageId={msg.id}
+                                      mediaType={msg.message_type}
+                                      isSelf={isMe}
+                                      isRead={isRead}
+                                      width={(msg as any).width || (msg as any).media_width || (msg as any).media_metadata?.width}
+                                      height={(msg as any).height || (msg as any).media_height || (msg as any).media_metadata?.height}
+                                      durationMs={(msg as any).duration_ms || (msg as any).media_duration_ms || (msg as any).media_metadata?.duration_ms}
+                                    />
+                                  ) : (
+                                    <div
+                                      title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                                      aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                                      className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
+                                        isMe
+                                          ? isRead
+                                            ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                            : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+                                          : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
+                                      }`}
+                                    >
+                                      {msg.text}
+                                    </div>
+                                  )}
+
+                                  {/* Per-Message Action Trigger & Menu */}
+                                  {chatInteractionsEnabled && (isMe ? (msg.role === 'user' && !isDeleted) : (!activeConv.archivedAt)) && (
+                                    <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
+                                      isMe ? '-left-14' : '-right-14'
+                                    }`}>
+                                      <div className="relative">
+                                        <button
+                                          onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
+                                          className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-xs border border-slate-200 dark:border-slate-700"
+                                          title="Actions"
+                                        >
+                                          <MoreHorizontal className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        {activeMenuMsgId === msg.id && (
+                                          <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 min-w-[120px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}>
+                                            {!activeConv.archivedAt && (
+                                              <>
+                                                <button
+                                                  onClick={() => {
+                                                    setReplyingToMessage(msg);
+                                                    setActiveMenuMsgId(null);
+                                                    textareaRef.current?.focus();
+                                                  }}
+                                                  className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                                >
+                                                  <Reply className="w-3.5 h-3.5 text-blue-500" />
+                                                  <span>Reply</span>
+                                                </button>
+
+                                                <button
+                                                  onClick={() => {
+                                                    setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
+                                                    setActiveMenuMsgId(null);
+                                                  }}
+                                                  className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                                >
+                                                  <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
+                                                  <span>React</span>
+                                                </button>
+                                              </>
+                                            )}
+
+                                            {isMe && msg.role === 'user' && !isDeleted && (
+                                              <button
+                                                onClick={() => {
+                                                  setDeleteConfirmMessage(msg);
+                                                  setActiveMenuMsgId(null);
+                                                }}
+                                                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                                <span>Delete</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Reaction Picker Bar */}
+                                  {chatInteractionsEnabled && activeReactionPickerMsgId === msg.id && (
+                                    <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-xl p-1.5 z-40 flex items-center gap-1 animate-in zoom-in-95 duration-100`}>
+                                      {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                        <button
+                                          key={emoji}
+                                          onClick={() => {
+                                            void handleToggleReaction(msg, emoji);
+                                            setActiveReactionPickerMsgId(null);
+                                          }}
+                                          className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-base transition-transform hover:scale-125"
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Grouped Reaction Chips */}
+                              {chatInteractionsEnabled && !isDeleted && Object.keys(rxCounts).length > 0 && (
+                                <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                  {Object.entries(rxCounts).map(([emoji, data]) => (
+                                    <button
+                                      key={emoji}
+                                      disabled={activeConv.archivedAt}
+                                      onClick={() => void handleToggleReaction(msg, emoji)}
+                                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 border transition-all ${
+                                        data.hasMine
+                                          ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold'
+                                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <span>{emoji}</span>
+                                      <span>{data.count}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Timestamp & Read/Sent Status */}
+                              {!isDeleted && (
+                                <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                  <span>{sentTime}</span>
+                                  {isMe && (
+                                    <>
+                                      <span>·</span>
+                                      <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
+                                        {isRead ? 'Read' : 'Sent'}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
                             </div>
                           </div>
                         </React.Fragment>
                       );
-                    }
+                    })}
 
-                    const replyParent = (chatInteractionsEnabled && msg.reply_to_message_id)
-                      ? sortedMessages.find(m => m.id === msg.reply_to_message_id)
-                      : null;
-
-                    const rxList = chatInteractionsEnabled ? (messageReactions[msg.id] || []) : [];
-                    const rxCounts: Record<string, { count: number; hasMine: boolean }> = {};
-                    rxList.forEach(r => {
-                      if (!rxCounts[r.emoji]) rxCounts[r.emoji] = { count: 0, hasMine: false };
-                      rxCounts[r.emoji].count += 1;
-                      if (r.user_id === currentUserId) rxCounts[r.emoji].hasMine = true;
-                    });
-
-                    const isHighlighted = chatInteractionsEnabled && highlightedMessageId === msg.id;
-
-                    return (
-                      <React.Fragment key={msg.id}>
-                        {showDateSeparator && (
-                          <div className="flex justify-center my-4">
-                            <span className="px-3 py-1 rounded-full bg-slate-200/60 dark:bg-slate-800/60 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border border-slate-300/40 dark:border-slate-700/40">
-                              {formatDateSeparator(msg.created_at)}
-                            </span>
-                          </div>
-                        )}
-                        <div
-                          id={`msg-${msg.id}`}
-                          className={`flex items-end gap-2 group relative transition-colors duration-500 rounded-2xl p-1 ${
-                            isHighlighted ? 'bg-amber-100/60 dark:bg-amber-950/40 ring-2 ring-amber-400' : ''
-                          } ${isMe ? 'justify-end' : 'justify-start'}`}
-                        >
-                          {!isMe && (
-                            <UserAvatar
-                              avatarUrl={msg.sender_avatar || activeConv.otherParticipantAvatar}
-                              fullName={msg.sender_name}
-                              size="sm"
-                              className="shrink-0 mb-1"
-                            />
-                          )}
-                          <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 relative ${isMe ? 'items-end' : 'items-start'}`}>
-
-                            {/* Quoted Reply Block */}
-                            {chatInteractionsEnabled && msg.reply_to_message_id && (
-                              <div
-                                onClick={() => handleJumpToMessage(msg.reply_to_message_id!)}
-                                className="cursor-pointer p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-purple-500 text-[11px] text-slate-600 dark:text-slate-300 mb-1 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-colors flex items-center gap-1.5"
-                              >
-                                <CornerDownRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                <div className="truncate">
-                                  {replyParent ? (
-                                    replyParent.deleted_at ? (
-                                      <span className="italic text-slate-400">Deleted message</span>
-                                    ) : (
-                                      <>
-                                        <span className="font-semibold text-slate-900 dark:text-white mr-1.5">
-                                          {replyParent.sender_name}:
-                                        </span>
-                                        <span>{replyParent.text}</span>
-                                      </>
-                                    )
-                                  ) : (
-                                    <span className="italic text-slate-400">Quoted message</span>
-                                  )}
-                                </div>
-                              </div>
+                    {/* Pending Messages Optimistic UI */}
+                    {pendingMessages.map((pMsg) => (
+                      <div key={pMsg.id} className="flex items-end gap-2 justify-end">
+                        <div className="max-w-[85%] sm:max-w-[70%] space-y-1 items-end relative">
+                          <div className="flex items-center justify-end gap-2">
+                            {pMsg.status === 'failed' && (
+                              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" title="Failed to send" />
                             )}
-
-                            {/* Deleted Message Bubble OR Normal Message */}
-                            {isDeleted ? (
-                              <div className="p-2.5 px-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs italic font-medium flex items-center gap-1.5 border border-slate-200/60 dark:border-slate-800/60">
-                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                                <span>This message was deleted</span>
-                              </div>
+                            <div
+                              className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left bg-slate-600 text-white rounded-br-xs shadow-xs transition-opacity duration-300 ${
+                                pMsg.status === 'sending' ? 'opacity-70' : ''
+                              }`}
+                            >
+                              {pMsg.text}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-1 text-[10px] font-semibold text-slate-400">
+                            {pMsg.status === 'sending' ? (
+                              <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Sending...</span>
                             ) : (
-                              <div className="relative group/bubble">
-                                {msg.message_type && msg.message_type !== 'text' ? (
-                                  <MediaMessage
-                                    messageId={msg.id}
-                                    mediaType={msg.message_type}
-                                    isSelf={isMe}
-                                    isRead={isRead}
-                                    width={(msg as any).width || (msg as any).media_width || (msg as any).media_metadata?.width}
-                                    height={(msg as any).height || (msg as any).media_height || (msg as any).media_metadata?.height}
-                                    durationMs={(msg as any).duration_ms || (msg as any).media_duration_ms || (msg as any).media_metadata?.duration_ms}
-                                  />
-                                ) : (
-                                  <div
-                                    title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                                    aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                                    className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
-                                      isMe
-                                        ? isRead
-                                          ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                          : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
-                                        : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
-                                    }`}
-                                  >
-                                    {msg.text}
-                                  </div>
-                                )}
-
-                                {/* Per-Message Action Trigger & Menu */}
-                                {chatInteractionsEnabled && (isMe ? (msg.role === 'user' && !isDeleted) : (!activeConv.archivedAt)) && (
-                                  <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
-                                    isMe ? '-left-14' : '-right-14'
-                                  }`}>
-                                    <div className="relative">
-                                      <button
-                                        onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
-                                        className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-xs border border-slate-200 dark:border-slate-700"
-                                        title="Actions"
-                                      >
-                                        <MoreHorizontal className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {activeMenuMsgId === msg.id && (
-                                        <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 min-w-[120px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}>
-                                          {!activeConv.archivedAt && (
-                                            <>
-                                              <button
-                                                onClick={() => {
-                                                  setReplyingToMessage(msg);
-                                                  setActiveMenuMsgId(null);
-                                                  textareaRef.current?.focus();
-                                                }}
-                                                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                              >
-                                                <Reply className="w-3.5 h-3.5 text-blue-500" />
-                                                <span>Reply</span>
-                                              </button>
-
-                                              <button
-                                                onClick={() => {
-                                                  setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
-                                                  setActiveMenuMsgId(null);
-                                                }}
-                                                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                              >
-                                                <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
-                                                <span>React</span>
-                                              </button>
-                                            </>
-                                          )}
-
-                                          {isMe && msg.role === 'user' && !isDeleted && (
-                                            <button
-                                              onClick={() => {
-                                                setDeleteConfirmMessage(msg);
-                                                setActiveMenuMsgId(null);
-                                              }}
-                                              className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                              <span>Delete</span>
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Reaction Picker Bar */}
-                                {chatInteractionsEnabled && activeReactionPickerMsgId === msg.id && (
-                                  <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-xl p-1.5 z-40 flex items-center gap-1 animate-in zoom-in-95 duration-100`}>
-                                    {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-                                      <button
-                                        key={emoji}
-                                        onClick={() => {
-                                          void handleToggleReaction(msg, emoji);
-                                          setActiveReactionPickerMsgId(null);
-                                        }}
-                                        className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-base transition-transform hover:scale-125"
-                                      >
-                                        {emoji}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
+                              <span className="text-rose-500">Failed</span>
                             )}
-
-                            {/* Grouped Reaction Chips */}
-                            {chatInteractionsEnabled && !isDeleted && Object.keys(rxCounts).length > 0 && (
-                              <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                {Object.entries(rxCounts).map(([emoji, data]) => (
-                                  <button
-                                    key={emoji}
-                                    disabled={activeConv.archivedAt}
-                                    onClick={() => void handleToggleReaction(msg, emoji)}
-                                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 border transition-all ${
-                                      data.hasMine
-                                        ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold'
-                                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
-                                    }`}
-                                  >
-                                    <span>{emoji}</span>
-                                    <span>{data.count}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Timestamp & Read/Sent Status */}
-                            {!isDeleted && (
-                              <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                <span>{sentTime}</span>
-                                {isMe && (
-                                  <>
-                                    <span>·</span>
-                                    <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
-                                      {isRead ? 'Read' : 'Sent'}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                            )}
-
                           </div>
                         </div>
-                      </React.Fragment>
-                    );
-                  })
-                )}
+                      </div>
+                    ))}
 
-                {/* Pending Messages Optimistic UI */}
-                {pendingMessages.map((pMsg) => (
-                  <div key={pMsg.id} className="flex items-end gap-2 justify-end">
-                    <div className="max-w-[85%] sm:max-w-[70%] space-y-1 items-end relative">
-                      <div className="flex items-center justify-end gap-2">
-                        {pMsg.status === 'failed' && (
-                          <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" title="Failed to send" />
-                        )}
-                        <div
-                          className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left bg-slate-600 text-white rounded-br-xs shadow-xs transition-opacity duration-300 ${
-                            pMsg.status === 'sending' ? 'opacity-70' : ''
-                          }`}
-                        >
-                          {pMsg.text}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-end gap-1 text-[10px] font-semibold text-slate-400">
-                        {pMsg.status === 'sending' ? (
-                          <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Sending...</span>
-                        ) : (
-                          <span className="text-rose-500">Failed</span>
-                        )}
-                      </div>
-                    </div>
+                    <div ref={messagesEndRef} />
                   </div>
-                ))}
-
-                <div ref={messagesEndRef} />
+                )}
               </div>
 
               {/* Reserved Typing Status Row (Fixed Height h-6) */}
