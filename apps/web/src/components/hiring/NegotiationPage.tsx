@@ -367,7 +367,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
 
   // Pointer events for long press
   const handleBubblePointerDown = (msg: any, e: React.PointerEvent) => {
-    if (!negotiationChatV2Enabled || room?.status === 'locked') return;
+    if (!negotiationChatV2Enabled || room?.status !== 'active') return;
     if (msg.deleted_at || msg.message_type === 'system' || msg.message_type === 'proposal_event' || msg.message_type === 'status_event') return;
     if (e.button !== undefined && e.button !== 0) return;
 

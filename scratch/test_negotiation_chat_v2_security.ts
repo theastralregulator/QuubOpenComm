@@ -1,5 +1,5 @@
 /**
- * Negotiation Chat V2 Security & Hardening Real Verification Test Suite
+ * Negotiation Chat V2 Security & Hardening Static Preflight + Unit Test Suite
  * Performs actual static file analysis, AST checks, and unit tests.
  */
 
@@ -7,8 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import { verifyDocumentBuffer } from '../api/_lib/media/documentScanner.js';
 
-function runRealSecurityVerification() {
-  console.log('=== STARTING REAL NEGOTIATION CHAT V2 SECURITY VERIFICATION ===');
+function runPreflightAndUnitChecks() {
+  console.log('=== STARTING NEGOTIATION CHAT V2 STATIC PREFLIGHT + UNIT CHECKS ===');
   let passedCount = 0;
   let totalCount = 0;
 
@@ -46,7 +46,22 @@ function runRealSecurityVerification() {
     'Migration Ordering: can_current_user_access_negotiation_room function is defined BEFORE dependent RLS policies'
   );
 
-  // 2. Delete RPC Security: Revoked from authenticated, granted ONLY to service_role
+  // 2. Constraint Drop Loop OID Fix: Uses con_record.oid and format(), NOT conname::regclass
+  const usesOid = /pg_get_constraintdef\(con_record\.oid\)/i.test(migrationSql);
+  const avoidsRegclassCast = !/pg_get_constraintdef\(con_record\.conname::regclass\)/i.test(migrationSql);
+  assert(
+    usesOid && avoidsRegclassCast,
+    'Constraint Migration SQL: Uses pg_get_constraintdef(con_record.oid) and avoids conname::regclass cast'
+  );
+
+  // 3. Text Check Constraint Preservation: negotiation_messages_text_check is NOT explicitly dropped
+  const textCheckNotDropped = !/DROP CONSTRAINT.*negotiation_messages_text_check/i.test(migrationSql);
+  assert(
+    textCheckNotDropped,
+    'Constraint Safety: negotiation_messages_text_check is NOT explicitly dropped in migration'
+  );
+
+  // 4. Delete RPC Security: Revoked from authenticated, granted ONLY to service_role
   const deleteRevokeMatch = /REVOKE ALL ON FUNCTION public\.delete_negotiation_message_internal\(uuid, uuid\) FROM PUBLIC, anon, authenticated;/i.test(migrationSql);
   const deleteGrantMatch = /GRANT EXECUTE ON FUNCTION public\.delete_negotiation_message_internal\(uuid, uuid\) TO service_role;/i.test(migrationSql);
   assert(
@@ -54,7 +69,7 @@ function runRealSecurityVerification() {
     'Delete RPC Security: delete_negotiation_message_internal is REVOKED from authenticated and granted ONLY to service_role'
   );
 
-  // 3. Active Account Enforcement in SQL RPCs
+  // 5. Active Account Enforcement in SQL RPCs
   const activeCheckInSend = /send_negotiation_message_v2[\s\S]*?is_current_user_active\(\)/i.test(migrationSql);
   const activeCheckInReaction = /toggle_negotiation_message_reaction[\s\S]*?is_current_user_active\(\)/i.test(migrationSql);
   assert(
@@ -62,7 +77,7 @@ function runRealSecurityVerification() {
     'Active Account Check: send_negotiation_message_v2 and toggle_negotiation_message_reaction RPCs enforce is_current_user_active()'
   );
 
-  // 4. Atomic Row Locking FOR UPDATE in Intent Claim and Finalize RPCs
+  // 6. Atomic Row Locking FOR UPDATE in Intent Claim and Finalize RPCs
   const claimForUpdate = /claim_negotiation_media_upload_intent_for_finalize[\s\S]*?FOR UPDATE/i.test(migrationSql);
   const finalizeForUpdate = /finalize_negotiation_media_message_internal[\s\S]*?FOR UPDATE/i.test(migrationSql);
   assert(
@@ -70,14 +85,21 @@ function runRealSecurityVerification() {
     'Atomic Locking: claim and finalize SQL RPCs acquire explicit row-level locks via SELECT ... FOR UPDATE'
   );
 
-  // 5. Direct Privilege Revocation on negotiation_messages
+  // 7. Canonical Reply Target Validation in Finalizer
+  const finalizeDistinctReplyCheck = /v_intent\.reply_to_message_id\s+IS DISTINCT FROM\s+p_reply_to_message_id/i.test(migrationSql);
+  assert(
+    finalizeDistinctReplyCheck,
+    'Canonical Finalizer: Compares reply_to_message_id using IS DISTINCT FROM against intent authorization'
+  );
+
+  // 8. Direct Privilege Revocation on negotiation_messages
   const directRevoke = /REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public\.negotiation_messages FROM PUBLIC, anon, authenticated;/i.test(migrationSql);
   assert(
     directRevoke,
     'Privilege Hardening: Direct INSERT, UPDATE, DELETE, TRUNCATE on negotiation_messages is REVOKED from authenticated'
   );
 
-  // 6. Online Status Fail-Closed Logic in Frontend
+  // 9. Online Status Fail-Closed Logic in Frontend
   const onlinePrivacyCheck = /showOnlineStatus === true/i.test(negotiationPageCode);
   const onlinePrivacyNegativeCheck = !/showOnlineStatus !== false/i.test(negotiationPageCode);
   assert(
@@ -85,7 +107,7 @@ function runRealSecurityVerification() {
     'Online Status Privacy: NegotiationPage strictly evaluates showOnlineStatus === true (fail-closed)'
   );
 
-  // 7. Reaction Realtime Flow: Error checking, local refresh, and broadcast
+  // 10. Reaction Realtime Flow: Error checking, local refresh, and broadcast
   const reactionRpcErrorCheck = /if \(rpcErr\)/i.test(negotiationPageCode);
   const reactionBroadcastPayload = /event: 'reaction_changed'/i.test(negotiationPageCode) && /roomId: details\.negotiation_room\.id/i.test(negotiationPageCode);
   assert(
@@ -93,28 +115,29 @@ function runRealSecurityVerification() {
     'Reaction Realtime: handleToggleReaction checks RPC error, refreshes local state, and broadcasts reaction_changed'
   );
 
-  // 8. Fallback Architecture: originalProvider validation
+  // 11. Fallback API: originalProvider validation
   const fallbackOriginalProviderCheck = /originalProvider !== 'b2' && originalProvider !== 'cloudinary'/i.test(fallbackApiCode);
   assert(
     fallbackOriginalProviderCheck,
     'Fallback API: Validates originalProvider strictly against b2 or cloudinary'
   );
 
-  // 9. Provider/MIME Validation in Media Finalizer
+  // 12. Provider/MIME Validation in Media Finalizer
   const finalizeMimeValidation = /provider === 'cloudinary'[\s\S]*?resType[\s\S]*?allowedImageFormats/i.test(finalizeApiCode) && /isMimeCompatible/i.test(finalizeApiCode);
   assert(
     finalizeMimeValidation,
     'Media Finalizer: Contains full provider/MIME format validation matching permanent media rules'
   );
 
-  // 10. Locked Room Invariant: Room status !== active
-  const lockedRoomCheck = /const isRoomLocked = room\?\.status !== 'active'/i.test(negotiationPageCode);
+  // 13. Locked Room Invariant: Pointer down & UI check room status !== active
+  const pointerDownLockedCheck = /handleBubblePointerDown[\s\S]*?room\?\.status !== 'active'/i.test(negotiationPageCode);
+  const isRoomLockedCheck = /const isRoomLocked = room\?\.status !== 'active'/i.test(negotiationPageCode);
   assert(
-    lockedRoomCheck,
-    'Locked Room Rules: Frontend treats any room status other than active as locked'
+    pointerDownLockedCheck && isRoomLockedCheck,
+    'Locked Room Rules: Pointer down and UI evaluate room status !== active'
   );
 
-  // 11. Document Security Scanner Unit Tests
+  // 14. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
@@ -124,12 +147,12 @@ function runRealSecurityVerification() {
   const exeCheck = verifyDocumentBuffer(exeMasquerade, 'application/pdf');
   assert(exeCheck.valid === false, 'Scanner Unit Test: Executable file masquerading as PDF is rejected');
 
-  console.log(`\n=== SUMMARY: ${passedCount}/${totalCount} REAL SECURITY TESTS PASSED ===`);
+  console.log(`\n=== SUMMARY: ${passedCount}/${totalCount} STATIC PREFLIGHT + UNIT CHECKS PASSED ===`);
   if (passedCount === totalCount) {
-    console.log('SUCCESS: All 12 pre-production security checks passed cleanly.');
+    console.log('SUCCESS: All 14 static preflight + unit checks passed cleanly.');
   } else {
     process.exit(1);
   }
 }
 
-runRealSecurityVerification();
+runPreflightAndUnitChecks();

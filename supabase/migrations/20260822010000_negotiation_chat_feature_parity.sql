@@ -37,13 +37,16 @@ DO $$
 DECLARE
   con_record record;
 BEGIN
-  FOR con_record IN 
-    SELECT conname 
+  FOR con_record IN
+    SELECT oid, conname
     FROM pg_constraint 
     WHERE conrelid = 'public.negotiation_messages'::regclass AND contype = 'c'
   LOOP
-    IF pg_get_constraintdef(con_record.conname::regclass) LIKE '%message_type%' THEN
-      EXECUTE 'ALTER TABLE public.negotiation_messages DROP CONSTRAINT ' || quote_ident(con_record.conname);
+    IF pg_get_constraintdef(con_record.oid) LIKE '%message_type%' THEN
+      EXECUTE format(
+        'ALTER TABLE public.negotiation_messages DROP CONSTRAINT %I',
+        con_record.conname
+      );
     END IF;
   END LOOP;
 END $$;
@@ -699,6 +702,14 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Object key mismatch with intent authorization');
   END IF;
 
+  -- Match canonical reply target authorized at intent creation
+  IF v_intent.reply_to_message_id IS DISTINCT FROM p_reply_to_message_id THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Reply target mismatch with intent authorization'
+    );
+  END IF;
+
   v_text := CASE p_media_type
     WHEN 'image' THEN 'Sent a photo'
     WHEN 'video' THEN 'Sent a video'
@@ -725,7 +736,7 @@ BEGIN
     p_media_type,
     p_object_key,
     p_metadata,
-    p_reply_to_message_id,
+    v_intent.reply_to_message_id,
     true,
     'user'
   )
