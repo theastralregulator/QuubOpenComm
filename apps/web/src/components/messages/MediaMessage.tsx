@@ -4,9 +4,12 @@ import { supabase } from '../../lib/supabase';
 
 interface MediaMessageProps {
   messageId: string;
-  mediaType: 'image' | 'video' | 'audio' | string;
+  mediaType: 'image' | 'video' | 'audio' | 'document' | string;
   isSelf: boolean;
   isRead: boolean;
+  width?: number;
+  height?: number;
+  durationMs?: number;
 }
 
 interface MediaAccessDetails {
@@ -23,7 +26,7 @@ interface MediaAccessDetails {
 // In-memory cache for presigned GET access URLs (Key: messageId -> { details, expiresAt })
 const accessCache = new Map<string, { details: MediaAccessDetails; expiresAt: number }>();
 
-export default function MediaMessage({ messageId, mediaType, isSelf, isRead }: MediaMessageProps) {
+export default function MediaMessage({ messageId, mediaType, isSelf, isRead, width, height, durationMs }: MediaMessageProps) {
   const [accessDetails, setAccessDetails] = useState<MediaAccessDetails | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorState, setErrorState] = useState<string | null>(null);
@@ -92,9 +95,9 @@ export default function MediaMessage({ messageId, mediaType, isSelf, isRead }: M
           mediaType: data.mediaType,
           mimeType: data.mimeType,
           fileSizeBytes: data.fileSizeBytes,
-          durationMs: data.durationMs,
-          width: data.width,
-          height: data.height
+          durationMs: data.durationMs || durationMs,
+          width: data.width || width,
+          height: data.height || height
         };
 
         // Cache for 10 minutes (600,000 ms)
@@ -116,7 +119,7 @@ export default function MediaMessage({ messageId, mediaType, isSelf, isRead }: M
     return () => {
       isSubscribed = false;
     };
-  }, [messageId]);
+  }, [messageId, width, height, durationMs]);
 
   // Lightbox keyboard ESC handling
   useEffect(() => {
@@ -200,10 +203,56 @@ export default function MediaMessage({ messageId, mediaType, isSelf, isRead }: M
   };
 
   if (isLoading) {
+    if (mediaType === 'image') {
+      const hasDimensions = Boolean(width && height && width > 0 && height > 0);
+      return (
+        <div
+          style={{ aspectRatio: hasDimensions ? `${width} / ${height}` : undefined }}
+          className="w-full max-w-[280px] sm:max-w-[320px] min-h-[180px] max-h-[260px] rounded-2xl bg-slate-200/80 dark:bg-slate-800/80 animate-pulse flex flex-col items-center justify-center p-4 space-y-2 border border-slate-300/40 dark:border-slate-700/40"
+        >
+          <ImageIcon className="w-6 h-6 text-slate-400 dark:text-slate-500" />
+          <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">Loading photo...</span>
+        </div>
+      );
+    }
+
+    if (mediaType === 'video') {
+      return (
+        <div className="w-full max-w-[280px] sm:max-w-[320px] h-[110px] rounded-2xl bg-slate-200/80 dark:bg-slate-800/80 animate-pulse flex items-center space-x-3 p-3 border border-slate-300/40 dark:border-slate-700/40">
+          <div className="w-10 h-10 rounded-xl bg-slate-300 dark:bg-slate-700 shrink-0 flex items-center justify-center">
+            <Film className="w-5 h-5 text-slate-400" />
+          </div>
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-24 bg-slate-300 dark:bg-slate-700 rounded" />
+            <div className="h-2.5 w-16 bg-slate-300 dark:bg-slate-700 rounded" />
+          </div>
+        </div>
+      );
+    }
+
+    if (mediaType === 'audio') {
+      return (
+        <div className="w-[240px] h-[64px] rounded-2xl bg-slate-200/80 dark:bg-slate-800/80 animate-pulse flex items-center space-x-3 p-3 border border-slate-300/40 dark:border-slate-700/40">
+          <div className="w-9 h-9 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0 flex items-center justify-center">
+            <Mic className="w-4 h-4 text-slate-400" />
+          </div>
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-20 bg-slate-300 dark:bg-slate-700 rounded" />
+            <div className="h-1.5 w-full bg-slate-300 dark:bg-slate-700 rounded-full" />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex items-center space-x-2 py-2 px-3 bg-slate-100/50 dark:bg-slate-800/50 rounded-xl text-xs text-slate-400 animate-pulse">
-        <div className="w-3.5 h-3.5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-        <span>Loading media...</span>
+      <div className="w-[260px] h-[72px] rounded-2xl bg-slate-200/80 dark:bg-slate-800/80 animate-pulse flex items-center space-x-3 p-3 border border-slate-300/40 dark:border-slate-700/40">
+        <div className="w-10 h-10 rounded-xl bg-slate-300 dark:bg-slate-700 shrink-0 flex items-center justify-center">
+          <FileText className="w-5 h-5 text-slate-400" />
+        </div>
+        <div className="flex-1 space-y-2">
+          <div className="h-3 w-28 bg-slate-300 dark:bg-slate-700 rounded" />
+          <div className="h-2.5 w-16 bg-slate-300 dark:bg-slate-700 rounded" />
+        </div>
       </div>
     );
   }

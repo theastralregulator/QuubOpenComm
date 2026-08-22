@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   MessageSquare, Send, ArrowLeft, ShieldAlert, 
   RefreshCw, AlertCircle, Search, X, Loader2, AlertTriangle,
   Mic, Image as ImageIcon, Video as VideoIcon, FileText,
-  Trash2, Reply, SmilePlus, FolderOpen, MoreHorizontal, CornerDownRight
+  Trash2, Reply, SmilePlus, FolderOpen, MoreHorizontal, CornerDownRight, Sparkles
 } from 'lucide-react';
 import { supabase, dbService } from '../../lib/supabase';
 import { unreadService } from '../../lib/unreadService';
@@ -16,6 +16,35 @@ import MediaMessage from './MediaMessage';
 import MediaAttachmentPicker from './MediaAttachmentPicker';
 import { MediaFilesPanel } from './MediaFilesPanel';
 import { getPublicProfilesByIds } from '../../lib/profileService';
+
+function formatDateSeparator(isoString?: string): string {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  if (isToday) return 'Today';
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
+
+  if (isYesterday) return 'Yesterday';
+
+  return date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+}
 
 export interface ConversationGroup {
   participantId: string;
@@ -153,6 +182,11 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
   const isInitialLoadRef = useRef<boolean>(true);
+  const initialPinToBottomRef = useRef<boolean>(true);
+  const pinTimeoutRef = useRef<any>(null);
+
+  // Current User Identity Ref (to prevent cross-account stale typing names)
+  const currentUserIdentityRef = useRef<{ userId: string; displayName: string } | null>(null);
 
   // Stable Synchronized Messages Ref for Channel Handlers
   const messagesRef = useRef<DbMessage[]>([]);
@@ -160,8 +194,6 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-
 
   const [mediaStatus, setMediaStatus] = useState<{ mediaMessagingEnabled: boolean; voiceEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean; documentEnabled?: boolean }>({
     mediaMessagingEnabled: false,
@@ -201,6 +233,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   useEffect(() => {
     if (previousConversationIdRef.current !== conversationId) {
       isInitialLoadRef.current = true;
+      initialPinToBottomRef.current = true;
       lastAutoScrolledMessageIdRef.current = null;
       setReplyingToMessage(null);
       setActiveMenuMsgId(null);
@@ -226,17 +259,29 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const liveActiveConv = conversations.find(c => c.id === conversationId);
   const activeConv = stableActiveConv?.id === conversationId ? stableActiveConv : liveActiveConv;
 
-  // Load Current User Canonical Public Display Name
+  // Load Current User Canonical Public Display Name (Reset on Account Switch)
   useEffect(() => {
     let isMounted = true;
-    if (!currentUserId) return;
+    if (!currentUserId) {
+      setCurrentUserDisplayName(null);
+      currentUserIdentityRef.current = null;
+      return;
+    }
+
+    // Immediately reset on user ID change
+    setCurrentUserDisplayName(null);
+    currentUserIdentityRef.current = null;
 
     getPublicProfilesByIds([currentUserId])
       .then((map) => {
         if (!isMounted) return;
         const p = map.get(currentUserId);
         if (p && (p.fullName || p.name)) {
-          setCurrentUserDisplayName(p.fullName || p.name || 'User');
+          const resolvedName = (p.fullName || p.name || '').trim();
+          if (resolvedName && resolvedName !== 'User' && resolvedName !== 'OpenComm User') {
+            setCurrentUserDisplayName(resolvedName);
+            currentUserIdentityRef.current = { userId: currentUserId, displayName: resolvedName };
+          }
         }
       })
       .catch((err) => console.warn('Error fetching current user display name:', err));
@@ -926,6 +971,9 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   const sendTypingStatus = (typing: boolean) => {
     if (!chatInteractionsEnabled || !conversationId || !currentUserId || activeConv?.archivedAt) return;
     if (conversationRealtimeChannelRef.current) {
+      const identity = currentUserIdentityRef.current;
+      const validSenderName = identity?.userId === currentUserId ? identity.displayName : (currentUserDisplayName || undefined);
+
       conversationRealtimeChannelRef.current
         .send({
           type: 'broadcast',
@@ -933,7 +981,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
           payload: {
             conversationId,
             userId: currentUserId,
-            senderName: currentUserDisplayName,
+            senderName: validSenderName,
             typing
           }
         })
@@ -991,19 +1039,74 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     };
   }, [conversationId, currentUserId]);
 
-  // Smart Auto-Scroll Effect (Forced realtime scroll, or new message if near bottom or sent by me)
+  // Initial Positioning Effect (Exact Bottom Scroll on Load)
+  useLayoutEffect(() => {
+    if (!conversationId || loadingMessages || messages.length === 0) return;
+    if (!messagesContainerRef.current || !messagesEndRef.current) return;
+    if (activeConv?.id !== conversationId) return;
+
+    if (isInitialLoadRef.current) {
+      const container = messagesContainerRef.current;
+      container.scrollTop = container.scrollHeight;
+      messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage) {
+        lastAutoScrolledMessageIdRef.current = lastMessage.id;
+      }
+      isInitialLoadRef.current = false;
+    }
+  }, [messages, loadingMessages, conversationId, activeConv?.id]);
+
+  // Initial Media Load Bottom Pinning Effect (ResizeObserver)
   useEffect(() => {
-    if (loadingMessages || messages.length === 0) return;
+    if (!conversationId || loadingMessages || messages.length === 0) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    if (pinTimeoutRef.current) clearTimeout(pinTimeoutRef.current);
+    initialPinToBottomRef.current = true;
+
+    const scrollToBottom = () => {
+      if (initialPinToBottomRef.current && container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (initialPinToBottomRef.current) {
+        scrollToBottom();
+      }
+    });
+
+    resizeObserver.observe(container);
+
+    const handleUserScroll = () => {
+      if (!initialPinToBottomRef.current) return;
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom > 80) {
+        initialPinToBottomRef.current = false;
+      }
+    };
+
+    container.addEventListener('scroll', handleUserScroll, { passive: true });
+
+    pinTimeoutRef.current = setTimeout(() => {
+      initialPinToBottomRef.current = false;
+    }, 1200);
+
+    return () => {
+      resizeObserver.disconnect();
+      container.removeEventListener('scroll', handleUserScroll);
+      if (pinTimeoutRef.current) clearTimeout(pinTimeoutRef.current);
+    };
+  }, [conversationId, loadingMessages]);
+
+  // Smart Auto-Scroll Effect for Subsequent Realtime Messages
+  useEffect(() => {
+    if (loadingMessages || messages.length === 0 || isInitialLoadRef.current) return;
 
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
-
-    if (isInitialLoadRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-      lastAutoScrolledMessageIdRef.current = lastMessage.id;
-      isInitialLoadRef.current = false;
-      return;
-    }
 
     const isNewMessage = lastMessage.id !== lastAutoScrolledMessageIdRef.current;
     const isForced = forceScrollToMessageIdRef.current === lastMessage.id;
@@ -1162,6 +1265,12 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     });
   }, [groupedConversations, searchQuery]);
 
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort(
+      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    );
+  }, [messages]);
+
   return (
     <div 
       className={`w-full max-w-[1200px] mx-auto flex flex-col text-left ${
@@ -1231,6 +1340,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     key={group.participantId}
                     onClick={() => {
                       setSelectedParticipantGroup(group);
+                      setStableActiveConv(activeInGroup);
                       navigate(`/messages/${activeInGroup.id}`);
                     }}
                     className={`p-3.5 flex items-center gap-3 cursor-pointer transition-colors ${
@@ -1369,12 +1479,12 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     <AlertCircle className="w-6 h-6 text-rose-500 mx-auto" />
                     <p className="text-xs text-rose-500 font-semibold">{messagesError}</p>
                   </div>
-                ) : messages.length === 0 ? (
+                ) : sortedMessages.length === 0 ? (
                   <div className="p-12 text-center text-slate-400 text-xs font-medium">
                     No messages yet. Send a message to start the conversation!
                   </div>
                 ) : (
-                  messages.map((msg) => {
+                  sortedMessages.map((msg, idx) => {
                     const isMe = msg.sender_id === currentUserId;
                     const sentTime = msg.created_at
                       ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -1382,8 +1492,35 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     const isRead = Boolean(msg.read_at) || msg.unread === false;
                     const isDeleted = chatInteractionsEnabled && Boolean(msg.deleted_at);
 
+                    const prevMsg = idx > 0 ? sortedMessages[idx - 1] : null;
+                    const currentDateStr = msg.created_at ? new Date(msg.created_at).toDateString() : '';
+                    const prevDateStr = prevMsg?.created_at ? new Date(prevMsg.created_at).toDateString() : '';
+                    const showDateSeparator = currentDateStr !== prevDateStr && currentDateStr !== '';
+
+                    const isSystemMsg = msg.role === 'system' || msg.role === 'assistant' || msg.message_type === 'system' || msg.message_type === 'workflow';
+
+                    if (isSystemMsg) {
+                      return (
+                        <React.Fragment key={msg.id}>
+                          {showDateSeparator && (
+                            <div className="flex justify-center my-4">
+                              <span className="px-3 py-1 rounded-full bg-slate-200/60 dark:bg-slate-800/60 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border border-slate-300/40 dark:border-slate-700/40">
+                                {formatDateSeparator(msg.created_at)}
+                              </span>
+                            </div>
+                          )}
+                          <div id={`msg-${msg.id}`} className="flex justify-center my-3 text-center px-4">
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800/80 text-[11px] font-medium text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60 shadow-2xs max-w-[90%] break-words">
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                              <span>{msg.text}</span>
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      );
+                    }
+
                     const replyParent = (chatInteractionsEnabled && msg.reply_to_message_id)
-                      ? messages.find(m => m.id === msg.reply_to_message_id)
+                      ? sortedMessages.find(m => m.id === msg.reply_to_message_id)
                       : null;
 
                     const rxList = chatInteractionsEnabled ? (messageReactions[msg.id] || []) : [];
@@ -1397,194 +1534,210 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                     const isHighlighted = chatInteractionsEnabled && highlightedMessageId === msg.id;
 
                     return (
-                      <div
-                        key={msg.id}
-                        id={`msg-${msg.id}`}
-                        className={`flex items-end gap-2 group relative transition-colors duration-500 rounded-2xl p-1 ${
-                          isHighlighted ? 'bg-amber-100/60 dark:bg-amber-950/40 ring-2 ring-amber-400' : ''
-                        } ${isMe ? 'justify-end' : 'justify-start'}`}
-                      >
-                        {!isMe && (
-                          <UserAvatar
-                            avatarUrl={msg.sender_avatar || activeConv.otherParticipantAvatar}
-                            fullName={msg.sender_name}
-                            size="sm"
-                            className="shrink-0 mb-1"
-                          />
+                      <React.Fragment key={msg.id}>
+                        {showDateSeparator && (
+                          <div className="flex justify-center my-4">
+                            <span className="px-3 py-1 rounded-full bg-slate-200/60 dark:bg-slate-800/60 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border border-slate-300/40 dark:border-slate-700/40">
+                              {formatDateSeparator(msg.created_at)}
+                            </span>
+                          </div>
                         )}
-                        <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 relative ${isMe ? 'items-end' : 'items-start'}`}>
+                        <div
+                          id={`msg-${msg.id}`}
+                          className={`flex items-end gap-2 group relative transition-colors duration-500 rounded-2xl p-1 ${
+                            isHighlighted ? 'bg-amber-100/60 dark:bg-amber-950/40 ring-2 ring-amber-400' : ''
+                          } ${isMe ? 'justify-end' : 'justify-start'}`}
+                        >
+                          {!isMe && (
+                            <UserAvatar
+                              avatarUrl={msg.sender_avatar || activeConv.otherParticipantAvatar}
+                              fullName={msg.sender_name}
+                              size="sm"
+                              className="shrink-0 mb-1"
+                            />
+                          )}
+                          <div className={`max-w-[85%] sm:max-w-[70%] space-y-1 relative ${isMe ? 'items-end' : 'items-start'}`}>
 
-                          {/* Quoted Reply Block */}
-                          {chatInteractionsEnabled && msg.reply_to_message_id && (
-                            <div
-                              onClick={() => handleJumpToMessage(msg.reply_to_message_id!)}
-                              className="cursor-pointer p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-purple-500 text-[11px] text-slate-600 dark:text-slate-300 mb-1 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-colors flex items-center gap-1.5"
-                            >
-                              <CornerDownRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                              <div className="truncate">
-                                {replyParent ? (
-                                  replyParent.deleted_at ? (
-                                    <span className="italic text-slate-400">Deleted message</span>
+                            {/* Quoted Reply Block */}
+                            {chatInteractionsEnabled && msg.reply_to_message_id && (
+                              <div
+                                onClick={() => handleJumpToMessage(msg.reply_to_message_id!)}
+                                className="cursor-pointer p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border-l-3 border-purple-500 text-[11px] text-slate-600 dark:text-slate-300 mb-1 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-colors flex items-center gap-1.5"
+                              >
+                                <CornerDownRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                <div className="truncate">
+                                  {replyParent ? (
+                                    replyParent.deleted_at ? (
+                                      <span className="italic text-slate-400">Deleted message</span>
+                                    ) : (
+                                      <>
+                                        <span className="font-semibold text-slate-900 dark:text-white mr-1.5">
+                                          {replyParent.sender_name}:
+                                        </span>
+                                        <span>{replyParent.text}</span>
+                                      </>
+                                    )
                                   ) : (
-                                    <>
-                                      <span className="font-semibold text-slate-900 dark:text-white mr-1.5">
-                                        {replyParent.sender_name}:
-                                      </span>
-                                      <span>{replyParent.text}</span>
-                                    </>
-                                  )
+                                    <span className="italic text-slate-400">Quoted message</span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Deleted Message Bubble OR Normal Message */}
+                            {isDeleted ? (
+                              <div className="p-2.5 px-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs italic font-medium flex items-center gap-1.5 border border-slate-200/60 dark:border-slate-800/60">
+                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                                <span>This message was deleted</span>
+                              </div>
+                            ) : (
+                              <div className="relative group/bubble">
+                                {msg.message_type && msg.message_type !== 'text' ? (
+                                  <MediaMessage
+                                    messageId={msg.id}
+                                    mediaType={msg.message_type}
+                                    isSelf={isMe}
+                                    isRead={isRead}
+                                    width={(msg as any).width || (msg as any).media_width || (msg as any).media_metadata?.width}
+                                    height={(msg as any).height || (msg as any).media_height || (msg as any).media_metadata?.height}
+                                    durationMs={(msg as any).duration_ms || (msg as any).media_duration_ms || (msg as any).media_metadata?.duration_ms}
+                                  />
                                 ) : (
-                                  <span className="italic text-slate-400">Quoted message</span>
+                                  <div
+                                    title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                                    aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
+                                    className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
+                                      isMe
+                                        ? isRead
+                                          ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                          : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
+                                        : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
+                                    }`}
+                                  >
+                                    {msg.text}
+                                  </div>
+                                )}
+
+                                {/* Per-Message Action Trigger & Menu */}
+                                {chatInteractionsEnabled && (isMe ? (msg.role === 'user' && !isDeleted) : (!activeConv.archivedAt)) && (
+                                  <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
+                                    isMe ? '-left-14' : '-right-14'
+                                  }`}>
+                                    <div className="relative">
+                                      <button
+                                        onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
+                                        className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-xs border border-slate-200 dark:border-slate-700"
+                                        title="Actions"
+                                      >
+                                        <MoreHorizontal className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {activeMenuMsgId === msg.id && (
+                                        <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 min-w-[120px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}>
+                                          {!activeConv.archivedAt && (
+                                            <>
+                                              <button
+                                                onClick={() => {
+                                                  setReplyingToMessage(msg);
+                                                  setActiveMenuMsgId(null);
+                                                  textareaRef.current?.focus();
+                                                }}
+                                                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                              >
+                                                <Reply className="w-3.5 h-3.5 text-blue-500" />
+                                                <span>Reply</span>
+                                              </button>
+
+                                              <button
+                                                onClick={() => {
+                                                  setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
+                                                  setActiveMenuMsgId(null);
+                                                }}
+                                                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                              >
+                                                <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
+                                                <span>React</span>
+                                              </button>
+                                            </>
+                                          )}
+
+                                          {isMe && msg.role === 'user' && !isDeleted && (
+                                            <button
+                                              onClick={() => {
+                                                setDeleteConfirmMessage(msg);
+                                                setActiveMenuMsgId(null);
+                                              }}
+                                              className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                              <span>Delete</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Reaction Picker Bar */}
+                                {chatInteractionsEnabled && activeReactionPickerMsgId === msg.id && (
+                                  <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-xl p-1.5 z-40 flex items-center gap-1 animate-in zoom-in-95 duration-100`}>
+                                    {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                      <button
+                                        key={emoji}
+                                        onClick={() => {
+                                          void handleToggleReaction(msg, emoji);
+                                          setActiveReactionPickerMsgId(null);
+                                        }}
+                                        className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-base transition-transform hover:scale-125"
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+                                  </div>
                                 )}
                               </div>
-                            </div>
-                          )}
+                            )}
 
-                          {/* Deleted Message Bubble OR Normal Message */}
-                          {isDeleted ? (
-                            <div className="p-2.5 px-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs italic font-medium flex items-center gap-1.5 border border-slate-200/60 dark:border-slate-800/60">
-                              <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                              <span>This message was deleted</span>
-                            </div>
-                          ) : (
-                            <div className="relative group/bubble">
-                              {msg.message_type && msg.message_type !== 'text' ? (
-                                <MediaMessage messageId={msg.id} mediaType={msg.message_type} isSelf={isMe} isRead={isRead} />
-                              ) : (
-                                <div
-                                  title={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                                  aria-label={isMe ? (isRead ? 'Read' : 'Sent, not read') : undefined}
-                                  className={`p-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left transition-colors duration-300 ${
-                                    isMe
-                                      ? isRead
-                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                        : 'bg-slate-600 text-white rounded-br-xs shadow-xs'
-                                      : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700/60 rounded-bl-xs shadow-xs'
-                                  }`}
-                                >
-                                  {msg.text}
-                                </div>
-                              )}
+                            {/* Grouped Reaction Chips */}
+                            {chatInteractionsEnabled && !isDeleted && Object.keys(rxCounts).length > 0 && (
+                              <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                {Object.entries(rxCounts).map(([emoji, data]) => (
+                                  <button
+                                    key={emoji}
+                                    disabled={activeConv.archivedAt}
+                                    onClick={() => void handleToggleReaction(msg, emoji)}
+                                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 border transition-all ${
+                                      data.hasMine
+                                        ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold'
+                                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <span>{emoji}</span>
+                                    <span>{data.count}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
 
-                              {/* Per-Message Action Trigger & Menu */}
-                              {chatInteractionsEnabled && (isMe ? (msg.role === 'user' && !isDeleted) : (!activeConv.archivedAt)) && (
-                                <div className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-100 sm:opacity-0 group-hover/bubble:opacity-100 transition-opacity z-20 ${
-                                  isMe ? '-left-14' : '-right-14'
-                                }`}>
-                                  <div className="relative">
-                                    <button
-                                      onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
-                                      className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-xs border border-slate-200 dark:border-slate-700"
-                                      title="Actions"
-                                    >
-                                      <MoreHorizontal className="w-3.5 h-3.5" />
-                                    </button>
+                            {/* Timestamp & Read/Sent Status */}
+                            {!isDeleted && (
+                              <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                <span>{sentTime}</span>
+                                {isMe && (
+                                  <>
+                                    <span>·</span>
+                                    <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
+                                      {isRead ? 'Read' : 'Sent'}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )}
 
-                                    {activeMenuMsgId === msg.id && (
-                                      <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 min-w-[120px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}>
-                                        {!activeConv.archivedAt && (
-                                          <>
-                                            <button
-                                              onClick={() => {
-                                                setReplyingToMessage(msg);
-                                                setActiveMenuMsgId(null);
-                                                textareaRef.current?.focus();
-                                              }}
-                                              className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                            >
-                                              <Reply className="w-3.5 h-3.5 text-blue-500" />
-                                              <span>Reply</span>
-                                            </button>
-
-                                            <button
-                                              onClick={() => {
-                                                setActiveReactionPickerMsgId(activeReactionPickerMsgId === msg.id ? null : msg.id);
-                                                setActiveMenuMsgId(null);
-                                              }}
-                                              className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                            >
-                                              <SmilePlus className="w-3.5 h-3.5 text-amber-500" />
-                                              <span>React</span>
-                                            </button>
-                                          </>
-                                        )}
-
-                                        {isMe && msg.role === 'user' && !isDeleted && (
-                                          <button
-                                            onClick={() => {
-                                              setDeleteConfirmMessage(msg);
-                                              setActiveMenuMsgId(null);
-                                            }}
-                                            className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                            <span>Delete</span>
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Reaction Picker Bar */}
-                              {chatInteractionsEnabled && activeReactionPickerMsgId === msg.id && (
-                                <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-xl p-1.5 z-40 flex items-center gap-1 animate-in zoom-in-95 duration-100`}>
-                                  {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-                                    <button
-                                      key={emoji}
-                                      onClick={() => {
-                                        void handleToggleReaction(msg, emoji);
-                                        setActiveReactionPickerMsgId(null);
-                                      }}
-                                      className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-base transition-transform hover:scale-125"
-                                    >
-                                      {emoji}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Grouped Reaction Chips */}
-                          {chatInteractionsEnabled && !isDeleted && Object.keys(rxCounts).length > 0 && (
-                            <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                              {Object.entries(rxCounts).map(([emoji, data]) => (
-                                <button
-                                  key={emoji}
-                                  disabled={activeConv.archivedAt}
-                                  onClick={() => void handleToggleReaction(msg, emoji)}
-                                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 border transition-all ${
-                                    data.hasMine
-                                      ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 font-bold'
-                                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <span>{emoji}</span>
-                                  <span>{data.count}</span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Timestamp & Read/Sent Status */}
-                          {!isDeleted && (
-                            <div className={`flex items-center gap-1 text-[10px] font-semibold text-slate-400 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                              <span>{sentTime}</span>
-                              {isMe && (
-                                <>
-                                  <span>·</span>
-                                  <span className={isRead ? 'text-blue-500 font-bold' : 'text-slate-400'}>
-                                    {isRead ? 'Read' : 'Sent'}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          )}
-
+                          </div>
                         </div>
-                      </div>
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1619,15 +1772,19 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Typing Indicator Display */}
-              {chatInteractionsEnabled && typingUsers.size > 0 && (
-                <div className="px-4 py-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 italic flex items-center gap-1.5 shrink-0">
-                  <span className="flex gap-0.5">
-                    <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </span>
-                  <span>{Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing…</span>
+              {/* Reserved Typing Status Row (Fixed Height h-6) */}
+              {chatInteractionsEnabled && (
+                <div className="h-6 px-4 py-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 italic flex items-center gap-1.5 shrink-0 transition-opacity duration-150">
+                  {typingUsers.size > 0 ? (
+                    <>
+                      <span className="flex gap-0.5">
+                        <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                      <span>{Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing…</span>
+                    </>
+                  ) : null}
                 </div>
               )}
 
@@ -1770,6 +1927,27 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                 </form>
               )}
             </>
+          ) : conversationId ? (
+            <div className="flex-1 flex flex-col h-full min-h-0 bg-white dark:bg-[#0B0F19] overflow-hidden animate-pulse">
+              {/* Header Loading Shell */}
+              <div className="px-3.5 py-3 border-b border-slate-200 dark:border-slate-800/80 flex items-center gap-3 bg-white dark:bg-[#0B0F19]">
+                <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3.5 w-32 bg-slate-200 dark:bg-slate-800 rounded" />
+                  <div className="h-2.5 w-24 bg-slate-200 dark:bg-slate-800 rounded" />
+                </div>
+              </div>
+              {/* Content Loading Shell */}
+              <div className="flex-1 p-4 space-y-4">
+                <div className="h-10 w-48 bg-slate-200/60 dark:bg-slate-800/60 rounded-2xl" />
+                <div className="h-12 w-64 bg-slate-200/60 dark:bg-slate-800/60 rounded-2xl ml-auto" />
+                <div className="h-10 w-56 bg-slate-200/60 dark:bg-slate-800/60 rounded-2xl" />
+              </div>
+              {/* Composer Loading Shell */}
+              <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0B0F19]">
+                <div className="h-10 w-full bg-slate-100 dark:bg-slate-800 rounded-2xl" />
+              </div>
+            </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-[#080C14]/50">
               <div className="w-16 h-16 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-4">
