@@ -193,6 +193,45 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
   // Current User Identity Ref (to prevent cross-account stale typing names)
   const currentUserIdentityRef = useRef<{ userId: string; displayName: string } | null>(null);
 
+  // Long-press reaction popup refs & handlers
+  const longPressTimerRef = useRef<any>(null);
+  const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleBubblePointerDown = (msg: DbMessage, e: React.PointerEvent) => {
+    if (!chatInteractionsEnabled || activeConv?.archivedAt) return;
+    if (msg.deleted_at || msg.role === 'system' || msg.role === 'assistant' || msg.message_type === 'system' || msg.message_type === 'workflow') return;
+    if (e.button !== undefined && e.button !== 0) return;
+
+    longPressStartPosRef.current = { x: e.clientX, y: e.clientY };
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
+    longPressTimerRef.current = setTimeout(() => {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate(10); } catch (_) {}
+      }
+      setActiveMenuMsgId(null);
+      setActiveReactionPickerMsgId(msg.id);
+      longPressTimerRef.current = null;
+    }, 500);
+  };
+
+  const handleBubblePointerMove = (e: React.PointerEvent) => {
+    if (!longPressTimerRef.current || !longPressStartPosRef.current) return;
+    const dist = Math.hypot(e.clientX - longPressStartPosRef.current.x, e.clientY - longPressStartPosRef.current.y);
+    if (dist > 10) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleBubblePointerUpOrCancel = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   // Stable Synchronized Messages Ref for Channel Handlers
   const messagesRef = useRef<DbMessage[]>([]);
 
@@ -1722,7 +1761,13 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                                   <span>This message was deleted</span>
                                 </div>
                               ) : (
-                                <div className="relative group/bubble">
+                                <div
+                                  className="relative group/bubble"
+                                  onPointerDown={(e) => handleBubblePointerDown(msg, e)}
+                                  onPointerMove={handleBubblePointerMove}
+                                  onPointerUp={handleBubblePointerUpOrCancel}
+                                  onPointerCancel={handleBubblePointerUpOrCancel}
+                                >
                                   {msg.message_type && msg.message_type !== 'text' ? (
                                     <MediaMessage
                                       messageId={msg.id}
@@ -1914,7 +1959,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
                         <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '150ms' }} />
                         <span className="w-1 h-1 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '300ms' }} />
                       </span>
-                      <span>{Array.from(typingUsers.values()).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing…</span>
+                      <span>Typing…</span>
                     </>
                   ) : null}
                 </div>

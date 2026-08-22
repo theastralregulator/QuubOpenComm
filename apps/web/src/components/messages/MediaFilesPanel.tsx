@@ -8,13 +8,17 @@ interface MediaFilesPanelProps {
   onClose: () => void;
   conversationId: string;
   onJumpToMessage: (messageId: string) => void;
+  accessEndpoint?: string;
+  itemsFetcher?: (id: string) => Promise<SharedMediaItem[]>;
 }
 
 export const MediaFilesPanel: React.FC<MediaFilesPanelProps> = ({
   isOpen,
   onClose,
   conversationId,
-  onJumpToMessage
+  onJumpToMessage,
+  accessEndpoint = '/api/media-access',
+  itemsFetcher
 }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'media' | 'files' | 'voice'>('all');
   const [items, setItems] = useState<SharedMediaItem[]>([]);
@@ -27,7 +31,9 @@ export const MediaFilesPanel: React.FC<MediaFilesPanelProps> = ({
     let mounted = true;
     setLoading(true);
 
-    dbService.getConversationSharedMedia(conversationId)
+    const fetcher = itemsFetcher || dbService.getConversationSharedMedia;
+
+    fetcher(conversationId)
       .then(data => {
         if (mounted) {
           setItems(data || []);
@@ -35,14 +41,14 @@ export const MediaFilesPanel: React.FC<MediaFilesPanelProps> = ({
         }
       })
       .catch(err => {
-        console.error('Failed to load conversation shared media:', err);
+        console.error('Failed to load shared media:', err);
         if (mounted) setLoading(false);
       });
 
     return () => {
       mounted = false;
     };
-  }, [isOpen, conversationId]);
+  }, [isOpen, conversationId, itemsFetcher]);
 
   if (!isOpen) return null;
 
@@ -62,7 +68,7 @@ export const MediaFilesPanel: React.FC<MediaFilesPanelProps> = ({
         return;
       }
 
-      const res = await fetch('/api/media-access', {
+      const res = await fetch(accessEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

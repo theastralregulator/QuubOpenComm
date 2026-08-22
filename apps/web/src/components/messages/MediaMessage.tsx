@@ -10,6 +10,7 @@ interface MediaMessageProps {
   width?: number;
   height?: number;
   durationMs?: number;
+  endpoint?: string;
 }
 
 interface MediaAccessDetails {
@@ -26,7 +27,7 @@ interface MediaAccessDetails {
 // In-memory cache for presigned GET access URLs (Key: messageId -> { details, expiresAt })
 const accessCache = new Map<string, { details: MediaAccessDetails; expiresAt: number }>();
 
-export default function MediaMessage({ messageId, mediaType, isSelf, isRead, width, height, durationMs }: MediaMessageProps) {
+export default function MediaMessage({ messageId, mediaType, isSelf, isRead, width, height, durationMs, endpoint = '/api/media-access' }: MediaMessageProps) {
   const [accessDetails, setAccessDetails] = useState<MediaAccessDetails | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorState, setErrorState] = useState<string | null>(null);
@@ -65,7 +66,7 @@ export default function MediaMessage({ messageId, mediaType, isSelf, isRead, wid
           return;
         }
 
-        const res = await fetch('/api/media-access', {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

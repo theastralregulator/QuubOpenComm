@@ -91,3 +91,37 @@ export async function verifyConversationParticipant(
     return { allowed: false, archived: false, errorMsg: err.message || 'Verification failed' };
   }
 }
+
+export async function verifyNegotiationRoomParticipant(
+  userId: string,
+  roomId: string
+): Promise<{ allowed: boolean; locked: boolean; errorMsg?: string }> {
+  const adminClient = getServiceRoleSupabase();
+  if (!adminClient) {
+    return { allowed: false, locked: false, errorMsg: 'Server configuration unavailable' };
+  }
+
+  try {
+    const { data: room, error } = await adminClient
+      .from('negotiation_rooms')
+      .select('id, client_id, worker_id, status')
+      .eq('id', roomId)
+      .maybeSingle();
+
+    if (error || !room) {
+      return { allowed: false, locked: false, errorMsg: 'Negotiation room not found' };
+    }
+
+    const isParticipant = room.client_id === userId || room.worker_id === userId;
+
+    if (!isParticipant) {
+      return { allowed: false, locked: false, errorMsg: 'Not authorized for this negotiation room' };
+    }
+
+    const locked = room.status !== 'active';
+    return { allowed: true, locked };
+  } catch (err: any) {
+    console.error('verifyNegotiationRoomParticipant exception:', err);
+    return { allowed: false, locked: false, errorMsg: err.message || 'Verification failed' };
+  }
+}
