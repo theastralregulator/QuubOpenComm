@@ -230,6 +230,7 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    longPressStartPosRef.current = null;
   };
 
   // Stable Synchronized Messages Ref for Channel Handlers
@@ -1231,6 +1232,13 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
     resizeObserver.observe(content);
 
     const handleUserScroll = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      longPressStartPosRef.current = null;
+      setActiveReactionPickerMsgId(null);
+
       if (!initialPinToBottomRef.current) return;
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       if (distanceFromBottom > 80 || container.scrollTop < 10) {

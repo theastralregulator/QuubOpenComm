@@ -7,6 +7,13 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // 1. Feature Gate Check
+  const v2Enabled = process.env.NEGOTIATION_CHAT_V2_ENABLED?.trim() === 'true';
+  if (!v2Enabled) {
+    return res.status(400).json({ error: 'Negotiation media uploads are currently disabled.' });
+  }
+
+  // 2. Authentication
   const authUser = await verifyUserAuth(req);
   if (!authUser) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -19,16 +26,14 @@ export default async function handler(req: any, res: any) {
   }
 
   const cleanMimeType = normalizeMimeType(mimeType);
-  const v2Enabled = process.env.NEGOTIATION_CHAT_V2_ENABLED?.trim() === 'true';
-  if (!v2Enabled) {
-    return res.status(400).json({ error: 'Negotiation media uploads are currently disabled.' });
-  }
 
+  // 3. Room & Active Authorization Check
   const check = await verifyNegotiationRoomParticipant(authUser.userId, roomId);
   if (!check.allowed || check.locked) {
-    return res.status(403).json({ error: 'Not authorized for this negotiation room' });
+    return res.status(403).json({ error: 'Cannot send media to a locked negotiation room.' });
   }
 
+  // 4. Request Validation
   const validation = validateMediaRequest(mediaType as MediaType, cleanMimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
   if (!validation.valid) {
     return res.status(400).json({ error: validation.error });
@@ -37,6 +42,28 @@ export default async function handler(req: any, res: any) {
   const adminClient = getServiceRoleSupabase();
   if (!adminClient) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
+  }
+
+  // 5. Reply Target Pre-Validation
+  if (replyToMessageId) {
+    const { data: replyTarget, error: replyErr } = await adminClient
+      .from('negotiation_messages')
+      .select('id, negotiation_room_id, deleted_at, message_type')
+      .eq('id', replyToMessageId)
+      .maybeSingle();
+
+    if (replyErr || !replyTarget) {
+      return res.status(400).json({ error: 'Reply target negotiation message does not exist.' });
+    }
+    if (replyTarget.negotiation_room_id !== roomId) {
+      return res.status(400).json({ error: 'Reply target message belongs to a different negotiation room.' });
+    }
+    if (replyTarget.deleted_at) {
+      return res.status(400).json({ error: 'Cannot reply to a deleted negotiation message.' });
+    }
+    if (['system', 'proposal_event', 'status_event'].includes(replyTarget.message_type)) {
+      return res.status(400).json({ error: 'Cannot reply to a system or workflow event message.' });
+    }
   }
 
   try {

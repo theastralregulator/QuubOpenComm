@@ -195,6 +195,10 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     };
   }, [details?.negotiation_room?.id]);
 
+  // Single Private Realtime Channel Ref & Presence Tracking Status
+  const negotiationRealtimeChannelRef = useRef<any>(null);
+  const trackedPresenceRef = useRef<boolean>(false);
+
   // V2 Private Realtime Channel (Typing, Reactions, Online Status)
   useEffect(() => {
     if (!negotiationChatV2Enabled || !details?.negotiation_room?.id || !currentUserId) return;
@@ -203,6 +207,8 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     const channel = supabase.channel(`negotiation:${roomId}`, {
       config: { private: true }
     });
+
+    negotiationRealtimeChannelRef.current = channel;
 
     channel
       .on('broadcast', { event: 'typing' }, (payload) => {
@@ -258,7 +264,20 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
-          channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() }).catch(() => {});
+          // Check online status privacy setting before tracking presence
+          dbService.getMyUserSettings()
+            .then((settings) => {
+              const showOnline = settings?.showOnlineStatus !== false;
+              if (showOnline) {
+                channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() })
+                  .then(() => { trackedPresenceRef.current = true; })
+                  .catch(() => {});
+              }
+            })
+            .catch(() => {
+              // Fail closed: do not publish presence if retrieval fails
+              trackedPresenceRef.current = false;
+            });
         }
       });
 
@@ -280,7 +299,29 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     void fetchReactions();
 
     return () => {
-      supabase.removeChannel(channel);
+      // Async cleanup IIFE
+      (async () => {
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = null;
+        }
+        try {
+          if (channel) {
+            channel.send({
+              type: 'broadcast',
+              event: 'typing',
+              payload: { userId: currentUserId, typing: false }
+            }).catch(() => {});
+
+            if (trackedPresenceRef.current) {
+              await channel.untrack().catch(() => {});
+              trackedPresenceRef.current = false;
+            }
+            await supabase.removeChannel(channel).catch(() => {});
+          }
+        } catch (_) {}
+      })();
+      negotiationRealtimeChannelRef.current = null;
     };
   }, [negotiationChatV2Enabled, details?.negotiation_room?.id, currentUserId]);
 
@@ -356,19 +397,20 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   };
 
   const sendTypingStatus = (typing: boolean) => {
-    if (!negotiationChatV2Enabled || !details?.negotiation_room?.id || room?.status === 'locked') return;
-    const channel = supabase.channel(`negotiation:${details.negotiation_room.id}`);
-    channel.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: { userId: currentUserId, typing }
-    }).catch(() => {});
+    if (!negotiationChatV2Enabled || !details?.negotiation_room?.id || room?.status !== 'active') return;
+    if (negotiationRealtimeChannelRef.current) {
+      negotiationRealtimeChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: currentUserId, typing }
+      }).catch(() => {});
+    }
   };
 
   const handleChatInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInputText(val);
-    if (!negotiationChatV2Enabled || room?.status === 'locked') return;
+    if (!negotiationChatV2Enabled || room?.status !== 'active') return;
 
     if (val.trim() === '') {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -397,14 +439,16 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     setSending(true);
 
     try {
-      if (replyingToMessage) {
-        await supabase.from('negotiation_messages').insert({
-          negotiation_room_id: details.negotiation_room.id,
-          sender_id: currentUserId,
-          text: textToSend,
-          reply_to_message_id: replyingToMessage.id,
-          unread: true
+      if (negotiationChatV2Enabled) {
+        const { data: res, error: sendErr } = await supabase.rpc('send_negotiation_message_v2', {
+          p_room_id: details.negotiation_room.id,
+          p_text: textToSend,
+          p_reply_to_message_id: replyingToMessage?.id || null
         });
+
+        if (sendErr || !res?.success) {
+          throw new Error(sendErr?.message || res?.error || 'Failed to send negotiation message');
+        }
         setReplyingToMessage(null);
       } else {
         await dbService.sendNegotiationMessage(details.negotiation_room.id, textToSend);
@@ -1273,10 +1317,23 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
                 onClick={async () => {
                   setIsDeletingMessage(true);
                   try {
-                    await supabase.rpc('delete_negotiation_message_internal', {
-                      p_message_id: deleteConfirmMessage.id,
-                      p_user_id: currentUserId
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session?.access_token) throw new Error('Authentication required.');
+
+                    const res = await fetch('/api/negotiation-message-delete', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`
+                      },
+                      body: JSON.stringify({ messageId: deleteConfirmMessage.id })
                     });
+
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.success) {
+                      throw new Error(data.error || 'Failed to delete message.');
+                    }
+
                     triggerToast('Message deleted');
                     setDeleteConfirmMessage(null);
                   } catch (err: any) {
