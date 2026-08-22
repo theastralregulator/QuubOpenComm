@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Briefcase, UserCheck, CheckCircle2, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import { Briefcase, UserCheck, CheckCircle2, ArrowRight, ShieldCheck } from 'lucide-react';
 
 interface BasicAccountWorkerIntroModalProps {
   isOpen: boolean;
@@ -36,19 +36,14 @@ export default function BasicAccountWorkerIntroModal({
     >
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl max-w-[580px] w-full max-h-[90vh] overflow-y-auto space-y-6">
         
-        {/* Header Icon & Title */}
-        <div className="flex items-center space-x-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center shrink-0">
-            <Sparkles className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <div>
-            <h2 id="basic-account-intro-title" className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
-              Your Basic Account is Ready
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              You've successfully created a Basic Account on OpenComm.
-            </p>
-          </div>
+        {/* Header Title */}
+        <div className="pb-2 border-b border-slate-100 dark:border-slate-800">
+          <h2 id="basic-account-intro-title" className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
+            Your Basic Account is Ready
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            You've successfully created a Basic Account on OpenComm.
+          </p>
         </div>
 
         {/* Capabilities Overview Grid */}

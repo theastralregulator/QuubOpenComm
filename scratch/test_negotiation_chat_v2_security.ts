@@ -35,6 +35,12 @@ function runPreflightAndUnitChecks() {
   const routeTrackerPath = path.join(rootDir, 'apps/web/src/components/common/RouteTracker.tsx');
   const routeTrackerCode = fs.readFileSync(routeTrackerPath, 'utf8');
 
+  const basicModalPath = path.join(rootDir, 'apps/web/src/components/auth/BasicAccountWorkerIntroModal.tsx');
+  const basicModalCode = fs.readFileSync(basicModalPath, 'utf8');
+
+  const navbarPath = path.join(rootDir, 'apps/web/src/components/navigation/Navbar.tsx');
+  const navbarCode = fs.readFileSync(navbarPath, 'utf8');
+
   const deleteApiPath = path.join(rootDir, 'api/negotiation-message-delete.ts');
   const deleteApiCode = fs.readFileSync(deleteApiPath, 'utf8');
 
@@ -112,7 +118,7 @@ function runPreflightAndUnitChecks() {
     'Privilege Hardening: Direct INSERT, UPDATE, DELETE, TRUNCATE on negotiation_messages is REVOKED from authenticated'
   );
 
-  // 10. Online Status Fail-Closed Logic in Frontend
+  // 10. Online Status Privacy: Fail-closed logic in NegotiationPage
   const onlinePrivacyCheck = /showOnlineStatus === true/i.test(negotiationPageCode);
   const onlinePrivacyNegativeCheck = !/showOnlineStatus !== false/i.test(negotiationPageCode);
   assert(
@@ -166,7 +172,23 @@ function runPreflightAndUnitChecks() {
     'Route Tracker Metadata: /messages/:conversationId maps to "Messages | OpenComm" instead of 404'
   );
 
-  // 17. Document Security Scanner Unit Tests
+  // 17. Basic Account Modal: Top Sparkles icon and wrapper removed
+  const modalSparklesImportRemoved = !/Sparkles/i.test(basicModalCode);
+  const modalHeaderClean = /Your Basic Account is Ready/i.test(basicModalCode);
+  assert(
+    modalSparklesImportRemoved && modalHeaderClean,
+    'Basic Account Modal: Top decorative Sparkles icon and unused import removed cleanly'
+  );
+
+  // 18. Mobile Navbar: Bounded safe-area bottom offset positioning
+  const navbarBoundedBottom = /clamp\(10px, env\(safe-area-inset-bottom, 10px\), 34px\)/i.test(navbarCode);
+  const navbarOldPbRemoved = !/pb-\[calc\(16px\+env\(safe-area-inset-bottom\)\)\]/i.test(navbarCode);
+  assert(
+    navbarBoundedBottom && navbarOldPbRemoved,
+    'Mobile Navbar: Uses bounded clamp(10px, env(safe-area-inset-bottom, 10px), 34px) bottom offset'
+  );
+
+  // 19. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
