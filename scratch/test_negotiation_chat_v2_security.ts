@@ -1,5 +1,5 @@
 /**
- * Negotiation Chat V2 Security & Hardening Static Preflight + Unit Test Suite
+ * Negotiation Chat V2 & Production UI Static Preflight + Unit Test Suite
  * Performs actual static file analysis, AST checks, and unit tests.
  */
 
@@ -8,7 +8,7 @@ import path from 'path';
 import { verifyDocumentBuffer } from '../api/_lib/media/documentScanner.js';
 
 function runPreflightAndUnitChecks() {
-  console.log('=== STARTING NEGOTIATION CHAT V2 STATIC PREFLIGHT + UNIT CHECKS ===');
+  console.log('=== STARTING NEGOTIATION CHAT V2 & UI STATIC PREFLIGHT + UNIT CHECKS ===');
   let passedCount = 0;
   let totalCount = 0;
 
@@ -28,6 +28,12 @@ function runPreflightAndUnitChecks() {
 
   const negotiationPagePath = path.join(rootDir, 'apps/web/src/components/hiring/NegotiationPage.tsx');
   const negotiationPageCode = fs.readFileSync(negotiationPagePath, 'utf8');
+
+  const messagesPagePath = path.join(rootDir, 'apps/web/src/components/messages/MessagesPage.tsx');
+  const messagesPageCode = fs.readFileSync(messagesPagePath, 'utf8');
+
+  const routeTrackerPath = path.join(rootDir, 'apps/web/src/components/common/RouteTracker.tsx');
+  const routeTrackerCode = fs.readFileSync(routeTrackerPath, 'utf8');
 
   const deleteApiPath = path.join(rootDir, 'api/negotiation-message-delete.ts');
   const deleteApiCode = fs.readFileSync(deleteApiPath, 'utf8');
@@ -145,7 +151,22 @@ function runPreflightAndUnitChecks() {
     'Target Change Guard: Initial position and realtime scroll refs are reset ONLY on true workflow target change'
   );
 
-  // 15. Document Security Scanner Unit Tests
+  // 15. Typing Indicator Text: Exactly "Typing…" without user names
+  const messagesPageTypingText = /<span>Typing…<\/span>/i.test(messagesPageCode) && !/is typing/i.test(messagesPageCode);
+  const negotiationPageTypingText = /<span>Typing…<\/span>/i.test(negotiationPageCode) && !/is typing/i.test(negotiationPageCode);
+  assert(
+    messagesPageTypingText && negotiationPageTypingText,
+    'Typing Indicator Text: All visible typing render paths display ONLY "Typing…" without names'
+  );
+
+  // 16. Route Tracker Title: /messages/:conversationId handled without 404 title
+  const routeTrackerMessagesCheck = /path === '\/messages' \|\| path\.startsWith\('\/messages\/'\)/i.test(routeTrackerCode);
+  assert(
+    routeTrackerMessagesCheck,
+    'Route Tracker Metadata: /messages/:conversationId maps to "Messages | OpenComm" instead of 404'
+  );
+
+  // 17. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

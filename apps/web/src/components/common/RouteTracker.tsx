@@ -30,7 +30,7 @@ export default function RouteTracker({ jobs, workers }: RouteTrackerProps) {
     } else if (path === '/jobs') {
       title = 'Jobs | OpenComm';
       metaDescription = 'Explore high-paying developer, designer, carpenter, electrician, and specialist job opportunities on OpenComm.';
-    } else if (path.startsWith('/jobs/') && resolvedJobId) {
+    } else if (path.startsWith('/jobs/') && resolvedJobId && !path.includes('/applications')) {
       const job = jobs.find(j => j.id === resolvedJobId);
       title = job ? `${job.title} at ${job.company} | OpenComm` : 'Job Details | OpenComm';
       if (job) {
@@ -45,24 +45,57 @@ export default function RouteTracker({ jobs, workers }: RouteTrackerProps) {
       if (worker) {
         metaDescription = `Hire ${worker.name}, a certified ${worker.title} with ${worker.experience} years of experience. Hourly rate: $${worker.hourlyRate}/hr.`;
       }
-    } else if (path === '/messages') {
+    } else if (path === '/messages' || path.startsWith('/messages/')) {
       title = 'Messages | OpenComm';
-    } else if (path === '/profile') {
-      title = 'My Profile | OpenComm';
-    } else if (path === '/saved-jobs') {
+      metaDescription = 'Direct peer-to-peer real-time messaging on OpenComm.';
+    } else if (path.includes('/negotiation') || path.startsWith('/hire-requests/') || path.startsWith('/applications/')) {
+      title = 'Negotiation | OpenComm';
+      metaDescription = 'Terms, deal offer, and negotiation workspace on OpenComm.';
+    } else if (path.startsWith('/work-contracts/')) {
+      title = 'Work Contract | OpenComm';
+      metaDescription = 'Escrow-backed work agreement and contract details on OpenComm.';
+    } else if (path === '/profile/my-job-posts') {
+      title = 'My Job Posts | OpenComm';
+    } else if (path === '/profile/manage-applications') {
+      title = 'Manage Applications | OpenComm';
+    } else if (path === '/profile/jobs-applied') {
+      title = 'Jobs Applied | OpenComm';
+    } else if (path.includes('/applications')) {
+      title = 'Applications | OpenComm';
+    } else if (path === '/profile/hire-requests') {
+      title = 'Hire Requests | OpenComm';
+    } else if (path === '/profile/notifications') {
+      title = 'Notifications | OpenComm';
+    } else if (path === '/profile/notification-settings') {
+      title = 'Notification Settings | OpenComm';
+    } else if (path === '/profile/saved-jobs' || path === '/saved-jobs') {
       title = 'Saved Jobs | OpenComm';
-    } else if (path === '/saved-workers') {
+    } else if (path === '/profile/saved-workers' || path === '/saved-workers') {
       title = 'Saved Workers | OpenComm';
+    } else if (path === '/settings' || path === '/profile/settings') {
+      title = 'Settings | OpenComm';
+    } else if (path === '/profile' || path.startsWith('/profile/')) {
+      title = 'Profile | OpenComm';
     } else if (path === '/login') {
       title = 'Sign In | OpenComm';
     } else if (path === '/signup') {
       title = 'Create Account | OpenComm';
+    } else if (path === '/reset-password') {
+      title = 'Reset Password | OpenComm';
+    } else if (path === '/verify-email') {
+      title = 'Verify Email | OpenComm';
     } else if (path === '/onboarding') {
       title = 'Onboarding | OpenComm';
-    } else if (path === '/settings') {
-      title = 'Settings | OpenComm';
-    } else if (path === '/settings') {
-      title = 'Settings | OpenComm';
+    } else if (path === '/terms') {
+      title = 'Terms of Service | OpenComm';
+    } else if (path === '/privacy') {
+      title = 'Privacy Policy | OpenComm';
+    } else if (path === '/community-guidelines') {
+      title = 'Community Guidelines | OpenComm';
+    } else if (path === '/cookie-policy') {
+      title = 'Cookie Policy | OpenComm';
+    } else if (path === '/contact' || path === '/grievance') {
+      title = 'Contact & Support | OpenComm';
     } else if (path.startsWith('/admin')) {
       title = 'Admin Control Center | OpenComm';
     } else {

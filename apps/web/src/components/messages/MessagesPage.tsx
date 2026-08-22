@@ -890,63 +890,25 @@ export default function MessagesPage({ triggerToast }: MessagesPageProps) {
 
     channel
       .on('broadcast', { event: 'typing' }, (payload) => {
-        const { conversationId: topicConvId, userId, senderName, typing } = payload.payload || {};
+        const { conversationId: topicConvId, userId, typing } = payload.payload || {};
         if (!userId || userId === currentUserId) return;
         if (topicConvId && topicConvId !== conversationId) return;
 
         if (typing) {
-          const isGeneric = (n?: string | null) => !n || !n.trim() || n.trim() === 'User' || n.trim() === 'OpenComm User';
+          setTypingUsers((prev) => new Map(prev).set(userId, 'Typing…'));
 
-          const resolveName = async () => {
-            // 1. valid payload.senderName
-            if (senderName && typeof senderName === 'string' && !isGeneric(senderName)) {
-              return senderName.trim();
-            }
-
-            // 2. valid local message sender_name where message.sender_id === userId
-            const matchingMsg = messagesRef.current.find((m) => m.sender_id === userId && !isGeneric(m.sender_name));
-            if (matchingMsg && matchingMsg.sender_name && !isGeneric(matchingMsg.sender_name)) {
-              return matchingMsg.sender_name.trim();
-            }
-
-            // 3. fetch exact payload.userId public profile if necessary
-            try {
-              const profileMap = await getPublicProfilesByIds([userId]);
-              const p = profileMap.get(userId);
-              if (p && (p.fullName || p.name) && !isGeneric(p.fullName || p.name)) {
-                return (p.fullName || p.name)!.trim();
-              }
-            } catch (err) {
-              // Ignore fetch error
-            }
-
-            // 4. activeConv.otherParticipantName ONLY IF activeConv.otherParticipantId === userId
-            if (activeConv && activeConv.otherParticipantId === userId && !isGeneric(activeConv.otherParticipantName)) {
-              return activeConv.otherParticipantName.trim();
-            }
-
-            // 5. "User"
-            return 'User';
-          };
-
-          void resolveName().then((resolvedName) => {
-            if (!resolvedName || userId === currentUserId) return;
-
-            setTypingUsers((prev) => new Map(prev).set(userId, resolvedName));
-
-            if (typingExpirationsRef.current.has(userId)) {
-              clearTimeout(typingExpirationsRef.current.get(userId));
-            }
-            const timer = setTimeout(() => {
-              setTypingUsers((prev) => {
-                const next = new Map(prev);
-                next.delete(userId);
-                return next;
-              });
-              typingExpirationsRef.current.delete(userId);
-            }, 3000);
-            typingExpirationsRef.current.set(userId, timer);
-          });
+          if (typingExpirationsRef.current.has(userId)) {
+            clearTimeout(typingExpirationsRef.current.get(userId));
+          }
+          const timer = setTimeout(() => {
+            setTypingUsers((prev) => {
+              const next = new Map(prev);
+              next.delete(userId);
+              return next;
+            });
+            typingExpirationsRef.current.delete(userId);
+          }, 3000);
+          typingExpirationsRef.current.set(userId, timer);
         } else {
           if (typingExpirationsRef.current.has(userId)) {
             clearTimeout(typingExpirationsRef.current.get(userId));
