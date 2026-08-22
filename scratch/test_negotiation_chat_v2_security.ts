@@ -136,12 +136,13 @@ function runPreflightAndUnitChecks() {
     'Media Finalizer: Contains full provider/MIME format validation matching permanent media rules'
   );
 
-  // 14. Locked Room Invariant & Room Switch Reset in Frontend
-  const pointerDownLockedCheck = /handleBubblePointerDown[\s\S]*?room\?\.status !== 'active'/i.test(negotiationPageCode);
-  const resetRefsOnRoomSwitch = /fetchWorkflowDetails[\s\S]*?initialScrollCompletedRef\.current = false/i.test(negotiationPageCode);
+  // 14. Target Change Guard for Initial Position Refs Reset
+  const targetChangeGuardCheck = /loadedWorkflowTargetRef\.current !== nextTargetKey/i.test(negotiationPageCode);
+  const initialRefsResetCheck = /if \(isWorkflowTargetChange\)[\s\S]*?initialScrollCompletedRef\.current = false/i.test(negotiationPageCode);
+  const realtimeScrollClearedCheck = /if \(isWorkflowTargetChange\)[\s\S]*?realtimeScrollTargetRef\.current = null/i.test(negotiationPageCode);
   assert(
-    pointerDownLockedCheck && resetRefsOnRoomSwitch,
-    'Frontend Invariants: Pointer down checks room status !== active and room switch resets initial position refs'
+    targetChangeGuardCheck && initialRefsResetCheck && realtimeScrollClearedCheck,
+    'Target Change Guard: Initial position and realtime scroll refs are reset ONLY on true workflow target change'
   );
 
   // 15. Document Security Scanner Unit Tests

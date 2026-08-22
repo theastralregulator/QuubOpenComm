@@ -84,6 +84,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   const initialPinToBottomRef = useRef<boolean>(true);
   const pinTimeoutRef = useRef<any>(null);
   const realtimeScrollTargetRef = useRef<string | null>(null);
+  const loadedWorkflowTargetRef = useRef<string | null>(null);
 
   // Long press refs
   const longPressTimerRef = useRef<any>(null);
@@ -117,22 +118,31 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   }, [negotiationChatV2Enabled, currentUserId, details?.negotiation_room?.id]);
 
   const fetchWorkflowDetails = async () => {
-    // Reset initial chat position refs & temporary UI BEFORE any await when room changes
-    initialUnreadMessageIdRef.current = null;
-    initialScrollCompletedRef.current = false;
-    initialScrollModeRef.current = null;
-    initialPinToBottomRef.current = true;
+    if (!targetId) return;
 
-    if (pinTimeoutRef.current) {
-      clearTimeout(pinTimeoutRef.current);
-      pinTimeoutRef.current = null;
+    const nextTargetKey = `${isJobApp ? 'application' : 'request'}:${targetId}`;
+    const isWorkflowTargetChange = loadedWorkflowTargetRef.current !== nextTargetKey;
+
+    // Reset initial chat position refs & temporary UI ONLY on actual workflow target change
+    if (isWorkflowTargetChange) {
+      loadedWorkflowTargetRef.current = nextTargetKey;
+
+      initialUnreadMessageIdRef.current = null;
+      initialScrollCompletedRef.current = false;
+      initialScrollModeRef.current = null;
+      initialPinToBottomRef.current = true;
+      realtimeScrollTargetRef.current = null;
+
+      if (pinTimeoutRef.current) {
+        clearTimeout(pinTimeoutRef.current);
+        pinTimeoutRef.current = null;
+      }
+
+      setReplyingToMessage(null);
+      setActiveMenuMsgId(null);
+      setActiveReactionPickerMsgId(null);
     }
 
-    setReplyingToMessage(null);
-    setActiveMenuMsgId(null);
-    setActiveReactionPickerMsgId(null);
-
-    if (!targetId) return;
     setLoading(true);
     setError(null);
     try {
