@@ -47,6 +47,17 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
   }
 
+  // Active account check
+  const { data: profile } = await adminClient
+    .from('profiles')
+    .select('account_status')
+    .eq('id', authUser.userId)
+    .maybeSingle();
+
+  if (!profile || profile.account_status !== 'active') {
+    return res.status(403).json({ error: 'Account is deactivated or non-active.' });
+  }
+
   // 5. Reply Target Pre-Validation (Before creating intent/upload target)
   if (replyToMessageId) {
     const { data: replyTarget, error: replyErr } = await adminClient

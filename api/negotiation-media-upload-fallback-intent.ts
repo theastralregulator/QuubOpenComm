@@ -1,5 +1,5 @@
 import { verifyUserAuth, verifyNegotiationRoomParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
-import { createFallbackUploadTarget, MediaType } from './_lib/media/providers.js';
+import { createFallbackUploadTarget, MediaType, StorageProviderType } from './_lib/media/providers.js';
 import { validateMediaRequest, normalizeMimeType } from './_lib/media/validation.js';
 
 export default async function handler(req: any, res: any) {
@@ -19,10 +19,14 @@ export default async function handler(req: any, res: any) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const { roomId, mediaType, mimeType, fileSizeBytes, durationMs, replyToMessageId } = req.body || {};
+  const { roomId, mediaType, mimeType, fileSizeBytes, durationMs, replyToMessageId, originalProvider } = req.body || {};
 
-  if (!roomId || !mediaType || !mimeType || !fileSizeBytes) {
-    return res.status(400).json({ error: 'Missing required upload parameters' });
+  if (!roomId || !mediaType || !mimeType || !fileSizeBytes || !originalProvider) {
+    return res.status(400).json({ error: 'Missing required upload parameters including originalProvider' });
+  }
+
+  if (originalProvider !== 'b2' && originalProvider !== 'cloudinary') {
+    return res.status(400).json({ error: 'Invalid originalProvider. Must be b2 or cloudinary.' });
   }
 
   const cleanMimeType = normalizeMimeType(mimeType);
@@ -42,6 +46,17 @@ export default async function handler(req: any, res: any) {
   const adminClient = getServiceRoleSupabase();
   if (!adminClient) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
+  }
+
+  // Active account check
+  const { data: profile } = await adminClient
+    .from('profiles')
+    .select('account_status')
+    .eq('id', authUser.userId)
+    .maybeSingle();
+
+  if (!profile || profile.account_status !== 'active') {
+    return res.status(403).json({ error: 'Account is deactivated or non-active.' });
   }
 
   // 5. Reply Target Pre-Validation
@@ -72,7 +87,7 @@ export default async function handler(req: any, res: any) {
       mediaType as MediaType,
       cleanMimeType,
       Number(fileSizeBytes),
-      'b2'
+      originalProvider as StorageProviderType
     );
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();

@@ -38,6 +38,17 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server database configuration unavailable' });
   }
 
+  // Active account check
+  const { data: profile } = await adminClient
+    .from('profiles')
+    .select('account_status')
+    .eq('id', authUser.userId)
+    .maybeSingle();
+
+  if (!profile || profile.account_status !== 'active') {
+    return res.status(403).json({ error: 'Account is deactivated or non-active.' });
+  }
+
   // 3. Guarded Intent Claiming via Server-Only RPC
   const { data: claimResult, error: claimErr } = await adminClient.rpc(
     'claim_negotiation_media_upload_intent_for_finalize',
@@ -128,6 +139,53 @@ export default async function handler(req: any, res: any) {
       console.warn(`Duration validation failed for key ${objectKey}: duration=${verifiedDurationMs}ms`);
       await resetIntentLeaseToPending();
       return res.status(400).json({ error: 'Uploaded video/audio duration exceeds maximum 5 minute limit.' });
+    }
+  }
+
+  // Provider-Aware Format / MIME Validation
+  if (provider === 'cloudinary') {
+    const resType = verification.resourceType;
+    const format = String(verification.format || '').toLowerCase();
+
+    if (mediaType === 'image') {
+      const allowedImageFormats = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+      if (resType !== 'image' || !allowedImageFormats.includes(format)) {
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match image authorization intent.' });
+      }
+    } else if (mediaType === 'video') {
+      const allowedVideoFormats = ['mp4', 'webm'];
+      if (resType !== 'video' || !allowedVideoFormats.includes(format)) {
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match video authorization intent.' });
+      }
+    } else if (mediaType === 'audio') {
+      const allowedAudioFormats = ['webm', 'ogg', 'mp3', 'mpeg', 'wav', 'm4a', 'aac', 'mp4'];
+      if (resType !== 'video' || !allowedAudioFormats.includes(format)) {
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match audio authorization intent.' });
+      }
+    } else if (mediaType === 'document') {
+      const allowedDocFormats = ['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'csv'];
+      if (resType !== 'raw' || !allowedDocFormats.includes(format)) {
+        await resetIntentLeaseToPending();
+        return res.status(400).json({ error: 'Uploaded file type does not match document authorization intent.' });
+      }
+    }
+  } else if (verification.contentType) {
+    const headMime = normalizeMimeType(verification.contentType);
+    const intentMime = cleanMimeType;
+
+    const isMimeCompatible = (
+      headMime === intentMime ||
+      (intentMime === 'audio/mp4' && (headMime === 'audio/x-m4a' || headMime === 'audio/m4a')) ||
+      (intentMime === 'audio/mpeg' && headMime === 'audio/mp3') ||
+      (mediaType !== 'document' && headMime === 'application/octet-stream')
+    );
+
+    if (!isMimeCompatible) {
+      await resetIntentLeaseToPending();
+      return res.status(400).json({ error: 'Uploaded file type does not match authorization intent.' });
     }
   }
 

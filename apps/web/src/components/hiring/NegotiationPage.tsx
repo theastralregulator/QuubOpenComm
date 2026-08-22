@@ -199,6 +199,22 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   const negotiationRealtimeChannelRef = useRef<any>(null);
   const trackedPresenceRef = useRef<boolean>(false);
 
+  const fetchReactions = useCallback(async () => {
+    if (!details?.negotiation_room?.id) return;
+    try {
+      const { data } = await supabase
+        .from('negotiation_message_reactions')
+        .select('*')
+        .eq('negotiation_room_id', details.negotiation_room.id);
+      const grouped: Record<string, any[]> = {};
+      (data || []).forEach((r: any) => {
+        if (!grouped[r.message_id]) grouped[r.message_id] = [];
+        grouped[r.message_id].push(r);
+      });
+      setMessageReactions(grouped);
+    } catch (_) {}
+  }, [details?.negotiation_room?.id]);
+
   // V2 Private Realtime Channel (Typing, Reactions, Online Status)
   useEffect(() => {
     if (!negotiationChatV2Enabled || !details?.negotiation_room?.id || !currentUserId) return;
@@ -241,8 +257,11 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
           });
         }
       })
-      .on('broadcast', { event: 'reaction_changed' }, () => {
-        void fetchReactions();
+      .on('broadcast', { event: 'reaction_changed' }, (payload) => {
+        const { roomId: targetRoomId } = payload.payload || {};
+        if (!targetRoomId || targetRoomId === roomId) {
+          void fetchReactions();
+        }
       })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
@@ -267,7 +286,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
           // Check online status privacy setting before tracking presence
           dbService.getMyUserSettings()
             .then((settings) => {
-              const showOnline = settings?.showOnlineStatus !== false;
+              const showOnline = settings?.showOnlineStatus === true;
               if (showOnline) {
                 channel.track({ userId: currentUserId, onlineAt: new Date().toISOString() })
                   .then(() => { trackedPresenceRef.current = true; })
@@ -280,21 +299,6 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
             });
         }
       });
-
-    const fetchReactions = async () => {
-      try {
-        const { data } = await supabase
-          .from('negotiation_message_reactions')
-          .select('*')
-          .eq('negotiation_room_id', roomId);
-        const grouped: Record<string, any[]> = {};
-        (data || []).forEach((r: any) => {
-          if (!grouped[r.message_id]) grouped[r.message_id] = [];
-          grouped[r.message_id].push(r);
-        });
-        setMessageReactions(grouped);
-      } catch (_) {}
-    };
 
     void fetchReactions();
 
@@ -323,7 +327,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
       })();
       negotiationRealtimeChannelRef.current = null;
     };
-  }, [negotiationChatV2Enabled, details?.negotiation_room?.id, currentUserId]);
+  }, [negotiationChatV2Enabled, details?.negotiation_room?.id, currentUserId, fetchReactions]);
 
   // V1 Fallback Auto-Scroll
   useEffect(() => {
@@ -462,13 +466,30 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   };
 
   const handleToggleReaction = async (msg: any, emoji: string) => {
-    if (!details?.negotiation_room?.id) return;
+    if (!details?.negotiation_room?.id || isRoomLocked) return;
     try {
-      await supabase.rpc('toggle_negotiation_message_reaction', {
+      const { data: res, error: rpcErr } = await supabase.rpc('toggle_negotiation_message_reaction', {
         p_message_id: msg.id,
         p_room_id: details.negotiation_room.id,
         p_emoji: emoji
       });
+
+      if (rpcErr) {
+        throw new Error(rpcErr.message || 'Failed to toggle reaction.');
+      }
+
+      await fetchReactions();
+
+      if (negotiationRealtimeChannelRef.current) {
+        negotiationRealtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'reaction_changed',
+          payload: {
+            roomId: details.negotiation_room.id,
+            messageId: msg.id
+          }
+        }).catch(() => {});
+      }
     } catch (err: any) {
       triggerToast(err.message || 'Failed to toggle reaction.');
     }
@@ -481,12 +502,13 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
     width?: number,
     height?: number
   ) => {
-    if (!details?.negotiation_room?.id) return;
+    if (!details?.negotiation_room?.id || isRoomLocked) return;
     setIsUploadingMedia(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Authentication required.');
 
+      // 1. Request primary upload intent
       const initRes = await fetch('/api/negotiation-media-upload-intent', {
         method: 'POST',
         headers: {
@@ -503,8 +525,41 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
         })
       });
 
-      let intentData = await initRes.json();
+      let intentData = await initRes.json().catch(() => ({}));
       if (!initRes.ok) {
+        throw new Error(intentData.error || 'Failed to initialize upload intent.');
+      }
+
+      let uploadSuccessful = false;
+      let activeIntentId = intentData.intentId;
+
+      // 2. Attempt primary provider upload
+      try {
+        let uploadRes: Response;
+        if (intentData.provider === 'b2' && intentData.uploadUrl) {
+          uploadRes = await fetch(intentData.uploadUrl, {
+            method: 'PUT',
+            body: file,
+            headers: { 'Content-Type': file.type || 'application/octet-stream' }
+          });
+        } else if (intentData.formData && intentData.uploadUrl) {
+          const fd = new FormData();
+          Object.entries(intentData.formData).forEach(([k, v]) => fd.append(k, v as string));
+          fd.append('file', file);
+          uploadRes = await fetch(intentData.uploadUrl, { method: 'POST', body: fd });
+        } else {
+          throw new Error('Invalid upload target configuration');
+        }
+
+        if (uploadRes.ok) {
+          uploadSuccessful = true;
+        }
+      } catch (uploadErr) {
+        console.warn('Primary provider upload failed, attempting fallback:', uploadErr);
+      }
+
+      // 3. If primary upload failed, attempt fallback upload
+      if (!uploadSuccessful) {
         const fallbackRes = await fetch('/api/negotiation-media-upload-fallback-intent', {
           method: 'POST',
           headers: {
@@ -517,22 +572,40 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
             mimeType: file.type || 'application/octet-stream',
             fileSizeBytes: file.size,
             durationMs,
-            replyToMessageId: replyingToMessage?.id || null
+            replyToMessageId: replyingToMessage?.id || null,
+            originalProvider: intentData.provider
           })
         });
-        intentData = await fallbackRes.json();
-        if (!fallbackRes.ok) throw new Error(intentData.error || 'Failed to initialize upload intent.');
+
+        const fallbackData = await fallbackRes.json().catch(() => ({}));
+        if (!fallbackRes.ok) {
+          throw new Error(fallbackData.error || 'Primary storage upload failed and fallback is unavailable.');
+        }
+
+        activeIntentId = fallbackData.intentId;
+
+        let fbUploadRes: Response;
+        if (fallbackData.provider === 'b2' && fallbackData.uploadUrl) {
+          fbUploadRes = await fetch(fallbackData.uploadUrl, {
+            method: 'PUT',
+            body: file,
+            headers: { 'Content-Type': file.type || 'application/octet-stream' }
+          });
+        } else if (fallbackData.formData && fallbackData.uploadUrl) {
+          const fd = new FormData();
+          Object.entries(fallbackData.formData).forEach(([k, v]) => fd.append(k, v as string));
+          fd.append('file', file);
+          fbUploadRes = await fetch(fallbackData.uploadUrl, { method: 'POST', body: fd });
+        } else {
+          throw new Error('Invalid fallback upload target configuration');
+        }
+
+        if (!fbUploadRes.ok) {
+          throw new Error('Fallback storage provider upload failed.');
+        }
       }
 
-      if (intentData.provider === 'b2' && intentData.uploadUrl) {
-        await fetch(intentData.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
-      } else if (intentData.formData && intentData.uploadUrl) {
-        const fd = new FormData();
-        Object.entries(intentData.formData).forEach(([k, v]) => fd.append(k, v as string));
-        fd.append('file', file);
-        await fetch(intentData.uploadUrl, { method: 'POST', body: fd });
-      }
-
+      // 4. Finalize media upload intent
       const finRes = await fetch('/api/negotiation-media-finalize', {
         method: 'POST',
         headers: {
@@ -540,7 +613,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          intentId: intentData.intentId,
+          intentId: activeIntentId,
           roomId: details.negotiation_room.id,
           durationMs,
           width,
@@ -549,7 +622,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
         })
       });
 
-      const finData = await finRes.json();
+      const finData = await finRes.json().catch(() => ({}));
       if (!finRes.ok) throw new Error(finData.error || 'Failed to finalize media upload.');
 
       setSelectedMedia(null);
@@ -646,7 +719,7 @@ export default function NegotiationPage({ triggerToast }: NegotiationPageProps) 
   const workerId = isJobApp ? req.applicant_id : req.worker_id;
 
   const badge = getStatusBadge(req.status);
-  const isRoomLocked = room?.status === 'locked' || req.status === 'confirmed';
+  const isRoomLocked = room?.status !== 'active' || req.status === 'confirmed';
 
   return (
     <div className="w-full max-w-4xl mx-auto py-4 sm:py-6 px-2 sm:px-6 space-y-4 text-left">
