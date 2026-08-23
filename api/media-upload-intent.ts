@@ -1,112 +1,286 @@
-import { verifyUserAuth, verifyConversationParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
+import { verifyUserAuth, verifyConversationParticipant, verifyNegotiationRoomParticipant, getServiceRoleSupabase } from './_lib/media/auth.js';
 import { createUploadTarget, MediaType, StorageProviderType } from './_lib/media/providers.js';
 import { validateMediaRequest, normalizeMimeType } from './_lib/media/validation.js';
 import { recordStorageEvent, getSizeBucket } from './_lib/media/telemetry.js';
 
+// Consolidated serverless function for media upload intent authorization:
+// - /api/media-upload-intent (Permanent Chat)
+// - /api/negotiation-media-upload-intent (Negotiation Chat V2)
 export default async function handler(req: any, res: any) {
   const startTime = Date.now();
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const authUser = await verifyUserAuth(req);
-  if (!authUser) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  const url = req.url || '';
+  const matchedPath = (req.headers['x-matched-path'] as string) || '';
+  const fullPath = (url + ' ' + matchedPath).toLowerCase();
+  const isNegotiation = fullPath.includes('negotiation') || req.body?.scope === 'negotiation' || req.body?.isNegotiation === true;
 
-  const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs, replyToMessageId } = req.body || {};
+  if (isNegotiation) {
+    // ==================================================
+    // NEGOTIATION CHAT V2 UPLOAD INTENT
+    // ==================================================
 
-  if (!conversationId || !mediaType || !mimeType || !fileSizeBytes) {
-    return res.status(400).json({ error: 'Missing required upload parameters' });
-  }
+    // 1. Feature Gate Check
+    const v2Enabled = process.env.NEGOTIATION_CHAT_V2_ENABLED?.trim() === 'true';
+    if (!v2Enabled) {
+      return res.status(400).json({ error: 'Negotiation media uploads are currently disabled.' });
+    }
 
-  const cleanMimeType = normalizeMimeType(mimeType);
-  const chatEnabled = process.env.CHAT_INTERACTIONS_V1_ENABLED?.trim() === 'true';
+    // 2. Authentication
+    const authUser = await verifyUserAuth(req);
+    if (!authUser) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
-  if (replyToMessageId && !chatEnabled) {
-    return res.status(400).json({ error: 'Message replies are currently unavailable.' });
-  }
+    const { roomId: rawRoomId, negotiationRoomId, conversationId, mediaType, mimeType, fileSizeBytes, durationMs, replyToMessageId } = req.body || {};
+    const roomId = rawRoomId || negotiationRoomId || conversationId;
 
-  // 1. Verify conversation authorization & archive status
-  const check = await verifyConversationParticipant(authUser.userId, conversationId);
-  if (!check.allowed) {
-    return res.status(403).json({ error: check.errorMsg || 'Forbidden' });
-  }
-  if (check.archived) {
-    return res.status(400).json({ error: 'Cannot send media to an archived conversation.' });
-  }
+    if (!roomId || !mediaType || !mimeType || !fileSizeBytes) {
+      return res.status(400).json({ error: 'Missing required upload parameters' });
+    }
 
-  // 2. Validate media type, size, and duration
-  const validation = validateMediaRequest(mediaType as MediaType, cleanMimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
-  if (!validation.valid) {
-    return res.status(400).json({ error: validation.error });
-  }
+    const cleanMimeType = normalizeMimeType(mimeType);
 
-  const adminClient = getServiceRoleSupabase();
-  if (!adminClient) {
-    return res.status(500).json({ error: 'Server database configuration unavailable' });
-  }
+    // 3. Room & Active Authorization Check
+    const check = await verifyNegotiationRoomParticipant(authUser.userId, roomId);
+    if (!check.allowed) {
+      return res.status(403).json({ error: check.errorMsg || 'Forbidden' });
+    }
+    if (check.locked) {
+      return res.status(400).json({ error: 'Cannot send media to a locked negotiation room.' });
+    }
 
-  // Validate replyToMessageId if feature enabled and provided
-  let validReplyTargetId: string | null = null;
-  if (chatEnabled && replyToMessageId && typeof replyToMessageId === 'string') {
-    const { data: targetMsg } = await adminClient
-      .from('messages')
-      .select('id, conversation_id, deleted_at')
-      .eq('id', replyToMessageId)
+    // 4. Request Validation
+    const validation = validateMediaRequest(mediaType as MediaType, cleanMimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const adminClient = getServiceRoleSupabase();
+    if (!adminClient) {
+      return res.status(500).json({ error: 'Server database configuration unavailable' });
+    }
+
+    // Active account check
+    const { data: profile } = await adminClient
+      .from('profiles')
+      .select('account_status')
+      .eq('id', authUser.userId)
       .maybeSingle();
 
-    if (!targetMsg) {
-      return res.status(400).json({ error: 'Reply target message does not exist.' });
-    }
-    if (targetMsg.conversation_id !== conversationId) {
-      return res.status(400).json({ error: 'Reply target message belongs to a different conversation.' });
-    }
-    if (targetMsg.deleted_at) {
-      return res.status(400).json({ error: 'Cannot reply to a deleted message.' });
-    }
-    validReplyTargetId = targetMsg.id;
-  }
-
-  let resolvedProvider: StorageProviderType | null = null;
-
-  try {
-    // 3. Create upload target strictly using Server Storage Provider Router
-    const target = await createUploadTarget(
-      conversationId,
-      mediaType as MediaType,
-      cleanMimeType,
-      Number(fileSizeBytes)
-    );
-
-    resolvedProvider = target.provider;
-
-    // 4. Save upload intent in database (using existing schema columns by default for pre-migration safety)
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const insertPayload: Record<string, any> = {
-      user_id: authUser.userId,
-      conversation_id: conversationId,
-      provider: target.provider,
-      object_key: target.objectKey,
-      media_type: mediaType,
-      mime_type: cleanMimeType,
-      file_size_bytes: Number(fileSizeBytes),
-      status: 'pending',
-      expires_at: expiresAt
-    };
-
-    if (chatEnabled && validReplyTargetId) {
-      insertPayload.reply_to_message_id = validReplyTargetId;
+    if (!profile || profile.account_status !== 'active') {
+      return res.status(403).json({ error: 'Account is deactivated or non-active.' });
     }
 
-    const { data: intent, error: intentErr } = await adminClient
-      .from('media_upload_intents')
-      .insert(insertPayload)
-      .select('id')
-      .single();
+    // 5. Reply Target Pre-Validation
+    if (replyToMessageId) {
+      const { data: replyTarget, error: replyErr } = await adminClient
+        .from('negotiation_messages')
+        .select('id, negotiation_room_id, deleted_at, message_type')
+        .eq('id', replyToMessageId)
+        .maybeSingle();
 
-    if (intentErr || !intent) {
-      console.error('Error inserting upload intent record:', intentErr);
+      if (replyErr || !replyTarget) {
+        return res.status(400).json({ error: 'Reply target negotiation message does not exist.' });
+      }
+      if (replyTarget.negotiation_room_id !== roomId) {
+        return res.status(400).json({ error: 'Reply target message belongs to a different negotiation room.' });
+      }
+      if (replyTarget.deleted_at) {
+        return res.status(400).json({ error: 'Cannot reply to a deleted negotiation message.' });
+      }
+      if (['system', 'proposal_event', 'status_event'].includes(replyTarget.message_type)) {
+        return res.status(400).json({ error: 'Cannot reply to a system or workflow event message.' });
+      }
+    }
+
+    try {
+      const target = await createUploadTarget(
+        roomId,
+        mediaType as MediaType,
+        cleanMimeType,
+        Number(fileSizeBytes)
+      );
+
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const insertPayload: Record<string, any> = {
+        user_id: authUser.userId,
+        negotiation_room_id: roomId,
+        provider: target.provider,
+        object_key: target.objectKey,
+        media_type: mediaType,
+        mime_type: cleanMimeType,
+        file_size_bytes: Number(fileSizeBytes),
+        status: 'pending',
+        expires_at: expiresAt
+      };
+
+      if (replyToMessageId) {
+        insertPayload.reply_to_message_id = replyToMessageId;
+      }
+
+      const { data: intent, error: insertErr } = await adminClient
+        .from('negotiation_media_upload_intents')
+        .insert(insertPayload)
+        .select('id, expires_at')
+        .single();
+
+      if (insertErr || !intent) {
+        return res.status(500).json({ error: insertErr?.message || 'Failed to save negotiation upload intent' });
+      }
+
+      return res.status(200).json({
+        intentId: intent.id,
+        provider: target.provider,
+        uploadUrl: target.uploadUrl,
+        formData: target.formDataParams,
+        objectKey: target.objectKey,
+        expiresAt: intent.expires_at
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message || 'Failed to initialize negotiation upload target' });
+    }
+  } else {
+    // ==================================================
+    // PERMANENT CHAT UPLOAD INTENT
+    // ==================================================
+    const authUser = await verifyUserAuth(req);
+    if (!authUser) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { conversationId, mediaType, mimeType, fileSizeBytes, durationMs, replyToMessageId } = req.body || {};
+
+    if (!conversationId || !mediaType || !mimeType || !fileSizeBytes) {
+      return res.status(400).json({ error: 'Missing required upload parameters' });
+    }
+
+    const cleanMimeType = normalizeMimeType(mimeType);
+    const chatEnabled = process.env.CHAT_INTERACTIONS_V1_ENABLED?.trim() === 'true';
+
+    if (replyToMessageId && !chatEnabled) {
+      return res.status(400).json({ error: 'Message replies are currently unavailable.' });
+    }
+
+    // 1. Verify conversation authorization & archive status
+    const check = await verifyConversationParticipant(authUser.userId, conversationId);
+    if (!check.allowed) {
+      return res.status(403).json({ error: check.errorMsg || 'Forbidden' });
+    }
+    if (check.archived) {
+      return res.status(400).json({ error: 'Cannot send media to an archived conversation.' });
+    }
+
+    // 2. Validate media type, size, and duration
+    const validation = validateMediaRequest(mediaType as MediaType, cleanMimeType, Number(fileSizeBytes), durationMs ? Number(durationMs) : undefined);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const adminClient = getServiceRoleSupabase();
+    if (!adminClient) {
+      return res.status(500).json({ error: 'Server database configuration unavailable' });
+    }
+
+    // Validate replyToMessageId if feature enabled and provided
+    let validReplyTargetId: string | null = null;
+    if (chatEnabled && replyToMessageId && typeof replyToMessageId === 'string') {
+      const { data: targetMsg } = await adminClient
+        .from('messages')
+        .select('id, conversation_id, deleted_at')
+        .eq('id', replyToMessageId)
+        .maybeSingle();
+
+      if (!targetMsg) {
+        return res.status(400).json({ error: 'Reply target message does not exist.' });
+      }
+      if (targetMsg.conversation_id !== conversationId) {
+        return res.status(400).json({ error: 'Reply target message belongs to a different conversation.' });
+      }
+      if (targetMsg.deleted_at) {
+        return res.status(400).json({ error: 'Cannot reply to a deleted message.' });
+      }
+      validReplyTargetId = targetMsg.id;
+    }
+
+    let resolvedProvider: StorageProviderType | null = null;
+
+    try {
+      // 3. Create upload target strictly using Server Storage Provider Router
+      const target = await createUploadTarget(
+        conversationId,
+        mediaType as MediaType,
+        cleanMimeType,
+        Number(fileSizeBytes)
+      );
+
+      resolvedProvider = target.provider;
+
+      // 4. Save upload intent in database
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const insertPayload: Record<string, any> = {
+        user_id: authUser.userId,
+        conversation_id: conversationId,
+        provider: target.provider,
+        object_key: target.objectKey,
+        media_type: mediaType,
+        mime_type: cleanMimeType,
+        file_size_bytes: Number(fileSizeBytes),
+        status: 'pending',
+        expires_at: expiresAt
+      };
+
+      if (chatEnabled && validReplyTargetId) {
+        insertPayload.reply_to_message_id = validReplyTargetId;
+      }
+
+      const { data: intent, error: intentErr } = await adminClient
+        .from('media_upload_intents')
+        .insert(insertPayload)
+        .select('id')
+        .single();
+
+      if (intentErr || !intent) {
+        console.error('Error inserting upload intent record:', intentErr);
+        if (resolvedProvider) {
+          void recordStorageEvent({
+            provider: resolvedProvider,
+            operation: 'upload_intent',
+            eventType: 'failure',
+            httpStatus: 500,
+            latencyMs: Date.now() - startTime,
+            mediaType: mediaType as MediaType,
+            sizeBucket: getSizeBucket(Number(fileSizeBytes))
+          });
+        }
+        return res.status(500).json({ error: 'Failed to record upload authorization intent record.' });
+      }
+
+      void recordStorageEvent({
+        provider: target.provider,
+        operation: 'upload_intent',
+        eventType: 'success',
+        httpStatus: 200,
+        latencyMs: Date.now() - startTime,
+        mediaType: mediaType as MediaType,
+        sizeBucket: getSizeBucket(Number(fileSizeBytes))
+      });
+
+      return res.status(200).json({
+        intentId: intent.id,
+        provider: target.provider,
+        uploadUrl: target.uploadUrl,
+        objectKey: target.objectKey,
+        uploadMethod: target.uploadMethod || 'PUT',
+        formDataParams: target.formDataParams,
+        headers: target.headers,
+        expiresInSeconds: target.expiresInSeconds
+      });
+
+    } catch (err: any) {
+      console.error('Error generating upload intent:', err);
       if (resolvedProvider) {
         void recordStorageEvent({
           provider: resolvedProvider,
@@ -118,43 +292,7 @@ export default async function handler(req: any, res: any) {
           sizeBucket: getSizeBucket(Number(fileSizeBytes))
         });
       }
-      return res.status(500).json({ error: 'Failed to record upload authorization intent record.' });
+      return res.status(500).json({ error: err.message || 'Failed to generate upload authorization target.' });
     }
-
-    void recordStorageEvent({
-      provider: target.provider,
-      operation: 'upload_intent',
-      eventType: 'success',
-      httpStatus: 200,
-      latencyMs: Date.now() - startTime,
-      mediaType: mediaType as MediaType,
-      sizeBucket: getSizeBucket(Number(fileSizeBytes))
-    });
-
-    return res.status(200).json({
-      intentId: intent.id,
-      provider: target.provider,
-      uploadUrl: target.uploadUrl,
-      objectKey: target.objectKey,
-      uploadMethod: target.uploadMethod || 'PUT',
-      formDataParams: target.formDataParams,
-      headers: target.headers,
-      expiresInSeconds: target.expiresInSeconds
-    });
-
-  } catch (err: any) {
-    console.error('Error generating upload intent:', err);
-    if (resolvedProvider) {
-      void recordStorageEvent({
-        provider: resolvedProvider,
-        operation: 'upload_intent',
-        eventType: 'failure',
-        httpStatus: 500,
-        latencyMs: Date.now() - startTime,
-        mediaType: mediaType as MediaType,
-        sizeBucket: getSizeBucket(Number(fileSizeBytes))
-      });
-    }
-    return res.status(500).json({ error: err.message || 'Failed to generate upload authorization target.' });
   }
 }

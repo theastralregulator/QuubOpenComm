@@ -2,6 +2,38 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/api/chat-status",
+      "destination": "/api/config"
+    },
+    {
+      "source": "/api/negotiation-chat-status",
+      "destination": "/api/config"
+    },
+    {
+      "source": "/api/media-status",
+      "destination": "/api/config"
+    },
+    {
+      "source": "/api/negotiation-message-delete",
+      "destination": "/api/message-delete"
+    },
+    {
+      "source": "/api/negotiation-media-access",
+      "destination": "/api/media-access"
+    },
+    {
+      "source": "/api/negotiation-media-upload-intent",
+      "destination": "/api/media-upload-intent"
+    },
+    {
+      "source": "/api/negotiation-media-upload-fallback-intent",
+      "destination": "/api/media-upload-fallback-intent"
+    },
+    {
+      "source": "/api/negotiation-media-finalize",
+      "destination": "/api/media-finalize"
+    },
+    {
       "source": "/((?!assets/|api/).*)",
       "destination": "/index.html"
     }

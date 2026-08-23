@@ -53,13 +53,13 @@ function runPreflightAndUnitChecks() {
   const appPath = path.join(rootDir, 'apps/web/src/App.tsx');
   const appCode = fs.readFileSync(appPath, 'utf8');
 
-  const deleteApiPath = path.join(rootDir, 'api/negotiation-message-delete.ts');
+  const deleteApiPath = path.join(rootDir, 'api/message-delete.ts');
   const deleteApiCode = fs.readFileSync(deleteApiPath, 'utf8');
 
-  const finalizeApiPath = path.join(rootDir, 'api/negotiation-media-finalize.ts');
+  const finalizeApiPath = path.join(rootDir, 'api/media-finalize.ts');
   const finalizeApiCode = fs.readFileSync(finalizeApiPath, 'utf8');
 
-  const fallbackApiPath = path.join(rootDir, 'api/negotiation-media-upload-fallback-intent.ts');
+  const fallbackApiPath = path.join(rootDir, 'api/media-upload-fallback-intent.ts');
   const fallbackApiCode = fs.readFileSync(fallbackApiPath, 'utf8');
 
   // 1. Migration Ordering Check: Helper function created BEFORE policies referencing it
@@ -146,11 +146,11 @@ function runPreflightAndUnitChecks() {
     'Reaction Realtime: handleToggleReaction checks RPC error, refreshes local state, and broadcasts reaction_changed'
   );
 
-  // 12. Fallback API: originalProvider validation
+  // 12. Fallback API: originalProvider validation in consolidated endpoint
   const fallbackOriginalProviderCheck = /originalProvider !== 'b2' && originalProvider !== 'cloudinary'/i.test(fallbackApiCode);
   assert(
     fallbackOriginalProviderCheck,
-    'Fallback API: Validates originalProvider strictly against b2 or cloudinary'
+    'Fallback API: Validates originalProvider strictly against b2 or cloudinary in consolidated endpoint'
   );
 
   // 13. Provider/MIME Validation in Media Finalizer
@@ -236,7 +236,16 @@ function runPreflightAndUnitChecks() {
     'Technical Precision: linearGradient userSpaceOnUse coordinates, lazy reduced-motion initialization, and SVG animateTransform'
   );
 
-  // 23. Document Security Scanner Unit Tests
+  // 23. Vercel Hobby Serverless Function Count Limit (<= 10 functions)
+  const apiDir = path.join(rootDir, 'api');
+  const apiFiles = fs.readdirSync(apiDir).filter(f => f.endsWith('.ts'));
+  const serverlessCount = apiFiles.length;
+  assert(
+    serverlessCount <= 10,
+    `Vercel Hobby Serverless Limit: Deployable functions count is ${serverlessCount} (<= 10 target, well below 12 Hobby limit)`
+  );
+
+  // 24. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
