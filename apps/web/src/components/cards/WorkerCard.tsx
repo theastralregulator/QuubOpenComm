@@ -79,7 +79,7 @@ export default function WorkerCard({
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const shareUrl = `${window.location.origin}/workers/${id}`;
-    const shareText = `Check out this certified professional on OpenComm: ${name} (${professionalTitle})!`;
+    const shareText = `Check out this worker profile on OpenComm: ${name} (${professionalTitle})!`;
 
     analytics.trackEvent('share', { item_type: 'worker', item_id: id, item_title: name });
 

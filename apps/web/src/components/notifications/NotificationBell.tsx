@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, NotificationItem } from '../../lib/notificationService';
 import { unreadService, useUnreadCounts } from '../../lib/unreadService';
 import { getNotificationCategory } from '../../lib/notificationCategories';
+
 interface NotificationBellProps {
   currentUserId?: string | null;
 }
@@ -15,27 +16,35 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const hasLoadedRef = useRef(false);
+  const lastFetchedAtRef = useRef<number>(0);
 
   const { notificationCount } = useUnreadCounts(currentUserId || null);
 
-  const fetchInitialData = useCallback(async () => {
+  const fetchInitialData = useCallback(async (isBackground = false) => {
     if (!currentUserId) return;
-    setLoading(true);
+    if (!isBackground && !hasLoadedRef.current) {
+      setLoading(true);
+    }
     try {
       const items = await notificationService.getMyNotifications({ limit: 5 });
       setNotifications(items);
+      hasLoadedRef.current = true;
+      lastFetchedAtRef.current = Date.now();
       await unreadService.refresh(currentUserId);
     } catch (err) {
       console.error('Error fetching bell data:', err);
     } finally {
-      setLoading(false);
+      if (!isBackground) {
+        setLoading(false);
+      }
     }
   }, [currentUserId]);
 
   useEffect(() => {
     if (!currentUserId) return;
 
-    fetchInitialData();
+    fetchInitialData(false);
 
     const unsubscribe = unreadService.subscribeNotificationEvents(currentUserId, (newNotif, event) => {
       setNotifications((prev) => {
@@ -68,7 +77,10 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
 
   const handleToggle = () => {
     if (!isOpen) {
-      fetchInitialData();
+      const isStale = Date.now() - lastFetchedAtRef.current > 30000;
+      if (!hasLoadedRef.current || isStale) {
+        fetchInitialData(hasLoadedRef.current);
+      }
     }
     setIsOpen(!isOpen);
   };
@@ -159,8 +171,19 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
 
             {/* List Body */}
             <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
-              {loading ? (
-                <div className="p-6 text-center text-xs text-slate-400">Loading notifications...</div>
+              {loading && notifications.length === 0 ? (
+                <div className="p-4 space-y-3">
+                  {[1, 2, 3].map((idx) => (
+                    <div key={idx} className="flex items-start space-x-3 animate-pulse">
+                      <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-800 shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <div className="w-32 h-3.5 bg-slate-200 dark:bg-slate-800 rounded" />
+                        <div className="w-48 h-3 bg-slate-100 dark:bg-slate-800/60 rounded" />
+                        <div className="w-16 h-2 bg-slate-100 dark:bg-slate-800/60 rounded" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : notifications.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-400 space-y-1">
                   <Bell className="w-6 h-6 mx-auto text-slate-300 dark:text-slate-600" />

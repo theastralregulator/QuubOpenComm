@@ -6,6 +6,7 @@ import {
 import { Job, Worker } from '../../types';
 import JobCard from '../cards/JobCard';
 import WorkerCard from '../cards/WorkerCard';
+import JobCardSkeleton from '../jobs/JobCardSkeleton';
 import SharedApplicationModal from '../jobs/SharedApplicationModal';
 
 interface RecommendedForYouProps {
@@ -19,6 +20,9 @@ interface RecommendedForYouProps {
   onViewWorkers: () => void;
   /** Current user's ID — used to exclude own jobs/profiles */
   currentUserId?: string | null;
+  applicationsByJobId?: Map<string, any>;
+  isJobsLoaded?: boolean;
+  isWorkersLoaded?: boolean;
 }
 
 export default function RecommendedForYou({
@@ -31,15 +35,17 @@ export default function RecommendedForYou({
   onViewJobs,
   onViewWorkers,
   currentUserId,
+  applicationsByJobId,
+  isJobsLoaded = true,
+  isWorkersLoaded = true,
 }: RecommendedForYouProps) {
   const [activeTab, setActiveTab] = useState<'jobs' | 'workers'>('jobs');
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
 
-  // Up to 6 jobs: exclude own posts, already applied, withdrawn, closed/archived/expired
+  // Up to 6 jobs: exclude own posts and closed/archived/expired jobs
   const recommendedJobs = jobs
     .filter(job => {
       if (currentUserId && (job as any).posted_by === currentUserId) return false;
-      if (job.applied) return false;
       const status = (job as any).status || (job as any).jobStatus || '';
       if (['closed', 'archived', 'expired', 'filled'].includes(status.toLowerCase())) return false;
       return true;
@@ -105,36 +111,47 @@ export default function RecommendedForYou({
             transition={{ duration: 0.25 }}
             className="w-full"
           >
-            {recommendedJobs.length === 0 ? (
+            {!isJobsLoaded ? (
+              <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
+                <JobCardSkeleton count={6} />
+              </div>
+            ) : recommendedJobs.length === 0 ? (
               <div className="text-center py-10 text-slate-400 dark:text-slate-600 text-xs font-medium">
                 No job recommendations available right now.
               </div>
             ) : (
               /* Desktop: Grid | Mobile: Scrollable horizontal block */
               <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
-                {recommendedJobs.map((job) => (
-                  <div key={job.id} className="w-[280px] sm:w-auto shrink-0 snap-start h-full">
-                    <JobCard
-                      id={job.id}
-                      companyName={job.company}
-                      companyLogo={job.companyLogo}
-                      companyVerified={job.verified}
-                      title={job.title}
-                      shortDescription={job.description}
-                      location={job.location}
-                      salaryRange={job.salary}
-                      category={job.category}
-                      jobType={job.jobType}
-                      created_at={job.created_at || job.datePosted}
-                      saved={job.bookmarked}
-                      applied={job.applied}
-                      applicationDeadline={job.applicationDeadline}
-                      onSave={toggleBookmark}
-                      onViewDetails={onViewJobs}
-                      onApply={(id, e) => { e.stopPropagation(); setApplyingJob(job); }}
-                    />
-                  </div>
-                ))}
+                {recommendedJobs.map((job) => {
+                  const appRecord = applicationsByJobId?.get(job.id);
+                  const isApplied = Boolean(appRecord) || job.applied;
+                  const appStatus = appRecord?.status || null;
+
+                  return (
+                    <div key={job.id} className="w-[280px] sm:w-auto shrink-0 snap-start h-full">
+                      <JobCard
+                        id={job.id}
+                        companyName={job.company}
+                        companyLogo={job.companyLogo}
+                        companyVerified={job.verified}
+                        title={job.title}
+                        shortDescription={job.description}
+                        location={job.location}
+                        salaryRange={job.salary}
+                        category={job.category}
+                        jobType={job.jobType}
+                        created_at={job.created_at || job.datePosted}
+                        saved={job.bookmarked}
+                        applied={isApplied}
+                        applicationStatus={appStatus}
+                        applicationDeadline={job.applicationDeadline}
+                        onSave={toggleBookmark}
+                        onViewDetails={onViewJobs}
+                        onApply={(id, e) => { e.stopPropagation(); setApplyingJob(job); }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             )}
           </motion.div>
@@ -147,12 +164,27 @@ export default function RecommendedForYou({
             transition={{ duration: 0.25 }}
             className="w-full"
           >
-            {recommendedWorkers.length === 0 ? (
+            {!isWorkersLoaded ? (
+              <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
+                {[1, 2, 3, 4, 5, 6].map((idx) => (
+                  <div key={idx} className="w-[280px] sm:w-auto shrink-0 bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 animate-pulse space-y-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="w-24 h-4 bg-slate-200 dark:bg-slate-800 rounded" />
+                        <div className="w-16 h-3 bg-slate-100 dark:bg-slate-800/60 rounded" />
+                      </div>
+                    </div>
+                    <div className="w-full h-3 bg-slate-100 dark:bg-slate-800/60 rounded" />
+                    <div className="w-2/3 h-3 bg-slate-100 dark:bg-slate-800/60 rounded" />
+                  </div>
+                ))}
+              </div>
+            ) : recommendedWorkers.length === 0 ? (
               <div className="text-center py-10 text-slate-400 dark:text-slate-600 text-xs font-medium">
                 No worker recommendations available right now.
               </div>
             ) : (
-              /* Desktop: Grid | Mobile: Scrollable horizontal block */
               <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
                 {recommendedWorkers.map((worker) => (
                   <div key={worker.id} className="w-[280px] sm:w-auto shrink-0 snap-start h-full">
@@ -160,21 +192,18 @@ export default function RecommendedForYou({
                       id={worker.id}
                       name={worker.name}
                       avatarUrl={worker.photo}
-                      verified={worker.verified}
                       professionalTitle={worker.title}
                       rating={worker.rating}
-                      experienceYears={worker.experience}
+                      experienceYears={worker.experience || 0}
                       hourlyRate={worker.hourlyRate}
-                      shortBio={worker.bio}
+                      shortBio={worker.bio || ''}
                       location={worker.location}
+                      verified={worker.verified}
                       availability={worker.availability}
-                      saved={(worker as any).bookmarked}
+                      saved={worker.bookmarked}
                       onSave={toggleWorkerBookmark}
+                      onMessage={(e) => { e.stopPropagation(); onOpenMessage(worker.name); }}
                       onViewProfile={onViewWorkers}
-                      onMessage={onViewWorkers}
-                      onHire={onViewWorkers}
-                      showHireButton={true}
-                      showMessageButton={false}
                     />
                   </div>
                 ))}
@@ -184,16 +213,17 @@ export default function RecommendedForYou({
         )}
       </AnimatePresence>
 
-      {applyingJob && currentUserId && (
+      {/* Shared Application Modal for Quick Apply from Recommended Home */}
+      {applyingJob && (
         <SharedApplicationModal
-          isOpen={true}
-          onClose={() => setApplyingJob(null)}
+          isOpen={Boolean(applyingJob)}
           jobId={applyingJob.id}
-          applicantId={currentUserId}
+          applicantId={currentUserId || 'user'}
           jobSalary={applyingJob.salary}
-          onSuccess={(appId) => {
-            handleApplyJob(applyingJob.id, applyingJob.salary, 'Applied via Recommendations');
+          onClose={() => setApplyingJob(null)}
+          onSuccess={() => {
             setApplyingJob(null);
+            handleApplyJob(applyingJob.id);
           }}
         />
       )}

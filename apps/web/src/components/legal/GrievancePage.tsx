@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, HelpCircle, ArrowLeft, Send, AlertTriangle } from 'lucide-react';
+import { siteContactConfig } from '../../lib/siteContactConfig';
 
 interface GrievancePageProps {
   navigate?: (path: string) => void;
@@ -18,23 +19,45 @@ export default function GrievancePage({ navigate, triggerToast }: GrievancePageP
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setIsSubmitting(false);
-      if (triggerToast) {
-        triggerToast("Grievance ticket submitted successfully! Acknowledgment sent.");
-      }
-      setForm({
-        name: '',
-        email: '',
-        type: 'general_support',
-        subject: '',
-        description: '',
+    try {
+      const { dbService } = await import('../../lib/supabase');
+      const ticketId = await dbService.createSupportTicket({
+        category: form.type,
+        subject: `[${form.type.toUpperCase()}] ${form.subject}`,
+        description: `Name: ${form.name}\nEmail: ${form.email}\n\n${form.description}`,
+        priority: form.type.startsWith('report_') ? 'high' : 'medium',
       });
-    }, 1200);
+
+      if (ticketId) {
+        if (triggerToast) {
+          triggerToast("Grievance ticket submitted successfully! Acknowledgment sent.");
+        }
+        setForm({
+          name: '',
+          email: '',
+          type: 'general_support',
+          subject: '',
+          description: '',
+        });
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || '';
+      if (errMsg.includes('Not authenticated') || errMsg.includes('jwt')) {
+        if (triggerToast) {
+          triggerToast("Please log in to submit a grievance ticket online.");
+        }
+      } else {
+        if (triggerToast) {
+          triggerToast("Could not submit ticket. Please check details or try again.");
+        }
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -64,25 +87,35 @@ export default function GrievancePage({ navigate, triggerToast }: GrievancePageP
           </div>
 
           <div className="border-t border-slate-100 dark:border-zinc-800 pt-5 space-y-4 text-xs font-medium text-slate-600 dark:text-zinc-300">
-            {/* Support Email */}
+            {/* Support Email / Channel */}
             <div className="space-y-1">
               <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-mono font-bold block">Support Channels</span>
-              <p className="font-bold flex items-center space-x-1.5 text-indigo-600 dark:text-indigo-400">
-                <Mail className="w-3.5 h-3.5" />
-                <span>[support@opencomm-placeholder.io]</span>
-              </p>
+              {siteContactConfig.supportEmail ? (
+                <p className="font-bold flex items-center space-x-1.5 text-indigo-600 dark:text-indigo-400">
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{siteContactConfig.supportEmail}</span>
+                </p>
+              ) : (
+                <p className="font-semibold text-slate-700 dark:text-zinc-200">
+                  In-App Support Ticket & Assistance Portal
+                </p>
+              )}
             </div>
 
-            {/* Grievance Officer */}
-            <div className="space-y-1">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-mono font-bold block">Grievance Officer</span>
-              <p className="font-semibold text-slate-700 dark:text-zinc-200">
-                [Grievance Officer Name Placeholder]
-              </p>
-              <p className="text-[10px] text-slate-400 dark:text-zinc-500">
-                [Corporate Address / Contact Details Placeholder]
-              </p>
-            </div>
+            {/* Grievance Officer & Corporate Info (Only shown if populated by platform owner) */}
+            {siteContactConfig.grievanceOfficerName && (
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-mono font-bold block">Grievance Officer</span>
+                <p className="font-semibold text-slate-700 dark:text-zinc-200">
+                  {siteContactConfig.grievanceOfficerName}
+                </p>
+                {siteContactConfig.corporateAddress && (
+                  <p className="text-[10px] text-slate-400 dark:text-zinc-500">
+                    {siteContactConfig.corporateAddress}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Acknowledgment Timeframe */}
             <div className="p-3.5 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-2xl border border-indigo-500/15 space-y-1.5">
@@ -91,7 +124,7 @@ export default function GrievancePage({ navigate, triggerToast }: GrievancePageP
                 <span>Response Timelines</span>
               </div>
               <p className="text-[10px] leading-relaxed text-slate-500 dark:text-zinc-400">
-                Tickets are acknowledged automatically within <strong>24 hours</strong>. Verification and complete redressal is addressed within <strong>15 business days</strong> of receipt.
+                Tickets are acknowledged automatically upon creation. Verification and resolution is addressed within <strong>15 business days</strong> of receipt.
               </p>
             </div>
           </div>

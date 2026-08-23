@@ -2335,6 +2335,11 @@ export default function App() {
             bid: bid
           };
           setApplications(prevApp => [newApp, ...prevApp]);
+          setMyApplicationsByJobId(prev => {
+            const next = new Map(prev);
+            next.set(jobId, { id: newApp.id, job_id: jobId, status: 'pending', created_at: new Date().toISOString() });
+            return next;
+          });
           analytics.trackJobApplied(jobId, applicationNote.length);
 
           // Add activity
@@ -2589,9 +2594,13 @@ export default function App() {
   const [dashMyWorksCount, setDashMyWorksCount] = React.useState(0);
   const [dashSavedJobsCount, setDashSavedJobsCount] = React.useState(0);
   const [dashSavedWorkersCount, setDashSavedWorkersCount] = React.useState(0);
+  const [myApplicationsByJobId, setMyApplicationsByJobId] = React.useState<Map<string, any>>(new Map());
 
   React.useEffect(() => {
-    if (!isLoggedIn || !userIdState) return;
+    if (!isLoggedIn || !userIdState) {
+      setMyApplicationsByJobId(new Map());
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -2606,10 +2615,37 @@ export default function App() {
           setDashSavedJobsCount(savedJobs);
           setDashSavedWorkersCount(savedWorkers);
           setDashMyWorksCount(myWorksRes?.data?.length || 0);
+
+          if (myWorksRes?.data) {
+            const map = new Map<string, any>();
+            myWorksRes.data.forEach((app: any) => {
+              if (app.job_id) map.set(app.job_id, app);
+            });
+            setMyApplicationsByJobId(map);
+          }
         }
       } catch { /* silently ignore */ }
     })();
-    return () => { cancelled = true; };
+    const handleAppChanged = () => {
+      if (userIdState) {
+        dbService.getMyJobApplications(userIdState).then((res) => {
+          if (res?.data) {
+            const map = new Map<string, any>();
+            res.data.forEach((app: any) => {
+              if (app.job_id) map.set(app.job_id, app);
+            });
+            setMyApplicationsByJobId(map);
+          }
+        }).catch(() => {});
+      }
+    };
+
+    window.addEventListener('opencomm:job-application-changed', handleAppChanged);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('opencomm:job-application-changed', handleAppChanged);
+    };
   }, [isLoggedIn, userIdState]);
 
   const unreadCounts = useUnreadCounts(isLoggedIn ? userIdState : null);
@@ -2921,6 +2957,9 @@ export default function App() {
                 onViewJobs={() => navigate('/jobs')}
                 onViewWorkers={() => navigate('/workers')}
                 currentUserId={userIdState}
+                applicationsByJobId={myApplicationsByJobId}
+                isJobsLoaded={isJobsLoaded}
+                isWorkersLoaded={isWorkersLoaded}
               />
             </motion.div>
           } />
@@ -2947,6 +2986,15 @@ export default function App() {
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');
                   else if (tab === 'signup') navigate('/signup');
+                }}
+                isJobsLoaded={isJobsLoaded}
+                applicationsByJobId={myApplicationsByJobId}
+                onApplicationCreated={(jobId, appRecord) => {
+                  setMyApplicationsByJobId(prev => {
+                    const next = new Map(prev);
+                    next.set(jobId, appRecord || { id: `app-${Date.now()}`, job_id: jobId, status: 'pending', created_at: new Date().toISOString() });
+                    return next;
+                  });
                 }}
               />
             </motion.div>

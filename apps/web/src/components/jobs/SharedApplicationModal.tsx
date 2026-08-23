@@ -79,6 +79,7 @@ export default function SharedApplicationModal({
          onSuccess('local-app-id');
       }
 
+      window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
       if (triggerToast) triggerToast('Application submitted successfully!');
       onClose();
     } catch (err: any) {

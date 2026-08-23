@@ -1346,7 +1346,7 @@ export default function ProfilePage({
                   <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white truncate">
                     {profile?.full_name || username}
                   </h1>
-                  {(profile?.verified || workerProfile?.verification_status === 'verified') && (
+                  {profile?.email_verified_for_actions === true && (
                     <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 fill-emerald-500/10" />
                   )}
                   {workerProfile?.availability && (
@@ -1361,7 +1361,7 @@ export default function ProfilePage({
                 </div>
 
                 <p className="text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 truncate">
-                  {workerProfile?.profession || companyProfile?.name || (profile?.profile_type === 'worker' ? 'Certified Professional' : profile?.profile_type === 'company' ? 'Verified Business' : 'OpenComm Member')}
+                  {workerProfile?.profession || companyProfile?.name || (profile?.profile_type === 'worker' ? 'OpenComm Worker' : profile?.profile_type === 'company' ? 'OpenComm Company' : 'OpenComm Member')}
                 </p>
 
                 {/* Micro Meta: Location, Experience, Rating */}
@@ -1809,13 +1809,23 @@ export default function ProfilePage({
               <div className="pb-2 border-b border-slate-100 dark:border-slate-800">
                 <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Verification Status</h3>
               </div>
-              <div className="flex items-center space-x-3 p-3.5 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 text-xs">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                <div>
-                  <strong className="text-slate-900 dark:text-white font-bold block">Verified Account</strong>
-                  <span className="text-slate-500 dark:text-slate-400">Account identity and security status verified for OpenComm marketplace transactions.</span>
+              {profile?.email_verified_for_actions === true ? (
+                <div className="flex items-center space-x-3 p-3.5 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 text-xs text-left">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <div>
+                    <strong className="text-slate-900 dark:text-white font-bold block">Email Verified</strong>
+                    <span className="text-slate-500 dark:text-slate-400">Your email address is verified for protected OpenComm actions.</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center space-x-3 p-3.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs text-left">
+                  <AlertCircle className="w-5 h-5 text-slate-400 shrink-0" />
+                  <div>
+                    <strong className="text-slate-900 dark:text-white font-bold block">Email Verification Pending</strong>
+                    <span className="text-slate-500 dark:text-slate-400">Verify your email address to unlock protected OpenComm marketplace actions.</span>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

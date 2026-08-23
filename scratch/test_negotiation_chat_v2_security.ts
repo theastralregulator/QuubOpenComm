@@ -62,14 +62,26 @@ function runPreflightAndUnitChecks() {
   const mapperPath = path.join(rootDir, 'apps/web/src/lib/workerProfileMapper.ts');
   const mapperCode = fs.existsSync(mapperPath) ? fs.readFileSync(mapperPath, 'utf8') : '';
 
-  const deleteApiPath = path.join(rootDir, 'api/message-delete.ts');
-  const deleteApiCode = fs.readFileSync(deleteApiPath, 'utf8');
+  const recHomePath = path.join(rootDir, 'apps/web/src/components/home/RecommendedForYou.tsx');
+  const recHomeCode = fs.readFileSync(recHomePath, 'utf8');
 
-  const finalizeApiPath = path.join(rootDir, 'api/media-finalize.ts');
-  const finalizeApiCode = fs.readFileSync(finalizeApiPath, 'utf8');
+  const jobsPagePath = path.join(rootDir, 'apps/web/src/components/jobs/JobsPage.tsx');
+  const jobsPageCode = fs.readFileSync(jobsPagePath, 'utf8');
+
+  const bellPath = path.join(rootDir, 'apps/web/src/components/notifications/NotificationBell.tsx');
+  const bellCode = fs.readFileSync(bellPath, 'utf8');
+
+  const grievancePath = path.join(rootDir, 'apps/web/src/components/legal/GrievancePage.tsx');
+  const grievanceCode = fs.readFileSync(grievancePath, 'utf8');
+
+  const workerCardPath = path.join(rootDir, 'apps/web/src/components/cards/WorkerCard.tsx');
+  const workerCardCode = fs.readFileSync(workerCardPath, 'utf8');
 
   const fallbackApiPath = path.join(rootDir, 'api/media-upload-fallback-intent.ts');
   const fallbackApiCode = fs.readFileSync(fallbackApiPath, 'utf8');
+
+  const finalizeApiPath = path.join(rootDir, 'api/media-finalize.ts');
+  const finalizeApiCode = fs.readFileSync(finalizeApiPath, 'utf8');
 
   // 1. Migration Ordering Check: Helper function created BEFORE policies referencing it
   const helperIndex = migrationSql.indexOf('FUNCTION public.can_current_user_access_negotiation_room');
@@ -217,7 +229,7 @@ function runPreflightAndUnitChecks() {
     'Animated Loader Brand: Wordmark displays EXACTLY "OpenComm" with unique useId() instance IDs'
   );
 
-  // 20. Animated Loader Scoped CSS & Valid Properties
+  // 20. Animated Loader CSS Architecture: Scoped classes, valid align-items, no :global() rules, and no dead keyframes
   const cssNoGenericClasses = !/^\s*\.loader\b/m.test(loaderCssCode) && !/^\s*\.spin\b/m.test(loaderCssCode) && !/^\s*\.dash\b/m.test(loaderCssCode);
   const cssScopedClasses = /opencomm-loader-container/i.test(loaderCssCode) && /opencomm-loader-trace/i.test(loaderCssCode);
   const cssValidAlignItems = /align-items:\s*center;/i.test(loaderCssCode) && !/items-center:/i.test(loaderCssCode);
@@ -236,7 +248,7 @@ function runPreflightAndUnitChecks() {
     'Loader Integrations: ProtectedRoute Category A fullscreen loader and App.tsx Category B callback loader present'
   );
 
-  // 22. SVG Gradient Coordinates & Flash-Free Reduced Motion
+  // 22. Technical Precision: linearGradient userSpaceOnUse coordinates, lazy reduced-motion initialization, and SVG animateTransform
   const userSpaceGradientCheck = /gradientUnits="userSpaceOnUse"/i.test(loaderComponentCode) && /x2="340"/i.test(loaderComponentCode) && /y2="75"/i.test(loaderComponentCode);
   const lazyReducedMotionCheck = /useState\(\(\) =>[\s\S]*?prefers-reduced-motion/i.test(loaderComponentCode);
   const svgAnimateTransformCheck = /<animateTransform[\s\S]*?attributeName="gradientTransform"/i.test(loaderComponentCode);
@@ -311,8 +323,6 @@ function runPreflightAndUnitChecks() {
     'Shared Data Architecture: workerProfileMapper.ts exports canonical bi-directional mapping helpers'
   );
 
-  // --- FINAL PRODUCTION CORRECTIONS CHECKS ---
-
   // 31. DB Availability Status Constraint Compliance: No Part-time/Full-time in Availability options
   const appNoPartTimeAvail = !/<option value="Part-time">Part-time<\/option>/.test(appCode);
   const profileNoPartTimeAvail = !/<option value="Part-time">Part-time<\/option>/.test(profilePageCode);
@@ -343,7 +353,51 @@ function runPreflightAndUnitChecks() {
     'Migration Preserved: supabase/migrations/20260824000000_worker_profile_persistence_columns.sql exists without version drift'
   );
 
-  // 35. Document Security Scanner Unit Tests
+  // --- PRODUCTION UX CONSISTENCY & SAFETY CHECKS ---
+
+  // 35. Home Application Status Invariant: RecommendedForYou receives applicationsByJobId map and does NOT auto-hide applied jobs with "Apply" button
+  const recHomeReceivesAppMap = recHomeCode.includes('applicationsByJobId') && recHomeCode.includes('applicationsByJobId?.get(job.id)');
+  const recHomeNoAutoFilterApplied = !recHomeCode.includes('if (job.applied) return false;');
+  assert(
+    recHomeReceivesAppMap && recHomeNoAutoFilterApplied,
+    'Home Application Status: RecommendedForYou receives canonical applicationsByJobId map and preserves applied cards with live status'
+  );
+
+  // 36. Jobs False Empty Prevention: JobsPage checks !isJobsLoaded || isFetching before rendering "No jobs found"
+  const jobsPageSkeletonCheck = jobsPageCode.includes('JobCardSkeleton') && jobsPageCode.includes('!isJobsLoaded || isFetching');
+  assert(
+    jobsPageSkeletonCheck,
+    'Jobs False Empty Prevention: JobsPage renders JobCardSkeleton during initial fetch and prevents false "No jobs found" flash'
+  );
+
+  // 37. Notification Bell Cache & Skeleton Rows: Bell dropdown checks cached data before setting loading and renders row skeletons
+  const bellCacheCheck = bellCode.includes('hasLoadedRef.current') && bellCode.includes('lastFetchedAtRef.current');
+  const bellSkeletonRowsCheck = bellCode.includes('animate-pulse') && !bellCode.includes('Loading notifications...');
+  assert(
+    bellCacheCheck && bellSkeletonRowsCheck,
+    'Notification Bell Cache & Skeletons: Bell uses background refresh for cached data and compact row skeletons for initial fetch'
+  );
+
+  // 38. Absence of Fake Verification Labels in Profiles and Worker Cards
+  const profileNoCertifiedPro = !profilePageCode.includes("'Certified Professional'") && !profilePageCode.includes('"Certified Professional"');
+  const profileNoVerifiedBiz = !profilePageCode.includes("'Verified Business'") && !profilePageCode.includes('"Verified Business"');
+  const workerCardNoCertifiedPro = !workerCardCode.includes('certified professional');
+  const profileVerifiedCardRealEmail = profilePageCode.includes('Email Verified') && profilePageCode.includes('profile?.email_verified_for_actions === true');
+  assert(
+    profileNoCertifiedPro && profileNoVerifiedBiz && workerCardNoCertifiedPro && profileVerifiedCardRealEmail,
+    'Verification Label Integrity: Misleading "Certified Professional", "Verified Business", and "Verified Account" identity claims removed'
+  );
+
+  // 39. Contact Placeholders Removed & Grievance Ticket Persistence
+  const grievanceNoPlaceholderEmail = !grievanceCode.includes('[support@opencomm-placeholder.io]');
+  const grievanceNoPlaceholderOfficer = !grievanceCode.includes('[Grievance Officer Name Placeholder]');
+  const grievanceUsesDbService = grievanceCode.includes('dbService.createSupportTicket') && !grievanceCode.includes('setTimeout(');
+  assert(
+    grievanceNoPlaceholderEmail && grievanceNoPlaceholderOfficer && grievanceUsesDbService,
+    'Grievance Safety: Bracketed placeholder strings removed and handleSubmit calls real dbService.createSupportTicket'
+  );
+
+  // 40. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

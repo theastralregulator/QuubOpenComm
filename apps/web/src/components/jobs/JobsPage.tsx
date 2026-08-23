@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Job } from '../../types';
 import JobCard from '../cards/JobCard';
+import JobCardSkeleton from './JobCardSkeleton';
 import { getDeadlineInfo } from '../../lib/deadline';
 import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import { supabase } from '../../lib/supabase';
@@ -23,6 +24,9 @@ interface JobsPageProps {
   triggerToast: (msg: string) => void;
   isLoggedIn?: boolean;
   onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
+  isJobsLoaded?: boolean;
+  applicationsByJobId?: Map<string, any>;
+  onApplicationCreated?: (jobId: string, appRecord: any) => void;
 }
 
 export default function JobsPage({
@@ -36,6 +40,9 @@ export default function JobsPage({
   triggerToast,
   isLoggedIn = false,
   onOpenAuth,
+  isJobsLoaded = true,
+  applicationsByJobId,
+  onApplicationCreated,
 }: JobsPageProps) {
   const { jobId } = useParams();
   const navigate = useNavigate();
@@ -382,7 +389,11 @@ export default function JobsPage({
 
           {/* JOBS LIST GRID */}
           <div className="lg:col-span-9 w-full space-y-4">
-            {sortedJobs.length === 0 ? (
+            {!isJobsLoaded || isFetching ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4 w-full">
+                <JobCardSkeleton count={6} />
+              </div>
+            ) : sortedJobs.length === 0 ? (
               <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-8 text-center space-y-3 shadow-2xs">
                 <div className="w-12 h-12 mx-auto bg-indigo-50 dark:bg-indigo-950/20 text-[#6C4DFF] rounded-2xl flex items-center justify-center">
                   <Briefcase className="w-6 h-6" />
@@ -406,7 +417,8 @@ export default function JobsPage({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4 w-full">
                 {sortedJobs.map((job) => {
                   const isOwner = currentUserId ? job.posted_by === currentUserId : false;
-                  const appRecord = applicationsMap.get(job.id);
+                  const activeAppsMap = applicationsByJobId && applicationsByJobId.size > 0 ? applicationsByJobId : applicationsMap;
+                  const appRecord = activeAppsMap.get(job.id);
                   const isApplied = Boolean(appRecord) || job.applied;
                   const appStatus = appRecord?.status || null;
 

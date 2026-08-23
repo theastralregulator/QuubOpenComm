@@ -219,7 +219,7 @@ export default function WorkerDetailPage({
   const handleShare = async () => {
     if (!worker) return;
     const shareUrl = window.location.href;
-    const shareText = `Check out this certified professional on OpenComm: ${worker.name} (${worker.title || 'Service Provider'})!`;
+    const shareText = `Check out this worker profile on OpenComm: ${worker.name} (${worker.title || 'Service Provider'})!`;
 
     analytics.trackEvent('share', { item_type: 'worker', item_id: worker.id, item_title: worker.name });
 
