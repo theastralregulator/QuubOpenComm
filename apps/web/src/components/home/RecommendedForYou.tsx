@@ -14,7 +14,6 @@ interface RecommendedForYouProps {
   workers: Worker[];
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
   toggleWorkerBookmark: (id: string, e: React.MouseEvent) => void;
-  handleApplyJob: (id: string, bidOrEvent?: any, note?: string) => void;
   onOpenMessage: (name: string) => void;
   onViewJobs: () => void;
   onViewWorkers: () => void;
@@ -35,7 +34,6 @@ export default function RecommendedForYou({
   workers,
   toggleBookmark,
   toggleWorkerBookmark,
-  handleApplyJob,
   onOpenMessage,
   onViewJobs,
   onViewWorkers,
@@ -134,7 +132,7 @@ export default function RecommendedForYou({
               <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
                 {recommendedJobs.map((job) => {
                   const appRecord = applicationsByJobId?.get(job.id);
-                  const isApplied = Boolean(appRecord) || job.applied;
+                  const isApplied = Boolean(appRecord);
                   const appStatus = appRecord?.status || null;
 
                   return (

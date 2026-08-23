@@ -24,7 +24,20 @@ export default function GrievancePage({ navigate, triggerToast }: GrievancePageP
     setIsSubmitting(true);
 
     try {
-      const { dbService } = await import('../../lib/supabase');
+      const { supabase, dbService } = await import('../../lib/supabase');
+      let authedUserId: string | null = null;
+      if (supabase) {
+        const { data: { user } } = await supabase.auth.getUser();
+        authedUserId = user?.id || null;
+      }
+      if (!authedUserId) {
+        if (triggerToast) {
+          triggerToast("Please log in to submit a grievance ticket online.");
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
       const isHighPriority = form.type === 'report_safety' || form.type === 'report_fraud';
       const ticketId = await dbService.createSupportTicket({
         category: form.type,

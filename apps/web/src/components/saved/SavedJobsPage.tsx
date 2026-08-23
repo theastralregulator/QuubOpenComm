@@ -6,18 +6,24 @@ import SharedApplicationModal from '../jobs/SharedApplicationModal';
 
 interface SavedJobsPageProps {
   jobs: Job[];
-  currentUserId?: string;
+  currentUserId?: string | null;
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
-  handleApplyJob: (id: string, bidOrEvent?: any, note?: string) => void;
   onExplore: () => void;
+  applicationsByJobId?: Map<string, any>;
+  isApplicationsLoaded?: boolean;
+  onApplicationCreated?: (jobId: string, appRecord: any) => void;
+  triggerToast?: (msg: string) => void;
 }
 
 export default function SavedJobsPage({
   jobs,
   currentUserId,
   toggleBookmark,
-  handleApplyJob,
   onExplore,
+  applicationsByJobId,
+  isApplicationsLoaded = true,
+  onApplicationCreated,
+  triggerToast,
 }: SavedJobsPageProps) {
   const [applyingJob, setApplyingJob] = React.useState<Job | null>(null);
   const savedList = jobs.filter(j => j.bookmarked);
@@ -52,39 +58,51 @@ export default function SavedJobsPage({
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6 w-full">
-          {savedList.map((job) => (
-            <JobCard
-              key={job.id}
-              id={job.id}
-              companyName={job.company}
-              companyLogo={job.companyLogo}
-              companyVerified={job.verified}
-              title={job.title}
-              shortDescription={job.description}
-              location={job.location}
-              salaryRange={job.salary}
-              category={job.category}
-              jobType={job.jobType}
-              workersNeeded={job.workers_needed}
-              filledPositions={job.filled_positions}
-              status={job.status}
-              isActive={job.is_active}
-              created_at={job.created_at || job.datePosted}
-              applicationDeadline={job.applicationDeadline}
-              saved={job.bookmarked}
-              applied={job.applied}
-              onSave={toggleBookmark}
-              onViewDetails={onExplore}
-              onApply={(id, e) => {
-                e.stopPropagation();
-                if (!currentUserId) {
-                  if (onExplore) onExplore();
-                  return;
-                }
-                setApplyingJob(job);
-              }}
-            />
-          ))}
+          {savedList.map((job) => {
+            const appRecord = applicationsByJobId?.get(job.id);
+            const isApplied = Boolean(appRecord);
+            const appStatus = appRecord?.status || null;
+
+            return (
+              <JobCard
+                key={job.id}
+                id={job.id}
+                companyName={job.company}
+                companyLogo={job.companyLogo}
+                companyVerified={job.verified}
+                title={job.title}
+                shortDescription={job.description}
+                location={job.location}
+                salaryRange={job.salary}
+                category={job.category}
+                jobType={job.jobType}
+                workersNeeded={job.workers_needed}
+                filledPositions={job.filled_positions}
+                status={job.status}
+                isActive={job.is_active}
+                created_at={job.created_at || job.datePosted}
+                applicationDeadline={job.applicationDeadline}
+                saved={job.bookmarked}
+                applied={isApplied}
+                applicationStatus={appStatus}
+                onSave={toggleBookmark}
+                onViewDetails={onExplore}
+                onApply={(id, e) => {
+                  e.stopPropagation();
+                  if (!currentUserId) {
+                    if (triggerToast) triggerToast("Please sign in to apply.");
+                    if (onExplore) onExplore();
+                    return;
+                  }
+                  if (!isApplicationsLoaded) {
+                    if (triggerToast) triggerToast("Loading application status...");
+                    return;
+                  }
+                  setApplyingJob(job);
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -95,9 +113,12 @@ export default function SavedJobsPage({
           jobId={applyingJob.id}
           applicantId={currentUserId}
           jobSalary={applyingJob.salary}
-          onSuccess={(appId) => {
-            handleApplyJob(applyingJob.id, applyingJob.salary, 'Applied via Saved Jobs');
+          onSuccess={(appRecord) => {
+            const targetJobId = applyingJob.id;
             setApplyingJob(null);
+            if (onApplicationCreated) {
+              onApplicationCreated(targetJobId, appRecord);
+            }
           }}
         />
       )}

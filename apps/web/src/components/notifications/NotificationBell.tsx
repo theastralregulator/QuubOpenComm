@@ -16,26 +16,38 @@ export default function NotificationBell({ currentUserId }: NotificationBellProp
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const currentUserIdRef = useRef(currentUserId);
   const hasLoadedRef = useRef(false);
   const lastFetchedAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+    setNotifications([]);
+    setIsOpen(false);
+    setLoading(Boolean(currentUserId));
+    hasLoadedRef.current = false;
+    lastFetchedAtRef.current = 0;
+  }, [currentUserId]);
 
   const { notificationCount } = useUnreadCounts(currentUserId || null);
 
   const fetchInitialData = useCallback(async (isBackground = false) => {
-    if (!currentUserId) return;
+    const requestedUserId = currentUserId;
+    if (!requestedUserId) return;
     if (!isBackground && !hasLoadedRef.current) {
       setLoading(true);
     }
     try {
       const items = await notificationService.getMyNotifications({ limit: 5 });
+      if (currentUserIdRef.current !== requestedUserId) return;
       setNotifications(items);
       hasLoadedRef.current = true;
       lastFetchedAtRef.current = Date.now();
-      await unreadService.refresh(currentUserId);
+      await unreadService.refresh(requestedUserId);
     } catch (err) {
       console.error('Error fetching bell data:', err);
     } finally {
-      if (!isBackground) {
+      if (!isBackground && currentUserIdRef.current === requestedUserId) {
         setLoading(false);
       }
     }

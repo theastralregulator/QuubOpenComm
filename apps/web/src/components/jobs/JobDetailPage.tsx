@@ -18,23 +18,25 @@ import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 interface JobDetailPageProps {
   jobs: Job[];
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
-  handleApplyJob: (id: string, bid: string, note: string) => void;
   triggerToast: (msg: string) => void;
   isLoggedIn: boolean;
   onOpenAuth: (tab: 'signin' | 'signup' | 'locked') => void;
   onEditJob?: (job: Job) => void;
   onDeleteJob?: (job: Job) => Promise<void>;
+  applicationsByJobId?: Map<string, any>;
+  onApplicationCreated?: (jobId: string, appRecord: any) => void;
 }
 
 export default function JobDetailPage({
   jobs,
   toggleBookmark,
-  handleApplyJob,
   triggerToast,
   isLoggedIn,
   onOpenAuth,
   onEditJob,
   onDeleteJob,
+  applicationsByJobId,
+  onApplicationCreated,
 }: JobDetailPageProps) {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -379,45 +381,53 @@ export default function JobDetailPage({
 
     setIsSubmitting(true);
     try {
-      if (supabase && loggedInId) {
-        const { data: newApp, error: appError } = await supabase
-          .from('job_applications')
-          .insert({
-            job_id: job.id,
-            applicant_id: loggedInId,
-            proposed_rate: bidRate.trim(),
-            cover_letter: coverLetter.trim(),
-            status: 'pending',
-          })
-          .select()
-          .single();
-
-        if (appError) {
-          if (appError.code === '23505') {
-            triggerToast('You have already applied for this job opportunity.');
-            setDbApplied(true);
-          } else {
-            console.error('Application submission error:', appError);
-            triggerToast(`Failed to submit application: ${appError.message}`);
-          }
-          setIsSubmitting(false);
-          setShowApplyForm(false);
-          return;
-        }
-
-        if (newApp) {
-          setDbApplied(true);
-          setApplicationStatus('pending');
-          setExistingApp(newApp);
-        }
+      if (!supabase || !loggedInId) {
+        triggerToast('Unable to submit application right now. Please try again.');
+        setIsSubmitting(false);
+        setShowApplyForm(false);
+        return;
       }
 
-      handleApplyJob(job.id, bidRate, coverLetter);
-      triggerToast('Application submitted successfully!');
-      setShowApplyForm(false);
+      const { data: newApp, error: appError } = await supabase
+        .from('job_applications')
+        .insert({
+          job_id: job.id,
+          applicant_id: loggedInId,
+          proposed_rate: bidRate.trim(),
+          cover_letter: coverLetter.trim(),
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (appError) {
+        if (appError.code === '23505') {
+          triggerToast('You have already applied for this job.');
+          window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
+          setDbApplied(true);
+        } else {
+          console.error('Application submission error:', appError);
+          triggerToast('Unable to submit application right now. Please try again.');
+        }
+        setIsSubmitting(false);
+        setShowApplyForm(false);
+        return;
+      }
+
+      if (newApp) {
+        setDbApplied(true);
+        setApplicationStatus(newApp.status || 'pending');
+        setExistingApp(newApp);
+        if (onApplicationCreated) {
+          onApplicationCreated(job.id, newApp);
+        }
+        window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
+        triggerToast('Application submitted successfully!');
+        setShowApplyForm(false);
+      }
     } catch (err: any) {
       console.error('Application submission exception:', err);
-      triggerToast(err.message || 'An unexpected error occurred while submitting.');
+      triggerToast('Unable to submit application right now. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

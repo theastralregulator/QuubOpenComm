@@ -606,7 +606,7 @@ export const dbService = {
       console.error('createSupportTicket Supabase error:', error.message);
       throw new Error(error.message);
     }
-    return data.id as string;
+    return String(data.id);
   },
 
   /**

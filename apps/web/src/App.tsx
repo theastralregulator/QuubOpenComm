@@ -2297,69 +2297,7 @@ export default function App() {
     });
   };
 
-  const handleApplyJob = (jobId: string, bidOrEvent?: any, note?: string) => {
-    requireEmailVerification("Apply to Job", () => {
-      let bid = '$75/hr';
-      let applicationNote = 'I would like to apply for this position and coordinate terms.';
-      if (typeof bidOrEvent === 'string') {
-        bid = bidOrEvent;
-        applicationNote = note || applicationNote;
-      } else if (bidOrEvent && bidOrEvent.stopPropagation) {
-        bidOrEvent.stopPropagation();
-      }
 
-      setJobs(prev => prev.map(j => {
-        if (j.id === jobId) {
-          if (j.applied) return j;
-
-          // Add active Application object
-          const newApp: JobApplication = {
-            id: `app-${Date.now()}`,
-            jobId: j.id,
-            jobTitle: j.title,
-            applicantId: 'user',
-            applicantName: username,
-            applicantPhoto: userPhoto,
-            applicantTitle: 'Product Architect & Tech Lead',
-            applicantSkills: ['TypeScript', 'React', 'Tailwind CSS', 'System Design'],
-            applicantLocation: 'Austin, TX',
-            applicantRating: 4.9,
-            applicantExperience: 8,
-            applicantAvailability: 'Available Now',
-            ownerId: j.company === 'OpenComm Labs' ? 'user' : 'company-other',
-            ownerName: j.company,
-            applicationNote: applicationNote,
-            status: 'Pending',
-            createdAt: 'Just now',
-            updatedAt: 'Just now',
-            bid: bid
-          };
-          setApplications(prevApp => [newApp, ...prevApp]);
-          setMyApplicationsByJobId(prev => {
-            const next = new Map(prev);
-            next.set(jobId, { id: newApp.id, job_id: jobId, status: 'pending', created_at: new Date().toISOString() });
-            return next;
-          });
-          analytics.trackJobApplied(jobId, applicationNote.length);
-
-          // Add activity
-          const newAct: Activity = {
-            id: `act-${Date.now()}`,
-            type: 'apply',
-            title: `Applied to ${j.title} at ${j.company}`,
-            status: 'In Review',
-            statusType: 'pending',
-            timestamp: 'Just now'
-          };
-          setActivities(prevAct => [newAct, ...prevAct]);
-
-          triggerToast(`Successfully applied to "${j.title}"!`);
-          return { ...j, applied: true };
-        }
-        return j;
-      }));
-    });
-  };
 
   const handleCreateJob = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2594,17 +2532,53 @@ export default function App() {
   const [dashMyWorksCount, setDashMyWorksCount] = React.useState(0);
   const [dashSavedJobsCount, setDashSavedJobsCount] = React.useState(0);
   const [dashSavedWorkersCount, setDashSavedWorkersCount] = React.useState(0);
-  const [myApplicationsByJobId, setMyApplicationsByJobId] = React.useState<Map<string, any>>(new Map());
-  const [isMyApplicationsLoaded, setIsMyApplicationsLoaded] = React.useState(true);
 
-  React.useEffect(() => {
-    if (!isLoggedIn || !userIdState) {
-      setMyApplicationsByJobId(new Map());
-      setIsMyApplicationsLoaded(true);
+  const [applicationsState, setApplicationsState] = React.useState<{
+    userId: string | null;
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    byJobId: Map<string, any>;
+  }>({
+    userId: null,
+    status: 'idle',
+    byJobId: new Map()
+  });
+
+  const currentAppFetchTokenRef = React.useRef(0);
+
+  const loadMyApplications = React.useCallback(async (targetUserId: string | null) => {
+    const token = ++currentAppFetchTokenRef.current;
+    if (!targetUserId) {
+      setApplicationsState({ userId: null, status: 'ready', byJobId: new Map() });
       return;
     }
+
+    setApplicationsState({ userId: targetUserId, status: 'loading', byJobId: new Map() });
+
+    try {
+      const res = await dbService.getMyJobApplications(targetUserId);
+      if (token !== currentAppFetchTokenRef.current) return;
+
+      if (res && Array.isArray(res.data)) {
+        const map = new Map<string, any>();
+        res.data.forEach((app: any) => {
+          if (app.job_id) map.set(app.job_id, app);
+        });
+        setApplicationsState({ userId: targetUserId, status: 'ready', byJobId: map });
+      } else if (res && (res as any).error) {
+        setApplicationsState({ userId: targetUserId, status: 'error', byJobId: new Map() });
+      } else {
+        setApplicationsState({ userId: targetUserId, status: 'ready', byJobId: new Map() });
+      }
+    } catch {
+      if (token === currentAppFetchTokenRef.current) {
+        setApplicationsState({ userId: targetUserId, status: 'error', byJobId: new Map() });
+      }
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!isLoggedIn || !userIdState) return;
     let cancelled = false;
-    setIsMyApplicationsLoaded(false);
     (async () => {
       try {
         const [posts, savedJobs, savedWorkers, myWorksRes] = await Promise.all([
@@ -2618,41 +2592,53 @@ export default function App() {
           setDashSavedJobsCount(savedJobs);
           setDashSavedWorkersCount(savedWorkers);
           setDashMyWorksCount(myWorksRes?.data?.length || 0);
-
-          if (myWorksRes?.data) {
-            const map = new Map<string, any>();
-            myWorksRes.data.forEach((app: any) => {
-              if (app.job_id) map.set(app.job_id, app);
-            });
-            setMyApplicationsByJobId(map);
-          }
-          setIsMyApplicationsLoaded(true);
         }
-      } catch {
-        if (!cancelled) setIsMyApplicationsLoaded(true);
-      }
+      } catch { /* silently ignore */ }
     })();
+    return () => { cancelled = true; };
+  }, [isLoggedIn, userIdState]);
+
+  React.useEffect(() => {
+    loadMyApplications(isLoggedIn ? userIdState : null);
+
     const handleAppChanged = () => {
       if (userIdState) {
-        dbService.getMyJobApplications(userIdState).then((res) => {
-          if (res?.data) {
-            const map = new Map<string, any>();
-            res.data.forEach((app: any) => {
-              if (app.job_id) map.set(app.job_id, app);
-            });
-            setMyApplicationsByJobId(map);
-          }
-        }).catch(() => {});
+        loadMyApplications(userIdState);
       }
     };
 
     window.addEventListener('opencomm:job-application-changed', handleAppChanged);
 
     return () => {
-      cancelled = true;
       window.removeEventListener('opencomm:job-application-changed', handleAppChanged);
     };
-  }, [isLoggedIn, userIdState]);
+  }, [isLoggedIn, userIdState, loadMyApplications]);
+
+  const applicationsReadyForCurrentUser =
+    !isLoggedIn ||
+    (
+      applicationsState.userId === userIdState &&
+      applicationsState.status === 'ready'
+    );
+
+  const myApplicationsByJobId = applicationsReadyForCurrentUser ? applicationsState.byJobId : new Map<string, any>();
+
+  const handleApplicationCreated = React.useCallback((jobId: string, appRecord?: any) => {
+    if (!appRecord || typeof appRecord !== 'object' || (!appRecord.id && !appRecord.job_id)) {
+      if (userIdState) loadMyApplications(userIdState);
+      return;
+    }
+
+    const canonicalJobId = appRecord.job_id || jobId;
+    setApplicationsState(prev => {
+      const nextMap = new Map(prev.byJobId);
+      nextMap.set(canonicalJobId, appRecord);
+      return {
+        ...prev,
+        byJobId: nextMap
+      };
+    });
+  }, [userIdState, loadMyApplications]);
 
   const unreadCounts = useUnreadCounts(isLoggedIn ? userIdState : null);
   const unreadMessagesCount = unreadCounts.messageCount;
@@ -2958,7 +2944,6 @@ export default function App() {
                 workers={workers}
                 toggleBookmark={toggleBookmark}
                 toggleWorkerBookmark={toggleWorkerBookmark}
-                handleApplyJob={handleApplyJob}
                 onOpenMessage={handleOpenDirectMessage}
                 onViewJobs={() => navigate('/jobs')}
                 onViewWorkers={() => navigate('/workers')}
@@ -2966,7 +2951,7 @@ export default function App() {
                 applicationsByJobId={myApplicationsByJobId}
                 isJobsLoaded={isJobsLoaded}
                 isWorkersLoaded={isWorkersLoaded}
-                isApplicationsLoaded={isMyApplicationsLoaded}
+                isApplicationsLoaded={applicationsReadyForCurrentUser}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');
@@ -2974,13 +2959,7 @@ export default function App() {
                   else setShowAuthModal('signin');
                 }}
                 triggerToast={triggerToast}
-                onApplicationCreated={(jobId, appRecord) => {
-                  setMyApplicationsByJobId(prev => {
-                    const next = new Map(prev);
-                    next.set(jobId, appRecord || { id: `app-${Date.now()}`, job_id: jobId, status: 'pending', created_at: new Date().toISOString() });
-                    return next;
-                  });
-                }}
+                onApplicationCreated={handleApplicationCreated}
               />
             </motion.div>
           } />
@@ -2997,7 +2976,6 @@ export default function App() {
               <JobsPage
                 jobs={jobs}
                 toggleBookmark={toggleBookmark}
-                handleApplyJob={handleApplyJob}
                 selectedCategory={selectedCategory}
                 setSelectedCategory={setSelectedCategory}
                 searchQuery={searchQuery}
@@ -3010,16 +2988,10 @@ export default function App() {
                   else setShowAuthModal('signin');
                 }}
                 isJobsLoaded={isJobsLoaded}
-                isApplicationsLoaded={isMyApplicationsLoaded}
+                isApplicationsLoaded={applicationsReadyForCurrentUser}
                 applicationsByJobId={myApplicationsByJobId}
                 currentUserId={userIdState}
-                onApplicationCreated={(jobId, appRecord) => {
-                  setMyApplicationsByJobId(prev => {
-                    const next = new Map(prev);
-                    next.set(jobId, appRecord || { id: `app-${Date.now()}`, job_id: jobId, status: 'pending', created_at: new Date().toISOString() });
-                    return next;
-                  });
-                }}
+                onApplicationCreated={handleApplicationCreated}
               />
             </motion.div>
           } />
@@ -3053,13 +3025,14 @@ export default function App() {
               <JobDetailPage
                 jobs={jobs}
                 toggleBookmark={toggleBookmark}
-                handleApplyJob={handleApplyJob}
                 triggerToast={triggerToast}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');
                   else if (tab === 'signup') navigate('/signup');
                 }}
+                applicationsByJobId={myApplicationsByJobId}
+                onApplicationCreated={handleApplicationCreated}
               />
             </motion.div>
           } />
@@ -3335,8 +3308,11 @@ export default function App() {
                   jobs={jobs}
                   currentUserId={userIdState || undefined}
                   toggleBookmark={toggleBookmark}
-                  handleApplyJob={handleApplyJob}
                   onExplore={() => navigate('/jobs')}
+                  applicationsByJobId={myApplicationsByJobId}
+                  isApplicationsLoaded={applicationsReadyForCurrentUser}
+                  onApplicationCreated={handleApplicationCreated}
+                  triggerToast={triggerToast}
                 />
               </motion.div>
             </ProtectedRoute>

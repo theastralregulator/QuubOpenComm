@@ -16,7 +16,6 @@ import SharedApplicationModal from './SharedApplicationModal';
 interface JobsPageProps {
   jobs: Job[];
   toggleBookmark: (id: string, e: React.MouseEvent) => void;
-  handleApplyJob: (id: string, bid: string, note: string) => void;
   selectedCategory: string | null;
   setSelectedCategory: (cat: string | null) => void;
   searchQuery: string;
@@ -34,7 +33,6 @@ interface JobsPageProps {
 export default function JobsPage({
   jobs,
   toggleBookmark,
-  handleApplyJob,
   selectedCategory,
   setSelectedCategory,
   searchQuery,
@@ -340,7 +338,7 @@ export default function JobsPage({
                 {sortedJobs.map((job) => {
                   const isOwner = currentUserId ? job.posted_by === currentUserId : false;
                   const appRecord = applicationsByJobId?.get(job.id);
-                  const isApplied = Boolean(appRecord) || job.applied;
+                  const isApplied = Boolean(appRecord);
                   const appStatus = appRecord?.status || null;
 
                   return (

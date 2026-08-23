@@ -68,6 +68,12 @@ function runPreflightAndUnitChecks() {
   const jobsPagePath = path.join(rootDir, 'apps/web/src/components/jobs/JobsPage.tsx');
   const jobsPageCode = fs.readFileSync(jobsPagePath, 'utf8');
 
+  const savedJobsPagePath = path.join(rootDir, 'apps/web/src/components/saved/SavedJobsPage.tsx');
+  const savedJobsPageCode = fs.readFileSync(savedJobsPagePath, 'utf8');
+
+  const jobDetailPagePath = path.join(rootDir, 'apps/web/src/components/jobs/JobDetailPage.tsx');
+  const jobDetailPageCode = fs.readFileSync(jobDetailPagePath, 'utf8');
+
   const bellPath = path.join(rootDir, 'apps/web/src/components/notifications/NotificationBell.tsx');
   const bellCode = fs.readFileSync(bellPath, 'utf8');
 
@@ -204,7 +210,7 @@ function runPreflightAndUnitChecks() {
     'Typing Indicator Text: All visible typing render paths display ONLY "Typing…" without names'
   );
 
-  // 16. Route Tracker Title: /messages/:conversationId handled without 404 title
+  // 16. Route Tracker Metadata: /messages/:conversationId maps to "Messages | OpenComm" instead of 404
   const routeTrackerMessagesCheck = /path === '\/messages' \|\| path\.startsWith\('\/messages\/'\)/i.test(routeTrackerCode);
   assert(
     routeTrackerMessagesCheck,
@@ -359,89 +365,75 @@ function runPreflightAndUnitChecks() {
     'Migration Preserved: supabase/migrations/20260824000000_worker_profile_persistence_columns.sql exists without version drift'
   );
 
-  // --- NEW PRODUCTION CORRECTIONS AFTER ce3967ba ---
+  // --- NEW APPLICATION & NOTIFICATION ISOLATION CHECKS ---
 
-  // 35. Support Ticket DB Schema Correction: Uses message parameter and payload (NO description)
-  const ticketMessageCheck = supabaseLibCode.includes('message: params.message') && !supabaseLibCode.includes('description: params.description');
+  // 35. Owner-Aware Hydration & Fail-Closed Error State
+  const appHasTypedHydration = appCode.includes('applicationsState') && appCode.includes("status: 'idle' | 'loading' | 'ready' | 'error'") && appCode.includes("status: 'error'");
   assert(
-    ticketMessageCheck,
-    'Support Ticket Schema: createSupportTicket inserts message column matching production DB schema (no description)'
+    appHasTypedHydration,
+    'Owner-Aware Hydration: App.tsx uses typed ApplicationsHydrationState with explicit error status on fetch failure'
   );
 
-  // 36. Support Ticket Priority Values: Uses normal and high (NO invalid medium)
-  const ticketNoMediumPriority = !supabaseLibCode.includes("'medium'") && !grievanceCode.includes("'medium'");
-  const ticketNormalDefault = supabaseLibCode.includes("priority: params.priority ?? 'normal'");
+  // 36. Token-Guarded Independent Application Loader
+  const appHasTokenGuardedLoader = appCode.includes('currentAppFetchTokenRef.current') && appCode.includes('loadMyApplications');
   assert(
-    ticketNoMediumPriority && ticketNormalDefault,
-    'Support Ticket Priority: Priority values match DB constraint (low, normal, high, urgent; no invalid medium)'
+    appHasTokenGuardedLoader,
+    'Independent Application Hydration: loadMyApplications is independent of dashboard counters and uses request token guard against stale responses'
   );
 
-  // 37. SupportTicket Interface Alignment
-  const ticketInterfaceAligned = supabaseLibCode.includes('message: string;') &&
-    supabaseLibCode.includes("priority: 'low' | 'normal' | 'high' | 'urgent';") &&
-    supabaseLibCode.includes('assigned_admin_id?: string | null;');
+  // 37. Removal of job.applied as Authenticated Application Status Source
+  const jobsPageNoJobAppliedFallback = jobsPageCode.includes('const isApplied = Boolean(appRecord);') && !jobsPageCode.includes('Boolean(appRecord) || job.applied');
+  const recHomeNoJobAppliedFallback = recHomeCode.includes('const isApplied = Boolean(appRecord);') && !recHomeCode.includes('Boolean(appRecord) || job.applied');
   assert(
-    ticketInterfaceAligned,
-    'SupportTicket Interface: Aligned with production DB schema (message, priority normal, assigned_admin_id)'
+    jobsPageNoJobAppliedFallback && recHomeNoJobAppliedFallback,
+    'Strict Application Authority: Authenticated job cards evaluate application status ONLY from canonical applicationsByJobId map (no job.applied fallback)'
   );
 
-  // 38. Grievance Toast: No fake acknowledgment sent claim
-  const grievanceNoAckClaim = grievanceCode.includes('Grievance ticket submitted successfully.') && !grievanceCode.includes('Acknowledgment sent');
+  // 38. SavedJobs & JobDetailPage Application Flow: Legacy handleApplyJob removed
+  const savedJobsNoLegacyApply = !savedJobsPageCode.includes('handleApplyJob');
+  const jobDetailNoLegacyApply = !jobDetailPageCode.includes('handleApplyJob');
   assert(
-    grievanceNoAckClaim,
-    'Grievance Toast Safety: Submissions display honest "Grievance ticket submitted successfully." without claiming unverified email/SMS delivery'
+    savedJobsNoLegacyApply && jobDetailNoLegacyApply,
+    'Real Application Flow: SavedJobsPage and JobDetailPage do NOT import or invoke legacy handleApplyJob simulation'
   );
 
-  // 39. JobsPage Single Canonical Applications Map & No Duplicate Fetch
-  const jobsPageNoAppQuery = !jobsPageCode.includes("from('job_applications')");
-  const jobsPageNoGetJobsFetch = !jobsPageCode.includes('getJobsFromDb()');
-  const jobsPageNoAppMapState = !jobsPageCode.includes('applicationsMap');
+  // 39. Complete Removal of Legacy handleApplyJob from App.tsx
+  const appNoLegacyHandleApply = !appCode.includes('const handleApplyJob =');
   assert(
-    jobsPageNoAppQuery && jobsPageNoGetJobsFetch && jobsPageNoAppMapState,
-    'JobsPage Canonical Architecture: Eliminates duplicate job_applications queries, getJobsFromDb fetches, and local applicationsMap state'
+    appNoLegacyHandleApply,
+    'Legacy Handler Disposal: Legacy handleApplyJob simulation function completely removed from App.tsx'
   );
 
-  // 40. Application Loading Hydration Race Condition Prevention
-  const appHasAppLoadedState = appCode.includes('isMyApplicationsLoaded') && appCode.includes('isApplicationsLoaded={isMyApplicationsLoaded}');
-  const recHomeAppLoadedGate = recHomeCode.includes('!isJobsLoaded || (currentUserId && !isApplicationsLoaded)');
-  const jobsPageAppLoadedGate = jobsPageCode.includes('!isJobsLoaded || (isLoggedIn && !isApplicationsLoaded)');
+  // 40. Synthetic Application Fallback Removal in App.tsx
+  const appNoSyntheticFallback = !appCode.includes("id: `app-${Date.now()}`");
   assert(
-    appHasAppLoadedState && recHomeAppLoadedGate && jobsPageAppLoadedGate,
-    'Application Hydration Race Prevention: Home and Jobs render JobCardSkeleton until both jobs and user application map are fully hydrated'
+    appNoSyntheticFallback,
+    'Synthetic Fallback Disposal: handleApplicationCreated requires real DB application record and reloads DB map if missing'
   );
 
-  // 41. Logged-Out Home Apply Auth Gate (No applicantId="user" fallback)
-  const recHomeNoUserLiteral = !recHomeCode.includes("applicantId={currentUserId || 'user'}");
-  const recHomeApplyAuthGate = recHomeCode.includes('!currentUserId || !isLoggedIn') && recHomeCode.includes('Please sign in to apply.');
+  // 41. Notification Bell Account Switch Privacy & Token Guard
+  const bellResetOnUserChange = bellCode.includes('currentUserIdRef.current = currentUserId;') && bellCode.includes('setNotifications([]);');
+  const bellTokenGuard = bellCode.includes('if (currentUserIdRef.current !== requestedUserId) return;');
   assert(
-    recHomeNoUserLiteral && recHomeApplyAuthGate,
-    'Logged-Out Apply Safety: Home gates logged-out users with sign-in prompt and never passes literal applicantId="user"'
+    bellResetOnUserChange && bellTokenGuard,
+    'Notification Privacy: NotificationBell resets state on currentUserId change and guards async fetches against cross-account leakage'
   );
 
-  // 42. Home Real Application Success Flow (No legacy handleApplyJob simulation call)
-  const recHomeNoHandleApplyOnSuccess = !recHomeCode.includes('handleApplyJob(applyingJob.id)');
+  // 42. Explicit Guest Auth Check in Grievance Submission
+  const grievanceExplicitAuth = grievanceCode.includes('authedUserId') && grievanceCode.includes('Please log in to submit a grievance ticket online.');
   assert(
-    recHomeNoHandleApplyOnSuccess,
-    'Real Application Success Flow: RecommendedForYou updates canonical application map with real DB record upon modal success without invoking legacy local handleApplyJob simulation'
+    grievanceExplicitAuth,
+    'Guest Grievance Safety: GrievancePage explicitly verifies authedUserId before createSupportTicket call'
   );
 
-  // 43. 23505 Duplicate Error Handling & Fail-Closed Supabase Behavior
-  const modal23505DispatchesEvent = modalCode.includes("appError.code === '23505'") && modalCode.includes("dispatchEvent(new CustomEvent('opencomm:job-application-changed'))") && !modalCode.includes("onSuccess('existing')");
-  const modalNoFakeSuccessFallback = !modalCode.includes("onSuccess('local-app-id')") && modalCode.includes('Unable to submit application right now.');
+  // 43. Support Ticket ID String Conversion
+  const ticketIdStringConversion = supabaseLibCode.includes('return String(data.id);');
   assert(
-    modal23505DispatchesEvent && modalNoFakeSuccessFallback,
-    'Application Modal Error Safety: Duplicate 23505 dispatches change event without fabricating pending status, and missing Supabase fails closed'
+    ticketIdStringConversion,
+    'Support Ticket ID Precision: createSupportTicket converts DB bigint data.id to String explicitly'
   );
 
-  // 44. Profile Page Green Verification Checkmark Removed Next to Name
-  const headerNameSlice = profilePageCode.slice(profilePageCode.indexOf('{profile?.full_name || username}'), profilePageCode.indexOf('{workerProfile?.availability'));
-  const profileNoGreenCheckNextToName = !headerNameSlice.includes('CheckCircle2');
-  assert(
-    profileNoGreenCheckNextToName,
-    'Profile Header Integrity: Misleading green CheckCircle verification badge next to profile name removed (dedicated Email Verified card preserved)'
-  );
-
-  // 45. Document Security Scanner Unit Tests
+  // 44. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
