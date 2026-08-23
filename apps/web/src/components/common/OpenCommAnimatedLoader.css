@@ -7,7 +7,7 @@
 .opencomm-loader-container {
   display: inline-flex;
   flex-direction: column;
-  items-center: center;
+  align-items: center;
   justify-content: center;
   position: relative;
   user-select: none;
@@ -26,7 +26,6 @@
   background-color: #F8FAFC;
 }
 
-:global(.dark) .opencomm-loader-fullscreen,
 .dark .opencomm-loader-fullscreen {
   background-color: #0B1020;
 }
@@ -70,7 +69,6 @@
   letter-spacing: -0.03em;
 }
 
-:global(.dark) .opencomm-loader-base,
 .dark .opencomm-loader-base {
   stroke: rgba(51, 65, 85, 0.4);
 }
@@ -116,7 +114,6 @@
   animation: opencommLoaderPulse 2.4s ease-in-out infinite alternate;
 }
 
-:global(.dark) .opencomm-loader-fill,
 .dark .opencomm-loader-fill {
   opacity: 0.18;
 }
@@ -131,7 +128,6 @@
   animation: opencommLoaderTextFade 1.6s ease-in-out infinite alternate;
 }
 
-:global(.dark) .opencomm-loader-label,
 .dark .opencomm-loader-label {
   color: #94A3B8;
 }
@@ -167,15 +163,6 @@
   }
   100% {
     opacity: 1;
-  }
-}
-
-@keyframes opencommLoaderGradientRotate {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
   }
 }
 

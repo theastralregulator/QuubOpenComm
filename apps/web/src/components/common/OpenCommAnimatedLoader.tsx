@@ -4,7 +4,7 @@
  * Premium brand-aligned SVG wordmark loader.
  */
 
-import React, { useId } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import './OpenCommAnimatedLoader.css';
 
 export interface OpenCommAnimatedLoaderProps {
@@ -23,6 +23,26 @@ export default function OpenCommAnimatedLoader({
   const reactId = useId();
   const safeId = reactId.replace(/:/g, '');
   const gradientId = `opencomm-loader-gradient-${safeId}`;
+
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setPrefersReducedMotion(e.matches);
+    };
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    } else if ('addListener' in mediaQuery) {
+      (mediaQuery as any).addListener(handleChange);
+      return () => (mediaQuery as any).removeListener(handleChange);
+    }
+  }, []);
 
   const sizeClass = 
     size === 'sm' ? 'opencomm-loader-size-sm' :
@@ -59,6 +79,16 @@ export default function OpenCommAnimatedLoader({
               <stop offset="65%" stopColor="#A855F7" />
               <stop offset="85%" stopColor="#06B6D4" />
               <stop offset="100%" stopColor="#2563EB" />
+
+              {!prefersReducedMotion && (
+                <animateTransform
+                  attributeName="gradientTransform"
+                  type="rotate"
+                  values="0 170 37.5; 180 170 37.5; 360 170 37.5"
+                  dur="8s"
+                  repeatCount="indefinite"
+                />
+              )}
             </linearGradient>
           </defs>
 
