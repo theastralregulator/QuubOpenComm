@@ -1346,9 +1346,6 @@ export default function ProfilePage({
                   <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white truncate">
                     {profile?.full_name || username}
                   </h1>
-                  {profile?.email_verified_for_actions === true && (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 fill-emerald-500/10" />
-                  )}
                   {workerProfile?.availability && (
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                       workerProfile.availability === 'Available Now'

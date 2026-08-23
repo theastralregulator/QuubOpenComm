@@ -9,7 +9,7 @@ export interface SharedApplicationModalProps {
   jobId: string;
   applicantId: string;
   jobSalary?: string;
-  onSuccess: (applicationId: string) => void;
+  onSuccess: (appRecord?: any) => void;
   triggerToast?: (msg: string) => void;
 }
 
@@ -59,9 +59,8 @@ export default function SharedApplicationModal({
 
         if (appError) {
           if (appError.code === '23505') {
-            if (triggerToast) triggerToast('You have already applied for this job opportunity.');
-            // Even if already applied, we consider it "successful" in terms of closing the modal and updating UI
-            onSuccess('existing'); 
+            if (triggerToast) triggerToast('You have already applied for this job.');
+            window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
           } else {
             console.error('Application submission error:', appError);
             if (triggerToast) triggerToast(`Failed to submit application: ${appError.message}`);
@@ -72,11 +71,13 @@ export default function SharedApplicationModal({
         }
 
         if (newApp) {
-          onSuccess(newApp.id);
+          onSuccess(newApp);
         }
       } else {
-         // Local fallback
-         onSuccess('local-app-id');
+        if (triggerToast) triggerToast('Unable to submit application right now. Please try again.');
+        setIsSubmitting(false);
+        onClose();
+        return;
       }
 
       window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));

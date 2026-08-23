@@ -2595,13 +2595,16 @@ export default function App() {
   const [dashSavedJobsCount, setDashSavedJobsCount] = React.useState(0);
   const [dashSavedWorkersCount, setDashSavedWorkersCount] = React.useState(0);
   const [myApplicationsByJobId, setMyApplicationsByJobId] = React.useState<Map<string, any>>(new Map());
+  const [isMyApplicationsLoaded, setIsMyApplicationsLoaded] = React.useState(true);
 
   React.useEffect(() => {
     if (!isLoggedIn || !userIdState) {
       setMyApplicationsByJobId(new Map());
+      setIsMyApplicationsLoaded(true);
       return;
     }
     let cancelled = false;
+    setIsMyApplicationsLoaded(false);
     (async () => {
       try {
         const [posts, savedJobs, savedWorkers, myWorksRes] = await Promise.all([
@@ -2623,8 +2626,11 @@ export default function App() {
             });
             setMyApplicationsByJobId(map);
           }
+          setIsMyApplicationsLoaded(true);
         }
-      } catch { /* silently ignore */ }
+      } catch {
+        if (!cancelled) setIsMyApplicationsLoaded(true);
+      }
     })();
     const handleAppChanged = () => {
       if (userIdState) {
@@ -2960,6 +2966,21 @@ export default function App() {
                 applicationsByJobId={myApplicationsByJobId}
                 isJobsLoaded={isJobsLoaded}
                 isWorkersLoaded={isWorkersLoaded}
+                isApplicationsLoaded={isMyApplicationsLoaded}
+                isLoggedIn={isLoggedIn}
+                onOpenAuth={(tab) => {
+                  if (tab === 'signin') navigate('/login');
+                  else if (tab === 'signup') navigate('/signup');
+                  else setShowAuthModal('signin');
+                }}
+                triggerToast={triggerToast}
+                onApplicationCreated={(jobId, appRecord) => {
+                  setMyApplicationsByJobId(prev => {
+                    const next = new Map(prev);
+                    next.set(jobId, appRecord || { id: `app-${Date.now()}`, job_id: jobId, status: 'pending', created_at: new Date().toISOString() });
+                    return next;
+                  });
+                }}
               />
             </motion.div>
           } />
@@ -2986,9 +3007,12 @@ export default function App() {
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');
                   else if (tab === 'signup') navigate('/signup');
+                  else setShowAuthModal('signin');
                 }}
                 isJobsLoaded={isJobsLoaded}
+                isApplicationsLoaded={isMyApplicationsLoaded}
                 applicationsByJobId={myApplicationsByJobId}
+                currentUserId={userIdState}
                 onApplicationCreated={(jobId, appRecord) => {
                   setMyApplicationsByJobId(prev => {
                     const next = new Map(prev);

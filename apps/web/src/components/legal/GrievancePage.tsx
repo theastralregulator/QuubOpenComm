@@ -25,16 +25,17 @@ export default function GrievancePage({ navigate, triggerToast }: GrievancePageP
 
     try {
       const { dbService } = await import('../../lib/supabase');
+      const isHighPriority = form.type === 'report_safety' || form.type === 'report_fraud';
       const ticketId = await dbService.createSupportTicket({
         category: form.type,
         subject: `[${form.type.toUpperCase()}] ${form.subject}`,
-        description: `Name: ${form.name}\nEmail: ${form.email}\n\n${form.description}`,
-        priority: form.type.startsWith('report_') ? 'high' : 'medium',
+        message: `Name: ${form.name}\nEmail: ${form.email}\n\n${form.description}`,
+        priority: isHighPriority ? 'high' : 'normal',
       });
 
       if (ticketId) {
         if (triggerToast) {
-          triggerToast("Grievance ticket submitted successfully! Acknowledgment sent.");
+          triggerToast("Grievance ticket submitted successfully.");
         }
         setForm({
           name: '',

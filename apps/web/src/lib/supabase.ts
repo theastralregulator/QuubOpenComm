@@ -304,10 +304,10 @@ export interface SupportTicket {
   user_id: string;
   category: string;
   subject: string;
-  description: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in_progress' | 'waiting_on_user' | 'resolved' | 'closed';
-  assigned_to?: string;
+  message: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'waiting_for_user' | 'resolved' | 'closed';
+  assigned_admin_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -585,15 +585,20 @@ export const dbService = {
   /**
    * Create a support ticket for the current user.
    */
-  async createSupportTicket(params: { category: string; subject: string; description: string; priority?: string }): Promise<string | null> {
+  async createSupportTicket(params: {
+    category: string;
+    subject: string;
+    message: string;
+    priority?: 'low' | 'normal' | 'high' | 'urgent';
+  }): Promise<string | null> {
     if (!supabase) throw new Error('Supabase is not initialized.');
     const userId = await getCurrentUserId();
     const payload = {
       user_id: userId,
       category: params.category,
       subject: params.subject,
-      description: params.description,
-      priority: params.priority ?? 'medium',
+      message: params.message,
+      priority: params.priority ?? 'normal',
       status: 'open'
     };
     const { data, error } = await supabase.from('support_tickets').insert(payload).select('id').single();

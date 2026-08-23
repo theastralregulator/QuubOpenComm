@@ -25,7 +25,9 @@ interface JobsPageProps {
   isLoggedIn?: boolean;
   onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
   isJobsLoaded?: boolean;
+  isApplicationsLoaded?: boolean;
   applicationsByJobId?: Map<string, any>;
+  currentUserId?: string | null;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
 }
 
@@ -41,24 +43,14 @@ export default function JobsPage({
   isLoggedIn = false,
   onOpenAuth,
   isJobsLoaded = true,
+  isApplicationsLoaded = true,
   applicationsByJobId,
+  currentUserId,
   onApplicationCreated,
 }: JobsPageProps) {
   const { jobId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Local fetch state
-  const [localJobs, setLocalJobs] = useState<Job[]>(jobs);
-  const [isFetching, setIsFetching] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [applicationsMap, setApplicationsMap] = useState<Map<string, any>>(new Map());
-
-  useEffect(() => {
-    if (jobs && jobs.length > 0) {
-      setLocalJobs(jobs);
-    }
-  }, [jobs]);
 
   // Filters state
   const [locationFilter, setLocationFilter] = useState('');
@@ -67,56 +59,14 @@ export default function JobsPage({
   const [sortBy, setSortBy] = useState('newest'); // newest, closing_soon, salary
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-  // Fetch jobs from Supabase on mount
-  useEffect(() => {
-    let active = true;
-    const fetchJobs = async () => {
-      setIsFetching(true);
-      try {
-        const { dbService } = await import('../../lib/supabase');
-        const data = await dbService.getJobsFromDb();
-        if (active && data) {
-          setLocalJobs(data);
-        }
-      } catch (err) {
-        console.error("Error fetching jobs in JobsPage:", err);
-      } finally {
-        if (active) setIsFetching(false);
-      }
-    };
-    fetchJobs();
-    
-    return () => { active = false; };
-  }, []);
-
-  // Fetch authenticated user and batched applications
-  useEffect(() => {
-    async function checkAuthAndApplications() {
-      if (!supabase) return;
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          setCurrentUserId(user.id);
-        } else {
-          setCurrentUserId(null);
-          setApplicationsMap(new Map());
-        }
-      } catch (err) {
-        console.error('Error fetching auth user in JobsPage:', err);
-      }
-    }
-
-    checkAuthAndApplications();
-  }, []);
-
   // Filter & sort logic
   const filteredJobs = useMemo(() => {
-    return localJobs.filter(job => {
+    return (jobs || []).filter(job => {
       // Search
       const matchesSearch = !searchQuery || 
         job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (job.posterName && job.posterName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        ((job as any).posterName && (job as any).posterName.toLowerCase().includes(searchQuery.toLowerCase())) ||
         job.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (job.requirements && job.requirements.some(r => r.toLowerCase().includes(searchQuery.toLowerCase())));
 
@@ -138,7 +88,7 @@ export default function JobsPage({
 
       return matchesSearch && matchesCategory && matchesLocation && matchesJobType && matchesVerified;
     });
-  }, [localJobs, searchQuery, selectedCategory, locationFilter, jobTypeFilter, verifiedOnly]);
+  }, [jobs, searchQuery, selectedCategory, locationFilter, jobTypeFilter, verifiedOnly]);
 
   const sortedJobs = useMemo(() => {
     return [...filteredJobs].sort((a, b) => {
@@ -159,32 +109,6 @@ export default function JobsPage({
     });
   }, [filteredJobs, sortBy]);
 
-  // Batch query applications for current user across visible jobs
-  useEffect(() => {
-    async function batchFetchApplications() {
-      if (!currentUserId || !supabase || sortedJobs.length === 0) return;
-
-      const visibleJobIds = sortedJobs.map(j => j.id);
-      try {
-        const { data, error } = await supabase
-          .from('job_applications')
-          .select('id, job_id, status, created_at')
-          .eq('applicant_id', currentUserId)
-          .in('job_id', visibleJobIds);
-
-        if (!error && data) {
-          const map = new Map<string, any>();
-          data.forEach(app => map.set(app.job_id, app));
-          setApplicationsMap(map);
-        }
-      } catch (err) {
-        console.error('Error batch fetching job applications:', err);
-      }
-    }
-
-    batchFetchApplications();
-  }, [currentUserId, sortedJobs]);
-
   const categoriesList = ['All', 'Developer', 'Designer', 'Electrician', 'Carpenter', 'Driver', 'Chef', 'Teacher', 'Photographer', 'Mechanic', 'Cleaner'];
 
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
@@ -204,7 +128,7 @@ export default function JobsPage({
       return;
     }
 
-    const existingApp = applicationsMap.get(job.id);
+    const existingApp = applicationsByJobId?.get(job.id);
     if (existingApp) {
       triggerToast(`You have already applied for this job (Status: ${existingApp.status || 'pending'}).`);
       return;
@@ -220,15 +144,13 @@ export default function JobsPage({
     setApplyingJob(job);
   };
 
-  const handleModalSuccess = (appId: string) => {
+  const handleModalSuccess = (appRecord?: any) => {
     if (applyingJob) {
-      triggerToast("Application submitted successfully!");
-      setApplicationsMap(prev => {
-        const next = new Map(prev);
-        next.set(applyingJob.id, { id: appId, status: 'pending' });
-        return next;
-      });
+      const targetJobId = applyingJob.id;
       setApplyingJob(null);
+      if (onApplicationCreated) {
+        onApplicationCreated(targetJobId, appRecord);
+      }
     }
   };
 
@@ -389,7 +311,7 @@ export default function JobsPage({
 
           {/* JOBS LIST GRID */}
           <div className="lg:col-span-9 w-full space-y-4">
-            {!isJobsLoaded || isFetching ? (
+            {!isJobsLoaded || (isLoggedIn && !isApplicationsLoaded) ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4 w-full">
                 <JobCardSkeleton count={6} />
               </div>
@@ -417,8 +339,7 @@ export default function JobsPage({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4 w-full">
                 {sortedJobs.map((job) => {
                   const isOwner = currentUserId ? job.posted_by === currentUserId : false;
-                  const activeAppsMap = applicationsByJobId && applicationsByJobId.size > 0 ? applicationsByJobId : applicationsMap;
-                  const appRecord = activeAppsMap.get(job.id);
+                  const appRecord = applicationsByJobId?.get(job.id);
                   const isApplied = Boolean(appRecord) || job.applied;
                   const appStatus = appRecord?.status || null;
 

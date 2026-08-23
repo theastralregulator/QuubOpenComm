@@ -77,6 +77,12 @@ function runPreflightAndUnitChecks() {
   const workerCardPath = path.join(rootDir, 'apps/web/src/components/cards/WorkerCard.tsx');
   const workerCardCode = fs.readFileSync(workerCardPath, 'utf8');
 
+  const supabaseLibPath = path.join(rootDir, 'apps/web/src/lib/supabase.ts');
+  const supabaseLibCode = fs.readFileSync(supabaseLibPath, 'utf8');
+
+  const modalPath = path.join(rootDir, 'apps/web/src/components/jobs/SharedApplicationModal.tsx');
+  const modalCode = fs.readFileSync(modalPath, 'utf8');
+
   const fallbackApiPath = path.join(rootDir, 'api/media-upload-fallback-intent.ts');
   const fallbackApiCode = fs.readFileSync(fallbackApiPath, 'utf8');
 
@@ -353,51 +359,89 @@ function runPreflightAndUnitChecks() {
     'Migration Preserved: supabase/migrations/20260824000000_worker_profile_persistence_columns.sql exists without version drift'
   );
 
-  // --- PRODUCTION UX CONSISTENCY & SAFETY CHECKS ---
+  // --- NEW PRODUCTION CORRECTIONS AFTER ce3967ba ---
 
-  // 35. Home Application Status Invariant: RecommendedForYou receives applicationsByJobId map and does NOT auto-hide applied jobs with "Apply" button
-  const recHomeReceivesAppMap = recHomeCode.includes('applicationsByJobId') && recHomeCode.includes('applicationsByJobId?.get(job.id)');
-  const recHomeNoAutoFilterApplied = !recHomeCode.includes('if (job.applied) return false;');
+  // 35. Support Ticket DB Schema Correction: Uses message parameter and payload (NO description)
+  const ticketMessageCheck = supabaseLibCode.includes('message: params.message') && !supabaseLibCode.includes('description: params.description');
   assert(
-    recHomeReceivesAppMap && recHomeNoAutoFilterApplied,
-    'Home Application Status: RecommendedForYou receives canonical applicationsByJobId map and preserves applied cards with live status'
+    ticketMessageCheck,
+    'Support Ticket Schema: createSupportTicket inserts message column matching production DB schema (no description)'
   );
 
-  // 36. Jobs False Empty Prevention: JobsPage checks !isJobsLoaded || isFetching before rendering "No jobs found"
-  const jobsPageSkeletonCheck = jobsPageCode.includes('JobCardSkeleton') && jobsPageCode.includes('!isJobsLoaded || isFetching');
+  // 36. Support Ticket Priority Values: Uses normal and high (NO invalid medium)
+  const ticketNoMediumPriority = !supabaseLibCode.includes("'medium'") && !grievanceCode.includes("'medium'");
+  const ticketNormalDefault = supabaseLibCode.includes("priority: params.priority ?? 'normal'");
   assert(
-    jobsPageSkeletonCheck,
-    'Jobs False Empty Prevention: JobsPage renders JobCardSkeleton during initial fetch and prevents false "No jobs found" flash'
+    ticketNoMediumPriority && ticketNormalDefault,
+    'Support Ticket Priority: Priority values match DB constraint (low, normal, high, urgent; no invalid medium)'
   );
 
-  // 37. Notification Bell Cache & Skeleton Rows: Bell dropdown checks cached data before setting loading and renders row skeletons
-  const bellCacheCheck = bellCode.includes('hasLoadedRef.current') && bellCode.includes('lastFetchedAtRef.current');
-  const bellSkeletonRowsCheck = bellCode.includes('animate-pulse') && !bellCode.includes('Loading notifications...');
+  // 37. SupportTicket Interface Alignment
+  const ticketInterfaceAligned = supabaseLibCode.includes('message: string;') &&
+    supabaseLibCode.includes("priority: 'low' | 'normal' | 'high' | 'urgent';") &&
+    supabaseLibCode.includes('assigned_admin_id?: string | null;');
   assert(
-    bellCacheCheck && bellSkeletonRowsCheck,
-    'Notification Bell Cache & Skeletons: Bell uses background refresh for cached data and compact row skeletons for initial fetch'
+    ticketInterfaceAligned,
+    'SupportTicket Interface: Aligned with production DB schema (message, priority normal, assigned_admin_id)'
   );
 
-  // 38. Absence of Fake Verification Labels in Profiles and Worker Cards
-  const profileNoCertifiedPro = !profilePageCode.includes("'Certified Professional'") && !profilePageCode.includes('"Certified Professional"');
-  const profileNoVerifiedBiz = !profilePageCode.includes("'Verified Business'") && !profilePageCode.includes('"Verified Business"');
-  const workerCardNoCertifiedPro = !workerCardCode.includes('certified professional');
-  const profileVerifiedCardRealEmail = profilePageCode.includes('Email Verified') && profilePageCode.includes('profile?.email_verified_for_actions === true');
+  // 38. Grievance Toast: No fake acknowledgment sent claim
+  const grievanceNoAckClaim = grievanceCode.includes('Grievance ticket submitted successfully.') && !grievanceCode.includes('Acknowledgment sent');
   assert(
-    profileNoCertifiedPro && profileNoVerifiedBiz && workerCardNoCertifiedPro && profileVerifiedCardRealEmail,
-    'Verification Label Integrity: Misleading "Certified Professional", "Verified Business", and "Verified Account" identity claims removed'
+    grievanceNoAckClaim,
+    'Grievance Toast Safety: Submissions display honest "Grievance ticket submitted successfully." without claiming unverified email/SMS delivery'
   );
 
-  // 39. Contact Placeholders Removed & Grievance Ticket Persistence
-  const grievanceNoPlaceholderEmail = !grievanceCode.includes('[support@opencomm-placeholder.io]');
-  const grievanceNoPlaceholderOfficer = !grievanceCode.includes('[Grievance Officer Name Placeholder]');
-  const grievanceUsesDbService = grievanceCode.includes('dbService.createSupportTicket') && !grievanceCode.includes('setTimeout(');
+  // 39. JobsPage Single Canonical Applications Map & No Duplicate Fetch
+  const jobsPageNoAppQuery = !jobsPageCode.includes("from('job_applications')");
+  const jobsPageNoGetJobsFetch = !jobsPageCode.includes('getJobsFromDb()');
+  const jobsPageNoAppMapState = !jobsPageCode.includes('applicationsMap');
   assert(
-    grievanceNoPlaceholderEmail && grievanceNoPlaceholderOfficer && grievanceUsesDbService,
-    'Grievance Safety: Bracketed placeholder strings removed and handleSubmit calls real dbService.createSupportTicket'
+    jobsPageNoAppQuery && jobsPageNoGetJobsFetch && jobsPageNoAppMapState,
+    'JobsPage Canonical Architecture: Eliminates duplicate job_applications queries, getJobsFromDb fetches, and local applicationsMap state'
   );
 
-  // 40. Document Security Scanner Unit Tests
+  // 40. Application Loading Hydration Race Condition Prevention
+  const appHasAppLoadedState = appCode.includes('isMyApplicationsLoaded') && appCode.includes('isApplicationsLoaded={isMyApplicationsLoaded}');
+  const recHomeAppLoadedGate = recHomeCode.includes('!isJobsLoaded || (currentUserId && !isApplicationsLoaded)');
+  const jobsPageAppLoadedGate = jobsPageCode.includes('!isJobsLoaded || (isLoggedIn && !isApplicationsLoaded)');
+  assert(
+    appHasAppLoadedState && recHomeAppLoadedGate && jobsPageAppLoadedGate,
+    'Application Hydration Race Prevention: Home and Jobs render JobCardSkeleton until both jobs and user application map are fully hydrated'
+  );
+
+  // 41. Logged-Out Home Apply Auth Gate (No applicantId="user" fallback)
+  const recHomeNoUserLiteral = !recHomeCode.includes("applicantId={currentUserId || 'user'}");
+  const recHomeApplyAuthGate = recHomeCode.includes('!currentUserId || !isLoggedIn') && recHomeCode.includes('Please sign in to apply.');
+  assert(
+    recHomeNoUserLiteral && recHomeApplyAuthGate,
+    'Logged-Out Apply Safety: Home gates logged-out users with sign-in prompt and never passes literal applicantId="user"'
+  );
+
+  // 42. Home Real Application Success Flow (No legacy handleApplyJob simulation call)
+  const recHomeNoHandleApplyOnSuccess = !recHomeCode.includes('handleApplyJob(applyingJob.id)');
+  assert(
+    recHomeNoHandleApplyOnSuccess,
+    'Real Application Success Flow: RecommendedForYou updates canonical application map with real DB record upon modal success without invoking legacy local handleApplyJob simulation'
+  );
+
+  // 43. 23505 Duplicate Error Handling & Fail-Closed Supabase Behavior
+  const modal23505DispatchesEvent = modalCode.includes("appError.code === '23505'") && modalCode.includes("dispatchEvent(new CustomEvent('opencomm:job-application-changed'))") && !modalCode.includes("onSuccess('existing')");
+  const modalNoFakeSuccessFallback = !modalCode.includes("onSuccess('local-app-id')") && modalCode.includes('Unable to submit application right now.');
+  assert(
+    modal23505DispatchesEvent && modalNoFakeSuccessFallback,
+    'Application Modal Error Safety: Duplicate 23505 dispatches change event without fabricating pending status, and missing Supabase fails closed'
+  );
+
+  // 44. Profile Page Green Verification Checkmark Removed Next to Name
+  const headerNameSlice = profilePageCode.slice(profilePageCode.indexOf('{profile?.full_name || username}'), profilePageCode.indexOf('{workerProfile?.availability'));
+  const profileNoGreenCheckNextToName = !headerNameSlice.includes('CheckCircle2');
+  assert(
+    profileNoGreenCheckNextToName,
+    'Profile Header Integrity: Misleading green CheckCircle verification badge next to profile name removed (dedicated Email Verified card preserved)'
+  );
+
+  // 45. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

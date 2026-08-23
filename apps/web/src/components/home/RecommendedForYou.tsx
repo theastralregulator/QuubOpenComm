@@ -23,6 +23,11 @@ interface RecommendedForYouProps {
   applicationsByJobId?: Map<string, any>;
   isJobsLoaded?: boolean;
   isWorkersLoaded?: boolean;
+  isApplicationsLoaded?: boolean;
+  isLoggedIn?: boolean;
+  onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
+  triggerToast?: (msg: string) => void;
+  onApplicationCreated?: (jobId: string, appRecord: any) => void;
 }
 
 export default function RecommendedForYou({
@@ -38,6 +43,11 @@ export default function RecommendedForYou({
   applicationsByJobId,
   isJobsLoaded = true,
   isWorkersLoaded = true,
+  isApplicationsLoaded = true,
+  isLoggedIn = false,
+  onOpenAuth,
+  triggerToast,
+  onApplicationCreated,
 }: RecommendedForYouProps) {
   const [activeTab, setActiveTab] = useState<'jobs' | 'workers'>('jobs');
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
@@ -111,7 +121,7 @@ export default function RecommendedForYou({
             transition={{ duration: 0.25 }}
             className="w-full"
           >
-            {!isJobsLoaded ? (
+            {!isJobsLoaded || (currentUserId && !isApplicationsLoaded) ? (
               <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
                 <JobCardSkeleton count={6} />
               </div>
@@ -147,7 +157,15 @@ export default function RecommendedForYou({
                         applicationDeadline={job.applicationDeadline}
                         onSave={toggleBookmark}
                         onViewDetails={onViewJobs}
-                        onApply={(id, e) => { e.stopPropagation(); setApplyingJob(job); }}
+                        onApply={(id, e) => {
+                          e.stopPropagation();
+                          if (!currentUserId || !isLoggedIn) {
+                            if (triggerToast) triggerToast("Please sign in to apply.");
+                            if (onOpenAuth) onOpenAuth('locked');
+                            return;
+                          }
+                          setApplyingJob(job);
+                        }}
                       />
                     </div>
                   );
@@ -214,16 +232,19 @@ export default function RecommendedForYou({
       </AnimatePresence>
 
       {/* Shared Application Modal for Quick Apply from Recommended Home */}
-      {applyingJob && (
+      {applyingJob && currentUserId && (
         <SharedApplicationModal
           isOpen={Boolean(applyingJob)}
           jobId={applyingJob.id}
-          applicantId={currentUserId || 'user'}
+          applicantId={currentUserId}
           jobSalary={applyingJob.salary}
           onClose={() => setApplyingJob(null)}
-          onSuccess={() => {
+          onSuccess={(appRecord) => {
+            const targetJobId = applyingJob.id;
             setApplyingJob(null);
-            handleApplyJob(applyingJob.id);
+            if (onApplicationCreated) {
+              onApplicationCreated(targetJobId, appRecord);
+            }
           }}
         />
       )}
