@@ -24,12 +24,14 @@ export default function OpenCommAnimatedLoader({
   const safeId = reactId.replace(/:/g, '');
   const gradientId = `opencomm-loader-gradient-${safeId}`;
 
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
 
     const handleChange = (e: MediaQueryListEvent) => {
       setPrefersReducedMotion(e.matches);
@@ -69,10 +71,11 @@ export default function OpenCommAnimatedLoader({
           <defs>
             <linearGradient
               id={gradientId}
-              x1="0%"
-              y1="0%"
-              x2="100%"
-              y2="100%"
+              gradientUnits="userSpaceOnUse"
+              x1="0"
+              y1="0"
+              x2="340"
+              y2="75"
             >
               <stop offset="0%" stopColor="#2563EB" />
               <stop offset="35%" stopColor="#7C3AED" />

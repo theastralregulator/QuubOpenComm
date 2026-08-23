@@ -200,17 +200,43 @@ function runPreflightAndUnitChecks() {
     'Mobile Navbar: Uses bounded clamp(10px, env(safe-area-inset-bottom, 10px), 34px) bottom offset'
   );
 
-  // 19. Animated Loader Polish: Valid CSS property, no :global(), SVG animateTransform, no unused keyframe
+  // 19. Animated Loader Brand Wordmark: Displays EXACTLY "OpenComm" and uses React useId()
+  const loaderWordmarkText = />\s*OpenComm\s*</i.test(loaderComponentCode) && !/>\s*YOU\s*</i.test(loaderComponentCode);
+  const loaderUseIdCheck = /useId\(\)/i.test(loaderComponentCode) && /gradientId = `opencomm-loader-gradient-/i.test(loaderComponentCode);
+  assert(
+    loaderWordmarkText && loaderUseIdCheck,
+    'Animated Loader Brand: Wordmark displays EXACTLY "OpenComm" with unique useId() instance IDs'
+  );
+
+  // 20. Animated Loader Scoped CSS & Valid Properties
+  const cssNoGenericClasses = !/^\s*\.loader\b/m.test(loaderCssCode) && !/^\s*\.spin\b/m.test(loaderCssCode) && !/^\s*\.dash\b/m.test(loaderCssCode);
+  const cssScopedClasses = /opencomm-loader-container/i.test(loaderCssCode) && /opencomm-loader-trace/i.test(loaderCssCode);
   const cssValidAlignItems = /align-items:\s*center;/i.test(loaderCssCode) && !/items-center:/i.test(loaderCssCode);
   const cssNoGlobalSelector = !/:global\(/i.test(loaderCssCode);
   const cssNoUnusedKeyframes = !/@keyframes\s+opencommLoaderGradientRotate/i.test(loaderCssCode);
-  const svgAnimateTransformCheck = /<animateTransform[\s\S]*?attributeName="gradientTransform"/i.test(loaderComponentCode);
   assert(
-    cssValidAlignItems && cssNoGlobalSelector && cssNoUnusedKeyframes && svgAnimateTransformCheck,
-    'Animated Loader Polish: Valid align-items CSS, no :global() selectors, SVG animateTransform gradient rotation, and no unused keyframes'
+    cssNoGenericClasses && cssScopedClasses && cssValidAlignItems && cssNoGlobalSelector && cssNoUnusedKeyframes,
+    'Animated Loader CSS Architecture: Scoped classes, valid align-items, no :global() rules, and no dead keyframes'
   );
 
-  // 20. Document Security Scanner Unit Tests
+  // 21. ProtectedRoute & App Callback Integrations
+  const protectedRouteLoaderCheck = /<OpenCommAnimatedLoader[\s\S]*?fullscreen[\s\S]*?size="lg"/i.test(protectedRouteCode);
+  const appCallbackLoaderCheck = /authCallbackStatus === 'processing'[\s\S]*?<OpenCommAnimatedLoader size="md" \/>/i.test(appCode);
+  assert(
+    protectedRouteLoaderCheck && appCallbackLoaderCheck,
+    'Loader Integrations: ProtectedRoute Category A fullscreen loader and App.tsx Category B callback loader present'
+  );
+
+  // 22. SVG Gradient Coordinates & Flash-Free Reduced Motion
+  const userSpaceGradientCheck = /gradientUnits="userSpaceOnUse"/i.test(loaderComponentCode) && /x2="340"/i.test(loaderComponentCode) && /y2="75"/i.test(loaderComponentCode);
+  const lazyReducedMotionCheck = /useState\(\(\) =>[\s\S]*?prefers-reduced-motion/i.test(loaderComponentCode);
+  const svgAnimateTransformCheck = /<animateTransform[\s\S]*?attributeName="gradientTransform"/i.test(loaderComponentCode);
+  assert(
+    userSpaceGradientCheck && lazyReducedMotionCheck && svgAnimateTransformCheck,
+    'Technical Precision: linearGradient userSpaceOnUse coordinates, lazy reduced-motion initialization, and SVG animateTransform'
+  );
+
+  // 23. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
