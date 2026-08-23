@@ -40,7 +40,7 @@ export interface Worker {
   title: string;
   experience: number; // years
   rating: number;
-  availability: "Available Now" | "Part-time" | "Full-time" | "Busy";
+  availability: "Available Now" | "Busy" | "On Vacation" | string;
   location: string;
   bio: string;
   skills: string[];

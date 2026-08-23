@@ -135,10 +135,10 @@ export function formatLocationSummary(loc: { country?: string; state?: string; d
  * Maps form data to database persistence payloads.
  */
 export function mapFormToDbPayloads(formData: WorkerProfileFormData) {
-  const computedHourlyRate = formData.salaryPeriod === 'hourly' ? (Number(formData.rateAmount) || 0) : (Number(formData.rateAmount) || 0);
+  const numAmount = Number(formData.rateAmount) || 0;
+  const computedHourlyRate = formData.salaryPeriod === 'hourly' ? (numAmount > 0 ? numAmount : null) : null;
 
   let formattedExpectedSalary = formData.expectedSalaryText || '';
-  const numAmount = Number(formData.rateAmount) || 0;
 
   if (formData.salaryPeriod === 'hourly') {
     formattedExpectedSalary = numAmount > 0 ? `₹${numAmount}/hr` : '';

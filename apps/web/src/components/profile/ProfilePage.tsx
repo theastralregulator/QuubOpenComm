@@ -2252,9 +2252,8 @@ export default function ProfilePage({
                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white focus:outline-none focus:border-purple-500 font-medium"
                       >
                         <option value="Available Now">Available Now</option>
-                        <option value="Part-time">Part-time</option>
-                        <option value="Full-time">Full-time</option>
                         <option value="Busy">Busy</option>
+                        <option value="On Vacation">On Vacation</option>
                       </select>
                     </div>
 

@@ -2484,10 +2484,7 @@ export default function App() {
       const { profileUpdates, workerProfileUpdates } = mapFormToDbPayloads(formState);
 
       if (userId) {
-        await dbService.updateProfile(userId, {
-          ...profileUpdates,
-          profile_type: 'worker'
-        });
+        await dbService.updateProfile(userId, profileUpdates);
       }
 
       await dbService.createMyWorkerProfile({
@@ -3922,9 +3919,8 @@ export default function App() {
                         className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
                       >
                         <option value="Available Now">Available Now</option>
-                        <option value="Part-time">Part-time</option>
-                        <option value="Full-time">Full-time</option>
                         <option value="Busy">Busy</option>
+                        <option value="On Vacation">On Vacation</option>
                       </select>
                     </div>
                   </div>

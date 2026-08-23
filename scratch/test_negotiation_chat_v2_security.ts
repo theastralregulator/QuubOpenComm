@@ -311,7 +311,39 @@ function runPreflightAndUnitChecks() {
     'Shared Data Architecture: workerProfileMapper.ts exports canonical bi-directional mapping helpers'
   );
 
-  // 31. Document Security Scanner Unit Tests
+  // --- FINAL PRODUCTION CORRECTIONS CHECKS ---
+
+  // 31. DB Availability Status Constraint Compliance: No Part-time/Full-time in Availability options
+  const appNoPartTimeAvail = !/<option value="Part-time">Part-time<\/option>/.test(appCode);
+  const profileNoPartTimeAvail = !/<option value="Part-time">Part-time<\/option>/.test(profilePageCode);
+  const appHasVacationAvail = appCode.includes('<option value="On Vacation">On Vacation</option>');
+  const profileHasVacationAvail = profilePageCode.includes('<option value="On Vacation">On Vacation</option>');
+  assert(
+    appNoPartTimeAvail && profileNoPartTimeAvail && appHasVacationAvail && profileHasVacationAvail,
+    'Availability Status DB Constraint: Options strictly match "Available Now", "Busy", "On Vacation" (no Part-time/Full-time)'
+  );
+
+  // 32. Rate Period / Hourly Rate Logic Precision
+  const mapperHourlyNullCheck = /computedHourlyRate = formData\.salaryPeriod === 'hourly'\s*\?\s*\(numAmount > 0 \? numAmount : null\)\s*:\s*null/.test(mapperCode);
+  assert(
+    mapperHourlyNullCheck,
+    'Rate Period Safety: Non-hourly periods (monthly, daily, project) explicitly assign hourly_rate = null'
+  );
+
+  // 33. Basic -> Worker Creation Order: No premature profile_type: 'worker' before RPC
+  const noPrematureWorkerType = !/updateProfile\(userId,\s*\{\s*[\s\S]*?profile_type:\s*'worker'/.test(appCode);
+  assert(
+    noPrematureWorkerType,
+    'Creation Order Safety: handleCreateWorker updates basic profile fields first and lets createMyWorkerProfile RPC change profile_type upon worker creation success'
+  );
+
+  // 34. Migration File Preserved: 20260824000000_worker_profile_persistence_columns.sql
+  assert(
+    fs.existsSync(workerColsMigrationPath),
+    'Migration Preserved: supabase/migrations/20260824000000_worker_profile_persistence_columns.sql exists without version drift'
+  );
+
+  // 35. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

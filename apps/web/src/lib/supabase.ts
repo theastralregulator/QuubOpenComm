@@ -174,9 +174,9 @@ export interface LocalWorkerProfile {
   skills: string[];
   experience_years: number;
   work_location: string;
-  availability: 'Available Now' | 'Part-time' | 'Full-time' | 'Busy';
+  availability: 'Available Now' | 'Busy' | 'On Vacation';
   bio_summary: string;
-  hourly_rate?: number;
+  hourly_rate?: number | null;
   expected_salary?: string;
   portfolio_url?: string;
   certificates?: string[];
@@ -817,7 +817,7 @@ export const dbService = {
     work_preference?: string;
     rate_period?: string;
     rate_amount?: number;
-    hourly_rate?: number;
+    hourly_rate?: number | null;
     expected_salary?: string;
     availability?: string;
     skills?: string[];
@@ -1024,7 +1024,7 @@ export const dbService = {
     work_location?: string;
     availability?: string;
     bio_summary?: string;
-    hourly_rate?: number;
+    hourly_rate?: number | null;
     expected_salary?: string;
     portfolio_url?: string;
     certificates?: string[];
