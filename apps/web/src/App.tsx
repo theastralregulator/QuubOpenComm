@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin, 
+import {
+  Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin,
   ChevronRight, ChevronLeft, ChevronDown, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
   Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
 } from 'lucide-react';
@@ -10,11 +10,12 @@ import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMe
 import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL } from './lib/supabase';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
-import { 
-  INITIAL_CATEGORIES, 
-  INITIAL_JOBS, 
-  INITIAL_WORKERS, 
-  INITIAL_MESSAGES, 
+import { mapWorkerProfileToForm, mapFormToDbPayloads } from './lib/workerProfileMapper';
+import {
+  INITIAL_CATEGORIES,
+  INITIAL_JOBS,
+  INITIAL_WORKERS,
+  INITIAL_MESSAGES,
   INITIAL_ACTIVITIES,
   INITIAL_CONVERSATIONS,
   INITIAL_APPLICATIONS,
@@ -158,16 +159,16 @@ export default function App() {
 
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
-  
+
   const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
   const [applications, setApplications] = useState<JobApplication[]>(INITIAL_APPLICATIONS);
   const [appMessages, setAppMessages] = useState<ApplicationMessage[]>(INITIAL_APP_MESSAGES);
-  
+
   // Custom states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isAccountDeactivated, setIsAccountDeactivated] = useState(false);
-  
+
   // Router Hooks
   const location = useLocation();
   const navigate = useNavigate();
@@ -216,7 +217,7 @@ export default function App() {
     else if (viewId === 'signup') navigate('/signup');
     else if (viewId === 'login') navigate('/login');
   };
-  
+
   // Dynamic User Profile
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [userType, setUserType] = useState<'normal' | 'worker' | 'company'>('normal');
@@ -267,7 +268,7 @@ export default function App() {
 
   const [showHireModal, setShowHireModal] = useState<Worker | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
-  
+
   // Auth Modal States & Loading Guards
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const isSavingProfileRef = useRef(false);
@@ -305,7 +306,7 @@ export default function App() {
   const [onboardingSubStep, setOnboardingSubStep] = useState<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'>('A');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeUploadError, setResumeUploadError] = useState('');
-  
+
   // Temp inputs for certificates & experience
   const [tempCert, setTempCert] = useState({ name: '', institution: '', graduationYear: new Date().getFullYear(), licenceNumber: '', trainingProgram: '' });
   const [tempExp, setTempExp] = useState({ employer: '', role: '', start_date: '', end_date: '', currently_working: false, description: '', achievements: '' });
@@ -469,11 +470,11 @@ export default function App() {
         if (!userId) return;
         try {
           const profile = await dbService.getProfile(userId);
+          const workerProf = await dbService.getWorkerProfile(userId);
           if (profile) {
-            setNewWorkerName(profile.full_name || username || '');
-            setNewWorkerBio(profile.bio || '');
-            const locStr = profile.city ? `${profile.city}, ${profile.state_code || profile.state || ''}` : '';
-            setNewWorkerLocation(locStr);
+            const form = mapWorkerProfileToForm(profile, workerProf);
+            setNewWorkerName(form.fullName);
+            setNewWorkerBio(form.bioSummary);
             setNewWorkerLocationData({
               city: profile.city || '',
               state: profile.state || '',
@@ -481,9 +482,28 @@ export default function App() {
               country_code: profile.country_code || '',
               state_code: profile.state_code || '',
               district: profile.district || '',
-              latitude: profile.latitude || 30.2672,
-              longitude: profile.longitude || -97.7431
+              latitude: profile.latitude,
+              longitude: profile.longitude
             });
+            const locStr = formatLocationSummary({
+              country: profile.country,
+              state: profile.state,
+              district: profile.district,
+              city: profile.city
+            });
+            setNewWorkerLocation(locStr);
+            setNewWorkerLang(form.preferredLanguage);
+
+            if (workerProf) {
+              setNewWorkerTitle(form.professionalTitle);
+              setNewWorkerCategory(form.category);
+              setNewWorkerExperience(form.experienceYears);
+              setNewWorkerWorkPref(form.workPreference || 'Onsite');
+              setNewWorkerRatePeriod(form.salaryPeriod || 'hourly');
+              setNewWorkerRate(form.rateAmount || 75);
+              setNewWorkerAvailability(form.availability);
+              setNewWorkerSkills(form.skills);
+            }
           }
         } catch (err) {
           console.error("Failed to load basic profile for upgrade:", err);
@@ -495,18 +515,18 @@ export default function App() {
 
   const isPublicPath = (pathname: string) => {
     const p = pathname.toLowerCase();
-    if (p === '/' || 
+    if (p === '/' ||
         p === '/about' ||
-        p === '/jobs' || 
-        p === '/workers' || 
-        p === '/terms' || 
-        p === '/privacy' || 
-        p === '/community-guidelines' || 
-        p === '/cookie-policy' || 
-        p === '/contact' || 
-        p === '/grievance' || 
-        p === '/signup' || 
-        p === '/login' || 
+        p === '/jobs' ||
+        p === '/workers' ||
+        p === '/terms' ||
+        p === '/privacy' ||
+        p === '/community-guidelines' ||
+        p === '/cookie-policy' ||
+        p === '/contact' ||
+        p === '/grievance' ||
+        p === '/signup' ||
+        p === '/login' ||
         p === '/verify-email' ||
         p.startsWith('/auth/callback') ||
         p.startsWith('/reset-password') ||
@@ -670,11 +690,17 @@ export default function App() {
   // Form states for Create Worker Profile
   const [newWorkerName, setNewWorkerName] = useState('');
   const [newWorkerTitle, setNewWorkerTitle] = useState('');
-  const [newWorkerRate, setNewWorkerRate] = useState(65);
+  const [newWorkerCategory, setNewWorkerCategory] = useState('');
+  const [newWorkerExperience, setNewWorkerExperience] = useState<number | string>(1);
+  const [newWorkerWorkPref, setNewWorkerWorkPref] = useState('Onsite');
+  const [newWorkerRatePeriod, setNewWorkerRatePeriod] = useState('hourly');
+  const [newWorkerRate, setNewWorkerRate] = useState<number | string>(75);
+  const [newWorkerAvailability, setNewWorkerAvailability] = useState('Available Now');
   const [newWorkerLocation, setNewWorkerLocation] = useState('');
   const [newWorkerLocationData, setNewWorkerLocationData] = useState<any>({});
   const [newWorkerBio, setNewWorkerBio] = useState('');
   const [newWorkerSkills, setNewWorkerSkills] = useState('');
+  const [newWorkerLang, setNewWorkerLang] = useState('');
   const [newWorkerListingEnabled, setNewWorkerListingEnabled] = useState(true);
   const [newWorkerTermsAccepted, setNewWorkerTermsAccepted] = useState(false);
 
@@ -739,7 +765,7 @@ export default function App() {
       if (savedWorkerDirectory) {
         setListInWorkerDirectory(true);
       }
-      
+
       setWorkerForm(prev => ({
         ...prev,
         fullName: localStorage.getItem('opencomm_pending_signup_name') || prev.fullName,
@@ -754,7 +780,7 @@ export default function App() {
         preferredLanguage: localStorage.getItem('opencomm_pending_signup_language') || prev.preferredLanguage || 'English',
         bio: localStorage.getItem('opencomm_pending_signup_bio') || prev.bio,
       }));
-      
+
       setSignupStep(3); // Go straight to OTP verification page
     }
   }, []);
@@ -843,7 +869,7 @@ export default function App() {
     if (params.get('verified') === 'true') {
       triggerToast("Email verified successfully! All secure actions are now unlocked!");
       setIsEmailVerified(true);
-      
+
       // Sync DB state locally
       supabase.auth.getUser().then(({ data: { user } }) => {
         if (user?.id) {
@@ -904,7 +930,7 @@ export default function App() {
             }
             return;
           }
-          
+
           if (data?.session) {
             await handleCallbackSession(data.session);
             return;
@@ -942,15 +968,15 @@ export default function App() {
     const handleCallbackSession = async (session: any) => {
       const user = session.user;
       setCallbackEmail(user.email || '');
-      
+
       // Get profile
       const profile = await dbService.getProfile(user.id);
-      
+
       // Sync state
       await syncUserSession(session);
 
       setAuthCallbackStatus('success');
-      
+
       // Clear URL and redirect
       setTimeout(() => {
         window.history.replaceState({}, '', '/');
@@ -990,7 +1016,7 @@ export default function App() {
     setUserIdState(userId);
     setIsLoggedIn(true);
     const userEmail = user.email || '';
-    
+
     // Attempt to retrieve profile from DB or Emulator
     let profile = await dbService.getProfile(userId);
     if (!profile) {
@@ -1015,7 +1041,7 @@ export default function App() {
         profile = await dbService.updateProfile(userId, { profile_type: 'basic' });
       }
     }
-    
+
     // Account status deactivation check
     if (profile?.account_status === 'deactivated') {
       setIsAccountDeactivated(true);
@@ -1048,13 +1074,13 @@ export default function App() {
     // Removed opencomm_user_id and opencomm_is_logged_in from localStorage
 
     const isOnboarded = Boolean(
-      profile?.onboarding_completed || 
+      profile?.onboarding_completed ||
       localStorage.getItem('opencomm_onboarding_completed') === 'true' ||
       (profile?.city && profile?.bio)
     );
     setIsOnboardingCompleted(isOnboarded);
     localStorage.setItem('opencomm_onboarding_completed', isOnboarded ? 'true' : 'false');
-    
+
     if (!isOnboarded && !isSavingProfileRef.current) {
       _setShowAuthModal('signup');
       setSignupStep(2);
@@ -1134,7 +1160,7 @@ export default function App() {
     setAcceptTerms(false);
     setAcceptPrivacy(false);
     setVerificationCodeInput('');
-    
+
     if (forceClearPending) {
       setPendingEmail('');
       localStorage.removeItem('opencomm_pending_email');
@@ -1209,7 +1235,7 @@ export default function App() {
     setUserPhoto('');
     setUserType('normal');
     setTheme('light'); // Reset theme state to Light Mode on logout
-    
+
     localStorage.removeItem('opencomm_username');
     setUserIdState(null);
 
@@ -1248,7 +1274,7 @@ export default function App() {
     setSearchQuery('');
     setSelectedCategory(null);
     setCurrentView('home');
-    
+
     setIsLoggedIn(true);
     setUserType('normal');
     setUsername('');
@@ -1353,7 +1379,7 @@ export default function App() {
   const handleResendVerificationInModal = async () => {
     setAuthError('');
     if (resendCooldown > 0) return;
-    
+
     if (!supabase) {
       setAuthError("Supabase is not configured.");
       return;
@@ -1361,7 +1387,7 @@ export default function App() {
 
     try {
       setIsAuthSubmitting(true);
-      
+
       let emailToResend = '';
       let userId = '';
       let accessToken = '';
@@ -1393,7 +1419,7 @@ export default function App() {
       });
 
       const data = await res.json();
-      
+
       if (!res.ok) {
         throw new Error(data.error || "Failed to dispatch verification email.");
       }
@@ -1419,7 +1445,7 @@ export default function App() {
     setUserType(uType);
     setUsername(uName);
     analytics.trackLogin('direct', uName);
-    
+
     const pickedPhoto = '';
     setUserPhoto(pickedPhoto);
 
@@ -1709,7 +1735,7 @@ export default function App() {
 
       if (error) {
         console.error("SIGNUP API ERROR:", error);
-        
+
         let errorText = "Registration failed.";
         if (typeof error === 'object' && error !== null) {
           errorText = error.message || (error as any).error_description || JSON.stringify(error);
@@ -1739,7 +1765,7 @@ export default function App() {
       // Store verification details and form state in localStorage so progress is not lost
       updatePendingEmail(signupForm.email);
       setVerificationCodeInput('');
-      
+
       localStorage.setItem('opencomm_pending_signup_name', signupForm.name);
       localStorage.setItem('opencomm_pending_signup_phone', signupForm.phone);
       localStorage.setItem('opencomm_pending_signup_worker_dir', listInWorkerDirectory ? 'true' : 'false');
@@ -1767,7 +1793,7 @@ export default function App() {
     } catch (err: any) {
       console.error("SIGNUP EXCEPTION:", err);
       setIsAuthSubmitting(false);
-      
+
       let errorText = "Registration failed.";
       if (typeof err === 'object' && err !== null) {
         errorText = err.message || (err as any).error_description || JSON.stringify(err);
@@ -1789,7 +1815,7 @@ export default function App() {
   const handleVerifyOTP = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError('');
-    
+
     const otp = verificationCodeInput.trim();
     if (!otp || otp.length !== 6) {
       setAuthError("Please enter a valid 6-digit OTP code.");
@@ -2060,14 +2086,14 @@ export default function App() {
       isSavingProfileRef.current = false;
       setIsAuthSubmitting(false);
       setVerificationCodeInput('');
-      
+
       let errorText = "Invalid or expired verification code.";
       if (typeof err === 'object' && err !== null) {
         errorText = err.message || (err as any).error_description || JSON.stringify(err);
       } else if (typeof err === 'string') {
         errorText = err;
       }
-      
+
       setAuthError(errorText === "{}" ? "Verification failed due to an unknown database error." : errorText);
     }
   };
@@ -2075,7 +2101,7 @@ export default function App() {
   const handleResendOTP = async () => {
     if (resendCooldown > 0) return;
     setAuthError('');
-    
+
     const emailToResend = pendingEmail || signupForm.email;
     if (!emailToResend) {
       setAuthError("No pending email address found.");
@@ -2285,7 +2311,7 @@ export default function App() {
       setJobs(prev => prev.map(j => {
         if (j.id === jobId) {
           if (j.applied) return j;
-          
+
           // Add active Application object
           const newApp: JobApplication = {
             id: `app-${Date.now()}`,
@@ -2409,7 +2435,7 @@ export default function App() {
           triggerToast(`Job "${newJobTitle}" published successfully!`);
           setShowPostJob(false);
           setJobFormError(null);
-          
+
           const freshJobs = await dbService.getJobsFromDb();
           if (freshJobs && freshJobs.length > 0) setJobs(applySavedJobIds(freshJobs));
 
@@ -2437,38 +2463,76 @@ export default function App() {
     }
 
     try {
-      const skillsArray = newWorkerSkills ? newWorkerSkills.split(',').map(s => s.trim()).filter(Boolean) : ['Professional'];
-      
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
+
+      const formState = {
+        fullName: newWorkerName.trim() || username,
+        professionalTitle: newWorkerTitle.trim(),
+        category: newWorkerCategory.trim(),
+        experienceYears: Number(newWorkerExperience) || 0,
+        workPreference: newWorkerWorkPref,
+        salaryPeriod: newWorkerRatePeriod,
+        rateAmount: Number(newWorkerRate) || 0,
+        availability: newWorkerAvailability || 'Available Now',
+        skills: newWorkerSkills,
+        preferredLanguage: newWorkerLang,
+        bioSummary: newWorkerBio.trim(),
+        locationData: newWorkerLocationData || {}
+      };
+
+      const { profileUpdates, workerProfileUpdates } = mapFormToDbPayloads(formState);
+
+      if (userId) {
+        await dbService.updateProfile(userId, {
+          ...profileUpdates,
+          profile_type: 'worker'
+        });
+      }
+
       await dbService.createMyWorkerProfile({
-        profession: newWorkerTitle.trim(),
-        skills: skillsArray,
-        experience_years: 2,
-        work_location: newWorkerLocation.trim() || undefined,
-        availability: 'Available Now',
-        bio_summary: newWorkerBio.trim() || undefined,
-        hourly_rate: Number(newWorkerRate) || 75
+        profession: workerProfileUpdates.profession,
+        primary_category: workerProfileUpdates.primary_category,
+        experience_years: workerProfileUpdates.experience_years,
+        work_preference: workerProfileUpdates.work_preference,
+        rate_period: workerProfileUpdates.rate_period,
+        rate_amount: workerProfileUpdates.rate_amount,
+        hourly_rate: workerProfileUpdates.hourly_rate,
+        expected_salary: workerProfileUpdates.expected_salary,
+        availability: workerProfileUpdates.availability,
+        skills: workerProfileUpdates.skills,
+        bio_summary: workerProfileUpdates.bio_summary,
+        work_location: workerProfileUpdates.work_location,
+        languages: workerProfileUpdates.languages
       });
 
       analytics.trackWorkerProfileCreated({
         profession: newWorkerTitle,
-        skills: skillsArray,
-        rate: Number(newWorkerRate) || 75
+        skills: workerProfileUpdates.skills,
+        rate: Number(newWorkerRate) || 0
       });
 
       triggerToast("Worker profile created successfully.");
-      
+
       setUserType('worker');
       localStorage.setItem('opencomm_user_type', 'worker');
       setShowCreateProfile(false);
 
       setNewWorkerName('');
       setNewWorkerTitle('');
+      setNewWorkerCategory('');
+      setNewWorkerExperience(1);
+      setNewWorkerWorkPref('Onsite');
+      setNewWorkerRatePeriod('hourly');
       setNewWorkerRate(75);
       setNewWorkerLocation('');
       setNewWorkerSkills('');
       setNewWorkerBio('');
+      setNewWorkerLang('');
       setNewWorkerTermsAccepted(false);
       setNewWorkerListingEnabled(true);
+
+      navigate('/profile');
     } catch (err: any) {
       console.error("Worker creation failed:", err);
       triggerToast(err.message || "Failed to create worker profile. Please try again.");
@@ -2560,7 +2624,7 @@ export default function App() {
       <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] flex items-center justify-center p-4">
         {/* Glowing Background Accent */}
         <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-blue-500/5 dark:bg-blue-600/5 rounded-full blur-[130px] pointer-events-none -z-10" />
-        
+
         <div className="w-full max-w-md bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-3xl p-8 shadow-2xl text-center space-y-6 relative overflow-hidden">
           {authCallbackStatus === 'processing' && (
             <>
@@ -2650,8 +2714,8 @@ export default function App() {
                     <RefreshCw className="w-4 h-4 animate-spin" />
                   ) : (
                     <span>
-                      {resendCooldown > 0 
-                        ? `Resend Email (${resendCooldown}s)` 
+                      {resendCooldown > 0
+                        ? `Resend Email (${resendCooldown}s)`
                         : 'Resend Verification Email'}
                     </span>
                   )}
@@ -2703,7 +2767,7 @@ export default function App() {
     <div className={`min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-[#0F172A] dark:text-[#F8FAFC] font-sans transition-colors duration-300 relative overflow-x-hidden pb-24 md:pb-8 ${
       isAdminRoute ? 'admin-theme' : ''
     }`}>
-      
+
       {/* GLOWING AMBIENT BACKGROUND ACCENTS */}
       <div className="absolute top-[-100px] left-1/4 w-[600px] h-[600px] bg-blue-500/5 dark:bg-blue-600/5 rounded-full blur-[130px] pointer-events-none -z-10" />
       <div className="absolute top-[30%] right-10 w-[500px] h-[500px] bg-purple-500/5 dark:bg-purple-600/5 rounded-full blur-[130px] pointer-events-none -z-10" />
@@ -2711,7 +2775,7 @@ export default function App() {
       {/* SUCCESS TOAST NOTIFICATION */}
       <AnimatePresence>
         {successToast && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
@@ -2746,7 +2810,7 @@ export default function App() {
 
       {/* STICKY TOP NAVBAR */}
       {!isAdminRoute && (
-        <Navbar 
+        <Navbar
           currentView={currentView}
           setCurrentView={setCurrentView}
           themeMode={theme}
@@ -2803,7 +2867,7 @@ export default function App() {
               transition={{ duration: 0.25 }}
               className="space-y-4 sm:space-y-6 md:space-y-8"
             >
-              <HeroSection 
+              <HeroSection
                 userFullName={isLoggedIn ? (username || 'Member') : undefined}
                 isLoggedIn={isLoggedIn}
                 onAboutClick={() => navigate('/about')}
@@ -2812,7 +2876,7 @@ export default function App() {
                 unreadMessagesCount={unreadMessagesCount}
               />
 
-              <SearchBar 
+              <SearchBar
                 value={searchQuery}
                 onChange={(v) => setSearchQuery(v)}
                 onClear={() => setSearchQuery('')}
@@ -2823,7 +2887,7 @@ export default function App() {
                 }}
               />
 
-              <QuickActions 
+              <QuickActions
                 onFindJobs={() => navigate('/jobs')}
                 onFindWorkers={() => navigate('/workers')}
                 onPostJob={() => requireEmailVerification('Post Jobs', () => setShowPostJob(true))}
@@ -2834,7 +2898,7 @@ export default function App() {
               />
 
               {isLoggedIn && (
-                <DashboardSummary 
+                <DashboardSummary
                   myPostsCount={dashMyPostsCount}
                   myWorksCount={dashMyWorksCount}
                   unreadMessagesCount={unreadMessagesCount}
@@ -2850,7 +2914,7 @@ export default function App() {
                 />
               )}
 
-              <RecommendedForYou 
+              <RecommendedForYou
                 jobs={jobs}
                 workers={workers}
                 toggleBookmark={toggleBookmark}
@@ -2873,7 +2937,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <JobsPage 
+              <JobsPage
                 jobs={jobs}
                 toggleBookmark={toggleBookmark}
                 handleApplyJob={handleApplyJob}
@@ -2900,7 +2964,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <AboutPage 
+              <AboutPage
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');
@@ -2917,7 +2981,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <JobDetailPage 
+              <JobDetailPage
                 jobs={jobs}
                 toggleBookmark={toggleBookmark}
                 handleApplyJob={handleApplyJob}
@@ -2940,7 +3004,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <WorkersPage 
+              <WorkersPage
                 workers={workers}
                 toggleWorkerBookmark={toggleWorkerBookmark}
                 onOpenMessage={handleOpenDirectMessage}
@@ -2967,7 +3031,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <WorkerDetailPage 
+              <WorkerDetailPage
                 workers={workers}
                 toggleWorkerBookmark={toggleWorkerBookmark}
                 onOpenMessage={handleOpenDirectMessage}
@@ -3088,7 +3152,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.25 }}
               >
-                <ProfilePage 
+                <ProfilePage
                   username={username}
                   setUsername={setUsername}
                   userPhoto={userPhoto}
@@ -3143,7 +3207,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <ProfilePage 
+              <ProfilePage
                   username={username}
                   setUsername={setUsername}
                   userPhoto={userPhoto}
@@ -3198,7 +3262,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.25 }}
               >
-                <SavedJobsPage 
+                <SavedJobsPage
                   jobs={jobs}
                   currentUserId={userIdState || undefined}
                   toggleBookmark={toggleBookmark}
@@ -3219,7 +3283,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.25 }}
               >
-                <SavedWorkersPage 
+                <SavedWorkersPage
                   workers={workers}
                   toggleWorkerBookmark={toggleWorkerBookmark}
                   onOpenMessage={handleOpenDirectMessage}
@@ -3267,7 +3331,7 @@ export default function App() {
               <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full overflow-hidden shadow-2xl text-left relative">
                 {/* Premium Gradient Accent Line */}
                 <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600" />
-                
+
                 <div className="p-6 sm:p-8 space-y-5">
                   <div className="flex items-start space-x-4">
                     <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
@@ -3440,7 +3504,7 @@ export default function App() {
       <AnimatePresence>
         {showVerificationModal && (
           <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn" id="email-verification-modal-overlay">
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
@@ -3449,7 +3513,7 @@ export default function App() {
             >
               {/* Premium Gradient Accent Line */}
               <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600" />
-              
+
               <div className="p-6 sm:p-8 space-y-5">
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
@@ -3496,8 +3560,8 @@ export default function App() {
                       <>
                         <Send className="w-4 h-4" />
                         <span>
-                          {resendCooldown > 0 
-                            ? `Resend email (${resendCooldown}s)` 
+                          {resendCooldown > 0
+                            ? `Resend email (${resendCooldown}s)`
                             : emailSentSuccessfully ? 'Resend Verification Email' : 'Send Verification Email'}
                         </span>
                       </>
@@ -3535,7 +3599,7 @@ export default function App() {
       <AnimatePresence>
         {showPostJob && (
           <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-xs">
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
@@ -3549,7 +3613,7 @@ export default function App() {
                     {editingJob ? 'Edit Job Post Details' : 'Post an Active Job Listing'}
                   </span>
                 </div>
-                <button 
+                <button
                   onClick={() => {
                     setShowPostJob(false);
                     setEditingJob(null);
@@ -3562,7 +3626,7 @@ export default function App() {
 
               {/* Form */}
               <form id="post-job-form" onSubmit={handleCreateJob} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
-                
+
                 {jobFormError && (
                   <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 rounded-xl flex items-start space-x-2">
                     <span className="text-rose-600 dark:text-rose-400 font-bold">Error:</span>
@@ -3573,8 +3637,8 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Job Title</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       placeholder="Job title or role"
                       value={newJobTitle}
                       onChange={(e) => setNewJobTitle(e.target.value)}
@@ -3614,8 +3678,8 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary or Budget (₹)</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       placeholder="Salary range or rate"
                       value={newJobSalary}
                       onChange={(e) => setNewJobSalary(e.target.value)}
@@ -3662,8 +3726,8 @@ export default function App() {
                   </div>
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Application Deadline</label>
-                    <input 
-                      type="date" 
+                    <input
+                      type="date"
                       min={new Date().toISOString().split('T')[0]}
                       value={newJobDeadline}
                       onChange={(e) => setNewJobDeadline(e.target.value)}
@@ -3674,8 +3738,8 @@ export default function App() {
 
                 <div className="space-y-1">
                   <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Core Requirements (comma-separated)</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     placeholder="Required skills, tools, or frameworks"
                     value={newJobReqs}
                     onChange={(e) => setNewJobReqs(e.target.value)}
@@ -3685,7 +3749,7 @@ export default function App() {
 
                 <div className="space-y-1">
                   <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Project Scope Description</label>
-                  <textarea 
+                  <textarea
                     rows={3}
                     placeholder="Provide a clean summary of key deliverables, milestones, and working timelines..."
                     value={newJobDesc}
@@ -3698,7 +3762,7 @@ export default function App() {
 
               {/* Sticky Footer */}
               <div className="p-4 sm:px-6 sm:py-5 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2.5 shrink-0 bg-white dark:bg-[#111827] pb-[calc(1rem+env(safe-area-inset-bottom))]">
-                <button 
+                <button
                   type="button"
                   onClick={() => {
                     setShowPostJob(false);
@@ -3708,7 +3772,7 @@ export default function App() {
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   form="post-job-form"
                   disabled={isSubmittingJob}
@@ -3735,7 +3799,7 @@ export default function App() {
       <AnimatePresence>
         {showCreateProfile && (
           <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/40 backdrop-blur-xs">
-            <motion.div 
+            <motion.div
               initial={{ y: '100%', opacity: 1 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: '100%', opacity: 1 }}
@@ -3747,9 +3811,9 @@ export default function App() {
                 <div className="px-6 py-4 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
                   <div className="flex items-center space-x-2">
                     <UserPlus className="w-5 h-5 text-purple-500" />
-                    <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Create Certified Pro Profile</span>
+                    <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">Create Worker Profile</span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setShowCreateProfile(false)}
                     className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
                   >
@@ -3762,113 +3826,192 @@ export default function App() {
               <form onSubmit={handleCreateWorker} className="flex-1 flex flex-col min-h-0">
                 <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-4 text-xs" style={{ scrollPaddingBottom: '100px' }}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Full Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Your full name"
+                        value={newWorkerName}
+                        onChange={(e) => setNewWorkerName(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Professional Title (Role)</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Professional title or role"
+                        value={newWorkerTitle}
+                        onChange={(e) => setNewWorkerTitle(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Worker Category</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Electrical, Carpentry, Software"
+                        value={newWorkerCategory}
+                        onChange={(e) => setNewWorkerCategory(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Experience (Years)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="Years of experience"
+                        value={newWorkerExperience}
+                        onChange={(e) => setNewWorkerExperience(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Work Preference</label>
+                      <select
+                        value={newWorkerWorkPref}
+                        onChange={(e) => setNewWorkerWorkPref(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="Onsite">Onsite</option>
+                        <option value="Remote">Remote</option>
+                        <option value="Hybrid">Hybrid</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Salary / Rate Period</label>
+                      <select
+                        value={newWorkerRatePeriod}
+                        onChange={(e) => setNewWorkerRatePeriod(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="hourly">Hourly (₹/hr)</option>
+                        <option value="monthly">Monthly (₹/mo)</option>
+                        <option value="daily">Daily (₹/day)</option>
+                        <option value="project">Project (₹/project)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Rate / Amount (INR ₹)</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="Rate amount"
+                        value={newWorkerRate}
+                        onChange={(e) => setNewWorkerRate(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Availability Status</label>
+                      <select
+                        value={newWorkerAvailability}
+                        onChange={(e) => setNewWorkerAvailability(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="Available Now">Available Now</option>
+                        <option value="Part-time">Part-time</option>
+                        <option value="Full-time">Full-time</option>
+                        <option value="Busy">Busy</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Core Skills (comma-separated)</label>
+                      <input
+                        type="text"
+                        placeholder="Skills, tools, or technologies"
+                        value={newWorkerSkills}
+                        onChange={(e) => setNewWorkerSkills(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Preferred Language</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. English, Hindi, Tamil"
+                        value={newWorkerLang}
+                        onChange={(e) => setNewWorkerLang(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Full Name</label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="Your full name"
-                      value={newWorkerName}
-                      onChange={(e) => setNewWorkerName(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Base Location</label>
+                    <LocationSelector
+                      value={newWorkerLocationData}
+                      onChange={(loc) => {
+                        setNewWorkerLocationData(loc);
+                        setNewWorkerLocation(formatLocationSummary(loc));
+                      }}
                     />
                   </div>
+
                   <div className="space-y-1">
-                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Professional Title (Profession)</label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="Professional title or role"
-                      value={newWorkerTitle}
-                      onChange={(e) => setNewWorkerTitle(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
+                    <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Professional Bio Summary</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Highlight your previous milestone projects, certifications, skills, etc..."
+                      value={newWorkerBio}
+                      onChange={(e) => setNewWorkerBio(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 leading-relaxed"
                     />
                   </div>
-                </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Desired Hourly Rate (₹/hr)</label>
-                  <input 
-                    type="number" 
-                    required
-                    placeholder="Hourly rate"
-                    value={newWorkerRate}
-                    onChange={(e) => setNewWorkerRate(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+                  <div className="pt-2 space-y-3 border-t border-slate-100 dark:border-slate-800">
+                    <label className="flex items-center space-x-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newWorkerListingEnabled}
+                        onChange={(e) => setNewWorkerListingEnabled(e.target.checked)}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 border-slate-300 dark:border-slate-700"
+                      />
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Show my profile in the Workers Directory</span>
+                    </label>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Base Location</label>
-                  <LocationSelector
-                    value={newWorkerLocationData}
-                    onChange={(loc) => {
-                      setNewWorkerLocationData(loc);
-                      setNewWorkerLocation(formatLocationSummary(loc));
-                    }}
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Skills / Tools List (comma-separated)</label>
-                  <input 
-                    type="text" 
-                    placeholder="Skills, tools, or technologies"
-                    value={newWorkerSkills}
-                    onChange={(e) => setNewWorkerSkills(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-400 uppercase tracking-widest font-mono text-[9px]">Professional Bio Summary</label>
-                  <textarea 
-                    rows={3}
-                    placeholder="Highlight your previous milestone projects, certifications, custom woodwork inlays, smart home electrical experience, etc..."
-                    value={newWorkerBio}
-                    onChange={(e) => setNewWorkerBio(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-950 dark:text-white text-xs focus:outline-none focus:border-blue-500 leading-relaxed"
-                  />
-                </div>
-
-                <div className="pt-2 space-y-3 border-t border-slate-100 dark:border-slate-800">
-                  <label className="flex items-center space-x-2.5 cursor-pointer">
-                    <input 
-                      type="checkbox"
-                      checked={newWorkerListingEnabled}
-                      onChange={(e) => setNewWorkerListingEnabled(e.target.checked)}
-                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 border-slate-300 dark:border-slate-700"
-                    />
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Show my profile in the Workers Directory</span>
-                  </label>
-
-                  <label className="flex items-center space-x-2.5 cursor-pointer">
-                    <input 
-                      type="checkbox"
-                      required
-                      checked={newWorkerTermsAccepted}
-                      onChange={(e) => setNewWorkerTermsAccepted(e.target.checked)}
-                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 border-slate-300 dark:border-slate-700"
-                    />
-                    <span className="text-xs text-slate-600 dark:text-slate-300">I accept the OpenComm Worker Marketplace Terms and Code of Conduct.</span>
-                  </label>
-                </div>
+                    <label className="flex items-center space-x-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        required
+                        checked={newWorkerTermsAccepted}
+                        onChange={(e) => setNewWorkerTermsAccepted(e.target.checked)}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 border-slate-300 dark:border-slate-700"
+                      />
+                      <span className="text-xs text-slate-600 dark:text-slate-300">I accept the OpenComm Worker Marketplace Terms and Code of Conduct.</span>
+                    </label>
+                  </div>
 
                 </div>
-                
+
                 <div className="shrink-0 bg-white dark:bg-[#111827] pt-4 pb-[calc(16px+env(safe-area-inset-bottom))] px-6 border-t border-slate-100 dark:border-slate-800 flex justify-end space-x-2.5 sticky bottom-0 z-10">
-                  <button 
+                  <button
                     type="button"
                     onClick={() => setShowCreateProfile(false)}
                     className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
-                  <button 
+                  <button
                     type="submit"
                     className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold transition-all shadow-md cursor-pointer hover:scale-102 active:scale-98"
                   >
-                    Register Contractor
+                    Register
                   </button>
                 </div>
               </form>
@@ -3902,7 +4045,7 @@ export default function App() {
          ==================================================== */}
       <AnimatePresence>
         {showAuthModal && (
-          <div 
+          <div
             ref={signupContainerRef}
             className="fixed inset-0 z-50 flex flex-col items-center justify-start overflow-y-auto bg-[#f7f8fa] bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_38%)] dark:bg-[#0b0d12] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.16),transparent_38%)] backdrop-blur-lg scroll-smooth min-h-screen min-h-[100dvh] h-auto"
             style={{
@@ -3912,7 +4055,7 @@ export default function App() {
               paddingRight: '1rem'
             }}
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
@@ -3936,8 +4079,8 @@ export default function App() {
 
               {/* Centered OpenComm Brand Logo */}
               <div className="flex justify-center mb-5 mt-2">
-                <OpenCommLogo 
-                  variant="auth" 
+                <OpenCommLogo
+                  variant="auth"
                   onClick={() => {
                     setShowAuthModal(null);
                     setLockedFeature(null);
@@ -3952,10 +4095,10 @@ export default function App() {
                   {showAuthModal === 'locked' ? 'Unlock Professional Features' : showAuthModal === 'signin' ? 'Welcome back' : 'Create your account'}
                 </h3>
                 <p className="text-slate-500 dark:text-zinc-400 text-xs mt-1.5 leading-relaxed font-normal">
-                  {showAuthModal === 'locked' 
-                    ? `Create an account or sign in to ${lockedFeature || 'interact with this private module'}.` 
-                    : showAuthModal === 'signin' 
-                    ? 'Sign in to continue to OpenComm.' 
+                  {showAuthModal === 'locked'
+                    ? `Create an account or sign in to ${lockedFeature || 'interact with this private module'}.`
+                    : showAuthModal === 'signin'
+                    ? 'Sign in to continue to OpenComm.'
                     : 'Join OpenComm and discover jobs, workers, and opportunities.'}
                 </p>
               </div>
@@ -4124,7 +4267,7 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                <form 
+                <form
                   onSubmit={async (e) => {
                     e.preventDefault();
                     if (!signinUsername.trim()) {
@@ -4147,9 +4290,9 @@ export default function App() {
                         setIsAuthSubmitting(false);
                         if (error) {
                           setAuthError(error.message);
-                          const isUnconfirmed = error.message.toLowerCase().includes("email not confirmed") || 
-                                                error.message.toLowerCase().includes("email_not_confirmed") || 
-                                                error.message.toLowerCase().includes("unconfirmed") || 
+                          const isUnconfirmed = error.message.toLowerCase().includes("email not confirmed") ||
+                                                error.message.toLowerCase().includes("email_not_confirmed") ||
+                                                error.message.toLowerCase().includes("unconfirmed") ||
                                                 error.message.toLowerCase().includes("not verified");
                           if (isUnconfirmed) {
                             setIsEmailNotConfirmedError(true);
@@ -4195,8 +4338,8 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                       Email address
                     </label>
-                    <input 
-                      type="email" 
+                    <input
+                      type="email"
                       name="email"
                       required
                       autoComplete="email"
@@ -4212,8 +4355,8 @@ export default function App() {
                       Password
                     </label>
                     <div className="relative">
-                      <input 
-                        type={showSigninPassword ? "text" : "password"} 
+                      <input
+                        type={showSigninPassword ? "text" : "password"}
                         name="password"
                         required
                         autoComplete="current-password"
@@ -4329,7 +4472,7 @@ export default function App() {
                   {/* STEP 1: UNIFIED SINGLE PAGE SIGNUP FORM */}
                   {signupStep === 1 && (
                     <form onSubmit={handleSinglePageSignUp} noValidate className="space-y-4 text-xs text-left animate-fadeIn">
-                      
+
                       {/* SECTION 1: BASIC PROFILE (REQUIRED FOR EVERY USER) */}
                       <div className="space-y-3.5">
                         <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
@@ -4343,8 +4486,8 @@ export default function App() {
                           <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                             Full Name <span className="text-rose-500">*</span>
                           </label>
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             value={signupForm.name}
                             onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
                             className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
@@ -4357,8 +4500,8 @@ export default function App() {
                           <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
                             Email Address <span className="text-rose-500">*</span>
                           </label>
-                          <input 
-                            type="email" 
+                          <input
+                            type="email"
                             disabled={isLoggedIn}
                             value={signupForm.email}
                             onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
@@ -4386,8 +4529,8 @@ export default function App() {
                               ))}
                             </select>
                             {/* Phone Input */}
-                            <input 
-                              type="tel" 
+                            <input
+                              type="tel"
                               value={signupForm.phone}
                               onChange={(e) => setSignupForm({...signupForm, phone: e.target.value.replace(/[^\d]/g, '')})}
                               className="flex-1 h-11 px-3.5 bg-transparent text-slate-950 dark:text-white text-xs font-semibold focus:outline-none placeholder-slate-400"
@@ -4425,8 +4568,8 @@ export default function App() {
                                 Password <span className="text-rose-500">*</span>
                               </label>
                               <div className="relative">
-                                <input 
-                                  type={showSignupPassword ? "text" : "password"} 
+                                <input
+                                  type={showSignupPassword ? "text" : "password"}
                                   autoComplete="new-password"
                                   value={signupPassword}
                                   onChange={(e) => setSignupPassword(e.target.value)}
@@ -4449,8 +4592,8 @@ export default function App() {
                                 Confirm Password <span className="text-rose-500">*</span>
                               </label>
                               <div className="relative">
-                                <input 
-                                  type={showSignupConfirmPassword ? "text" : "password"} 
+                                <input
+                                  type={showSignupConfirmPassword ? "text" : "password"}
                                   autoComplete="new-password"
                                   value={signupConfirmPassword}
                                   onChange={(e) => setSignupConfirmPassword(e.target.value)}
@@ -4618,7 +4761,7 @@ export default function App() {
 
                       {/* TERMS AND PRIVACY CONSENT */}
                       <div className="flex items-start space-x-2.5 pt-2 text-left">
-                        <input 
+                        <input
                           type="checkbox"
                           id="accept-terms-privacy"
                           required

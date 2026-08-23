@@ -191,6 +191,8 @@ export interface LocalWorkerProfile {
   expected_salary_max?: number;
   currency?: string;
   work_preference?: string;
+  rate_period?: string;
+  rate_amount?: number;
   availability_status?: string;
   willing_to_relocate?: boolean;
   service_radius?: number;
@@ -810,13 +812,18 @@ export const dbService = {
 
   async updateWorkerProfileData(userId: string, updates: {
     profession?: string;
+    primary_category?: string;
     experience_years?: number;
+    work_preference?: string;
+    rate_period?: string;
+    rate_amount?: number;
     hourly_rate?: number;
     expected_salary?: string;
     availability?: string;
     skills?: string[];
     bio_summary?: string;
     work_location?: string;
+    languages?: string[];
   }): Promise<void> {
     console.log('[Supabase Debug] updateWorkerProfileData initiating for userId:', userId, 'updates:', updates);
     if (supabase && userId) {
@@ -836,13 +843,18 @@ export const dbService = {
       };
 
       if (updates.profession !== undefined) payload.profession = updates.profession;
+      if (updates.primary_category !== undefined) payload.primary_category = updates.primary_category;
       if (updates.experience_years !== undefined) payload.experience_years = updates.experience_years;
+      if (updates.work_preference !== undefined) payload.work_preference = updates.work_preference;
+      if (updates.rate_period !== undefined) payload.rate_period = updates.rate_period;
+      if (updates.rate_amount !== undefined) payload.rate_amount = updates.rate_amount;
       if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate;
       if (updates.expected_salary !== undefined) payload.expected_salary = updates.expected_salary;
       if (updates.availability !== undefined) payload.availability = updates.availability;
       if (updates.skills !== undefined) payload.skills = updates.skills;
       if (updates.bio_summary !== undefined) payload.bio_summary = updates.bio_summary;
       if (updates.work_location !== undefined) payload.work_location = updates.work_location;
+      if (updates.languages !== undefined) payload.languages = updates.languages;
 
       console.log('[Supabase Debug] Executing worker_profiles upsert with clean live payload:', payload);
 
@@ -1004,7 +1016,11 @@ export const dbService = {
   async createMyWorkerProfile(params: {
     profession: string;
     skills: string[];
+    primary_category?: string;
     experience_years?: number;
+    work_preference?: string;
+    rate_period?: string;
+    rate_amount?: number;
     work_location?: string;
     availability?: string;
     bio_summary?: string;
@@ -1033,6 +1049,18 @@ export const dbService = {
         console.error("create_my_worker_profile RPC error:", error.message);
         throw new Error(error.message);
       }
+
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user?.id) {
+        await this.updateWorkerProfileData(authData.user.id, {
+          primary_category: params.primary_category,
+          work_preference: params.work_preference,
+          rate_period: params.rate_period,
+          rate_amount: params.rate_amount,
+          languages: params.languages
+        });
+      }
+
       return data;
     }
 
@@ -1064,6 +1092,10 @@ export const dbService = {
           return {
             id: data.id,
             profession: data.profession || '',
+            primary_category: data.primary_category || '',
+            work_preference: data.work_preference || '',
+            rate_period: data.rate_period || undefined,
+            rate_amount: data.rate_amount !== null && data.rate_amount !== undefined ? Number(data.rate_amount) : undefined,
             skills: skillsData && skillsData.length > 0 ? skillsData.map((s: any) => s.skill) : (data.skills || []),
             experience_years: data.experience_years ?? data.years_experience ?? 0,
             work_location: data.work_location || '',

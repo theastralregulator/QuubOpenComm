@@ -23,6 +23,7 @@ import AvatarUploadMenu from './AvatarUploadMenu';
 import ProfileReviewsSection from './ProfileReviewsSection';
 import LocationSelector, { LocationData } from '../common/LocationSelector';
 import { formatLocationSummary } from '../../lib/locationService';
+import { mapWorkerProfileToForm, mapFormToDbPayloads } from '../../lib/workerProfileMapper';
 
 interface ProfilePageProps {
   username: string;
@@ -216,7 +217,7 @@ export default function ProfilePage({
   const [errorState, setErrorState] = useState<string | null>(null);
 
   const { usernameParam } = useParams<{ usernameParam: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
   const jobsAppliedRequestRef = useRef(0);
@@ -752,10 +753,10 @@ export default function ProfilePage({
   }, [isLoggedIn, usernameParam]);
 
   useEffect(() => {
-    if (profile && (searchParams.get('edit') === 'true' || location.state?.openEdit)) {
+    if (profile && !isEditing && (searchParams.get('edit') === 'true' || location.state?.openEdit)) {
       handleOpenEdit();
     }
-  }, [profile, searchParams, location.state]);
+  }, [profile, isEditing, searchParams, location.state]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -797,20 +798,37 @@ export default function ProfilePage({
         finalBannerId = await dbService.uploadBanner(targetUserId, bannerFile);
       }
 
-      console.log('[Edit Profile Debug] Calling dbService.updateProfile for targetUserId:', targetUserId);
+      const formState = {
+        fullName: editName,
+        professionalTitle: editTitle,
+        category: editCategory,
+        experienceYears: editExperience,
+        workPreference: editWorkPreference,
+        salaryPeriod: editSalaryPeriod,
+        rateAmount: editHourlyRate,
+        salaryMin: editSalaryMin,
+        salaryMax: editSalaryMax,
+        expectedSalaryText: editExpectedSalary,
+        availability: editAvailability,
+        skills: editSkills,
+        preferredLanguage: editLang,
+        bioSummary: editBio,
+        locationData: {
+          city: editCity,
+          state: editState,
+          country: editCountry,
+          country_code: editCountryCode,
+          state_code: editStateCode,
+          district: editDistrict,
+          latitude: editLat,
+          longitude: editLng
+        }
+      };
+
+      const { profileUpdates, workerProfileUpdates } = mapFormToDbPayloads(formState);
 
       const updated = await dbService.updateProfile(targetUserId, {
-        full_name: editName,
-        bio: editBio,
-        city: editCity,
-        state: editState,
-        country: editCountry,
-        country_code: editCountryCode,
-        state_code: editStateCode,
-        district: editDistrict,
-        latitude: editLat,
-        longitude: editLng,
-        preferred_language: editLang,
+        ...profileUpdates,
         phone: editPhone,
         banner_id: finalBannerId,
         show_location_publicly: editLocationVisibility,
@@ -820,43 +838,7 @@ export default function ProfilePage({
 
       if (userType === 'worker' || workerProfile) {
         console.log('[Edit Profile Debug] Calling dbService.updateWorkerProfileData for targetUserId:', targetUserId);
-
-        let formattedSalary = '';
-        let computedHourlyRate = 0;
-
-        if (editSalaryPeriod === 'hourly') {
-          computedHourlyRate = Number(editHourlyRate) || 0;
-          formattedSalary = computedHourlyRate > 0 ? `₹${computedHourlyRate}/hr` : '';
-        } else if (editSalaryPeriod === 'monthly') {
-          const minVal = Number(editSalaryMin) || 0;
-          const maxVal = Number(editSalaryMax) || 0;
-          if (minVal > 0 && maxVal > 0 && minVal !== maxVal) {
-            formattedSalary = `₹${minVal.toLocaleString('en-IN')} – ₹${maxVal.toLocaleString('en-IN')}/mo`;
-          } else if (minVal > 0 || maxVal > 0) {
-            formattedSalary = `₹${(minVal || maxVal).toLocaleString('en-IN')}/mo`;
-          } else {
-            formattedSalary = editExpectedSalary || '';
-          }
-        } else if (editSalaryPeriod === 'daily') {
-          const dailyRate = Number(editHourlyRate) || 0;
-          formattedSalary = dailyRate > 0 ? `₹${dailyRate.toLocaleString('en-IN')}/day` : '';
-        } else if (editSalaryPeriod === 'project') {
-          const projRate = Number(editHourlyRate) || 0;
-          formattedSalary = projRate > 0 ? `₹${projRate.toLocaleString('en-IN')}/project` : '';
-        } else {
-          formattedSalary = editExpectedSalary || '';
-        }
-
-        await dbService.updateWorkerProfileData(targetUserId, {
-          profession: editTitle,
-          experience_years: Number(editExperience) || 0,
-          hourly_rate: computedHourlyRate,
-          expected_salary: formattedSalary,
-          availability: editAvailability,
-          skills: editSkills.split(',').map(s => s.trim()).filter(Boolean),
-          bio_summary: editBio,
-          work_location: formatLocationSummary({ country: editCountry, state: editState, district: editDistrict, city: editCity })
-        });
+        await dbService.updateWorkerProfileData(targetUserId, workerProfileUpdates);
         console.log('[Edit Profile Debug] dbService.updateWorkerProfileData completed successfully.');
       }
 
@@ -865,10 +847,24 @@ export default function ProfilePage({
         setUsername(updated.full_name || editName);
         triggerToast("Profile updated successfully!");
       }
+
+      // Close edit modal FIRST
       setIsEditing(false);
+      clearProfileCache(targetUserId);
+
+      // Explicitly clear searchParams ?edit=true and location.state?.openEdit
+      if (searchParams.get('edit') === 'true') {
+        searchParams.delete('edit');
+        setSearchParams(searchParams, { replace: true });
+      }
+      if (location.state?.openEdit) {
+        navigate(location.pathname + (searchParams.toString() ? `?${searchParams.toString()}` : ''), {
+          replace: true,
+          state: { ...location.state, openEdit: undefined }
+        });
+      }
 
       // Force invalidate profile cache & reload profile data from DB
-      clearProfileCache(targetUserId);
       await loadProfileData();
 
       if (typeof window !== 'undefined') {
@@ -878,6 +874,8 @@ export default function ProfilePage({
       const returnTo = location.state?.returnTo || searchParams.get('returnTo');
       if (returnTo) {
         navigate(returnTo, { replace: true });
+      } else {
+        navigate('/profile', { replace: true });
       }
     } catch (err: any) {
       console.error('[Edit Profile Debug] ERROR during profile save:', err);
@@ -889,17 +887,19 @@ export default function ProfilePage({
 
   const handleOpenEdit = () => {
     if (profile) {
-      setEditName(profile.full_name || username || '');
-      setEditBio(profile.bio || '');
-      setEditCity(profile.city || '');
-      setEditState(profile.state || '');
-      setEditCountry(profile.country || '');
-      setEditCountryCode(profile.country_code || '');
-      setEditStateCode(profile.state_code || '');
-      setEditDistrict(profile.district || '');
-      setEditLat(profile.latitude);
-      setEditLng(profile.longitude);
-      setEditLang(profile.preferred_language || '');
+      const form = mapWorkerProfileToForm(profile, workerProfile);
+
+      setEditName(form.fullName);
+      setEditBio(form.bioSummary);
+      setEditCity(form.locationData.city || '');
+      setEditState(form.locationData.state || '');
+      setEditCountry(form.locationData.country || '');
+      setEditCountryCode(form.locationData.country_code || '');
+      setEditStateCode(form.locationData.state_code || '');
+      setEditDistrict(form.locationData.district || '');
+      setEditLat(form.locationData.latitude);
+      setEditLng(form.locationData.longitude);
+      setEditLang(form.preferredLanguage);
       setEditEmail(profile.email || '');
       setEditPhone(profile.phone || '');
       setEditBannerId(profile.banner_id || 'banner_01');
@@ -907,17 +907,17 @@ export default function ProfilePage({
       setEditLocationVisibility(profile.show_location_publicly ?? (profile as any).location_visibility ?? true);
 
       if (workerProfile) {
-        setEditTitle(workerProfile.profession || '');
-        setEditExperience(workerProfile.experience_years ?? 0);
-        setEditHourlyRate(workerProfile.hourly_rate ?? 0);
-        setEditSalaryPeriod('hourly');
+        setEditTitle(form.professionalTitle);
+        setEditExperience(form.experienceYears);
+        setEditCategory(form.category);
+        setEditWorkPreference(form.workPreference);
+        setEditSalaryPeriod(form.salaryPeriod);
+        setEditHourlyRate(form.rateAmount);
         setEditSalaryMin('');
         setEditSalaryMax('');
-        setEditExpectedSalary(workerProfile.expected_salary || '');
-        setEditWorkPreference('Onsite');
-        setEditCategory('');
-        setEditAvailability(workerProfile.availability || 'Available Now');
-        setEditSkills(Array.isArray(workerProfile.skills) ? workerProfile.skills.join(', ') : '');
+        setEditExpectedSalary(form.expectedSalaryText || '');
+        setEditAvailability(form.availability);
+        setEditSkills(form.skills);
       }
     }
     setBannerFile(null);

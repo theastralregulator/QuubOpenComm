@@ -26,8 +26,14 @@ function runPreflightAndUnitChecks() {
   const migrationPath = path.join(rootDir, 'supabase/migrations/20260822010000_negotiation_chat_feature_parity.sql');
   const migrationSql = fs.readFileSync(migrationPath, 'utf8');
 
+  const workerColsMigrationPath = path.join(rootDir, 'supabase/migrations/20260824000000_worker_profile_persistence_columns.sql');
+  const workerColsMigrationSql = fs.existsSync(workerColsMigrationPath) ? fs.readFileSync(workerColsMigrationPath, 'utf8') : '';
+
   const negotiationPagePath = path.join(rootDir, 'apps/web/src/components/hiring/NegotiationPage.tsx');
   const negotiationPageCode = fs.readFileSync(negotiationPagePath, 'utf8');
+
+  const profilePagePath = path.join(rootDir, 'apps/web/src/components/profile/ProfilePage.tsx');
+  const profilePageCode = fs.readFileSync(profilePagePath, 'utf8');
 
   const messagesPagePath = path.join(rootDir, 'apps/web/src/components/messages/MessagesPage.tsx');
   const messagesPageCode = fs.readFileSync(messagesPagePath, 'utf8');
@@ -52,6 +58,9 @@ function runPreflightAndUnitChecks() {
 
   const appPath = path.join(rootDir, 'apps/web/src/App.tsx');
   const appCode = fs.readFileSync(appPath, 'utf8');
+
+  const mapperPath = path.join(rootDir, 'apps/web/src/lib/workerProfileMapper.ts');
+  const mapperCode = fs.existsSync(mapperPath) ? fs.readFileSync(mapperPath, 'utf8') : '';
 
   const deleteApiPath = path.join(rootDir, 'api/message-delete.ts');
   const deleteApiCode = fs.readFileSync(deleteApiPath, 'utf8');
@@ -245,7 +254,64 @@ function runPreflightAndUnitChecks() {
     `Vercel Hobby Serverless Limit: Deployable functions count is ${serverlessCount} (<= 10 target, well below 12 Hobby limit)`
   );
 
-  // 24. Document Security Scanner Unit Tests
+  // --- WORKER PROFILE DATA CONSISTENCY & REGISTRATION CHECKS ---
+
+  // 24. Migration for Worker Profile Persistence Columns
+  const migrationHasCols = workerColsMigrationSql.includes('primary_category text') &&
+    workerColsMigrationSql.includes('work_preference text') &&
+    workerColsMigrationSql.includes('rate_period text') &&
+    workerColsMigrationSql.includes('rate_amount numeric');
+  assert(
+    migrationHasCols,
+    'Worker Persistence Migration: Adds primary_category, work_preference, rate_period, rate_amount via ADD COLUMN IF NOT EXISTS'
+  );
+
+  // 25. Worker Registration Modal Header Text: Exactly "Create Worker Profile" (NO "Certified Pro")
+  const headerExactText = appCode.includes('Create Worker Profile') && !appCode.includes('Create Certified Pro Profile');
+  assert(
+    headerExactText,
+    'Registration UI Header: Modal displays EXACTLY "Create Worker Profile" without unverified "Certified Pro" wording'
+  );
+
+  // 26. Primary Registration Button Text: Exactly "Register" (NO "Register Contractor")
+  const buttonExactText = />\s*Register\s*<\/button>/.test(appCode) && !appCode.includes('Register Contractor');
+  assert(
+    buttonExactText,
+    'Registration UI CTA: Primary button displays EXACTLY "Register" without "Contractor" suffix'
+  );
+
+  // 27. No Hardcoded `experience_years: 2` or `availability: 'Available Now'` in handleCreateWorker
+  const noHardcodedExpInCreate = !/experience_years:\s*2\b/.test(appCode);
+  assert(
+    noHardcodedExpInCreate,
+    'Registration Data Safety: handleCreateWorker uses real form experience value, NOT hardcoded experience_years: 2'
+  );
+
+  // 28. Edit Profile Form State Initialization & Persistence
+  const editProfileUsesMapper = profilePageCode.includes('mapWorkerProfileToForm') && profilePageCode.includes('mapFormToDbPayloads');
+  const editProfileSetsCategory = profilePageCode.includes('setEditCategory(form.category)');
+  const editProfileSetsWorkPref = profilePageCode.includes('setEditWorkPreference(form.workPreference)');
+  assert(
+    editProfileUsesMapper && editProfileSetsCategory && editProfileSetsWorkPref,
+    'Edit Profile Initialization: Populates category, work preference, and rate period from persisted worker profile'
+  );
+
+  // 29. Save & Go Back Flow: Clears edit intent, closes modal, and returns to normal profile
+  const saveClearsEditParam = profilePageCode.includes("searchParams.delete('edit')");
+  const saveReturnsToProfile = profilePageCode.includes("navigate('/profile', { replace: true })");
+  assert(
+    saveClearsEditParam && saveReturnsToProfile,
+    'Save and Go Back: Successful save closes modal, clears ?edit=true intent, and returns to normal /profile view'
+  );
+
+  // 30. Shared Form Mapper Architecture
+  const mapperHasHelpers = mapperCode.includes('mapWorkerProfileToForm') && mapperCode.includes('mapFormToDbPayloads') && mapperCode.includes('inferLegacySalaryPeriod');
+  assert(
+    mapperHasHelpers,
+    'Shared Data Architecture: workerProfileMapper.ts exports canonical bi-directional mapping helpers'
+  );
+
+  // 31. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
