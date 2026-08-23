@@ -41,6 +41,18 @@ function runPreflightAndUnitChecks() {
   const navbarPath = path.join(rootDir, 'apps/web/src/components/navigation/Navbar.tsx');
   const navbarCode = fs.readFileSync(navbarPath, 'utf8');
 
+  const loaderComponentPath = path.join(rootDir, 'apps/web/src/components/common/OpenCommAnimatedLoader.tsx');
+  const loaderComponentCode = fs.readFileSync(loaderComponentPath, 'utf8');
+
+  const loaderCssPath = path.join(rootDir, 'apps/web/src/components/common/OpenCommAnimatedLoader.css');
+  const loaderCssCode = fs.readFileSync(loaderCssPath, 'utf8');
+
+  const protectedRoutePath = path.join(rootDir, 'apps/web/src/components/auth/ProtectedRoute.tsx');
+  const protectedRouteCode = fs.readFileSync(protectedRoutePath, 'utf8');
+
+  const appPath = path.join(rootDir, 'apps/web/src/App.tsx');
+  const appCode = fs.readFileSync(appPath, 'utf8');
+
   const deleteApiPath = path.join(rootDir, 'api/negotiation-message-delete.ts');
   const deleteApiCode = fs.readFileSync(deleteApiPath, 'utf8');
 
@@ -188,7 +200,37 @@ function runPreflightAndUnitChecks() {
     'Mobile Navbar: Uses bounded clamp(10px, env(safe-area-inset-bottom, 10px), 34px) bottom offset'
   );
 
-  // 19. Document Security Scanner Unit Tests
+  // 19. Animated Loader Brand Wordmark: Displays EXACTLY "OpenComm" and uses React useId()
+  const loaderWordmarkText = />\s*OpenComm\s*</i.test(loaderComponentCode) && !/>\s*YOU\s*</i.test(loaderComponentCode);
+  const loaderUseIdCheck = /useId\(\)/i.test(loaderComponentCode) && /gradientId = `opencomm-loader-gradient-/i.test(loaderComponentCode);
+  assert(
+    loaderWordmarkText && loaderUseIdCheck,
+    'Animated Loader Brand: Wordmark displays EXACTLY "OpenComm" with unique useId() instance IDs'
+  );
+
+  // 20. Animated Loader Scoped CSS: No generic global classes
+  const cssNoGenericClasses = !/^\s*\.loader\b/m.test(loaderCssCode) && !/^\s*\.spin\b/m.test(loaderCssCode) && !/^\s*\.dash\b/m.test(loaderCssCode);
+  const cssScopedClasses = /opencomm-loader-container/i.test(loaderCssCode) && /opencomm-loader-trace/i.test(loaderCssCode);
+  assert(
+    cssNoGenericClasses && cssScopedClasses,
+    'Animated Loader Scoped CSS: CSS rules are strictly scoped to opencomm-loader-* namespaces'
+  );
+
+  // 21. ProtectedRoute Category A Integration
+  const protectedRouteLoaderCheck = /<OpenCommAnimatedLoader[\s\S]*?fullscreen[\s\S]*?size="lg"/i.test(protectedRouteCode);
+  assert(
+    protectedRouteLoaderCheck,
+    'ProtectedRoute Integration: Category A standalone auth loader replaced with OpenCommAnimatedLoader'
+  );
+
+  // 22. App.tsx Auth Callback Category B Integration
+  const appCallbackLoaderCheck = /authCallbackStatus === 'processing'[\s\S]*?<OpenCommAnimatedLoader size="md" \/>/i.test(appCode);
+  assert(
+    appCallbackLoaderCheck,
+    'Auth Callback Integration: Category B processing spinner replaced with OpenCommAnimatedLoader size="md"'
+  );
+
+  // 23. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

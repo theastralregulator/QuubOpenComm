@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import OpenCommAnimatedLoader from '../common/OpenCommAnimatedLoader';
 
 export interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -23,9 +23,11 @@ export default function ProtectedRoute({
 }: ProtectedRouteProps) {
   if (isAuthLoading || isSavingProfile) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
-      </div>
+      <OpenCommAnimatedLoader
+        fullscreen
+        size="lg"
+        label="Loading OpenComm"
+      />
     );
   }
 

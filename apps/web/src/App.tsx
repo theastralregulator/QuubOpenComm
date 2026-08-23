@@ -38,6 +38,7 @@ import SavedJobsPage from './components/saved/SavedJobsPage';
 import SavedWorkersPage from './components/saved/SavedWorkersPage';
 import MessagesPage from './components/messages/MessagesPage';
 import ProfilePage from './components/profile/ProfilePage';
+import OpenCommAnimatedLoader from './components/common/OpenCommAnimatedLoader';
 import MyJobPostsPage from './components/profile/MyJobPostsPage';
 import MyJobsAppliedPage from './components/profile/MyJobsAppliedPage';
 import ManageApplicationsPage from './components/profile/ManageApplicationsPage';
@@ -2563,8 +2564,8 @@ export default function App() {
         <div className="w-full max-w-md bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-3xl p-8 shadow-2xl text-center space-y-6 relative overflow-hidden">
           {authCallbackStatus === 'processing' && (
             <>
-              <div className="w-16 h-16 bg-blue-500/10 dark:bg-blue-600/10 rounded-full flex items-center justify-center mx-auto text-blue-600 dark:text-blue-400">
-                <RefreshCw className="w-8 h-8 animate-spin" />
+              <div className="py-2">
+                <OpenCommAnimatedLoader size="md" />
               </div>
               <div className="space-y-2">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Verifying Your Session</h3>

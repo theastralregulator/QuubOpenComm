@@ -1,0 +1,199 @@
+/*
+ * OpenComm Animated Loader Styles
+ * Animation concept adapted from Uiverse.io / SelfMadeSystem.
+ * Premium SVG wordmark loader scoped strictly to OpenComm namespaces.
+ */
+
+.opencomm-loader-container {
+  display: inline-flex;
+  flex-direction: column;
+  items-center: center;
+  justify-content: center;
+  position: relative;
+  user-select: none;
+}
+
+.opencomm-loader-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #F8FAFC;
+}
+
+:global(.dark) .opencomm-loader-fullscreen,
+.dark .opencomm-loader-fullscreen {
+  background-color: #0B1020;
+}
+
+.opencomm-loader-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.opencomm-loader-svg {
+  display: block;
+  overflow: visible;
+  height: auto;
+}
+
+.opencomm-loader-size-sm {
+  width: 140px;
+}
+
+.opencomm-loader-size-md {
+  width: 200px;
+}
+
+.opencomm-loader-size-lg {
+  width: 260px;
+}
+
+/* Base faint outline track */
+.opencomm-loader-base {
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+  font-size: 52px;
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.2);
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  letter-spacing: -0.03em;
+}
+
+:global(.dark) .opencomm-loader-base,
+.dark .opencomm-loader-base {
+  stroke: rgba(51, 65, 85, 0.4);
+}
+
+/* Animated tracing stroke */
+.opencomm-loader-trace {
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+  font-size: 52px;
+  fill: none;
+  stroke-width: 3.2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  letter-spacing: -0.03em;
+  stroke-dasharray: 120 320;
+  stroke-dashoffset: 0;
+  animation: opencommLoaderDash 2.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+/* Subtle glowing background stroke */
+.opencomm-loader-glow {
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+  font-size: 52px;
+  fill: none;
+  stroke-width: 5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  letter-spacing: -0.03em;
+  opacity: 0.35;
+  stroke-dasharray: 140 300;
+  animation: opencommLoaderDash 2.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  filter: blur(4px);
+}
+
+/* Subtle pulse fill */
+.opencomm-loader-fill {
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 800;
+  font-size: 52px;
+  letter-spacing: -0.03em;
+  opacity: 0.12;
+  animation: opencommLoaderPulse 2.4s ease-in-out infinite alternate;
+}
+
+:global(.dark) .opencomm-loader-fill,
+.dark .opencomm-loader-fill {
+  opacity: 0.18;
+}
+
+/* Label text under loader */
+.opencomm-loader-label {
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #64748B;
+  animation: opencommLoaderTextFade 1.6s ease-in-out infinite alternate;
+}
+
+:global(.dark) .opencomm-loader-label,
+.dark .opencomm-loader-label {
+  color: #94A3B8;
+}
+
+/* Keyframes */
+@keyframes opencommLoaderDash {
+  0% {
+    stroke-dasharray: 40 360;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 180 220;
+    stroke-dashoffset: -140;
+  }
+  100% {
+    stroke-dasharray: 40 360;
+    stroke-dashoffset: -400;
+  }
+}
+
+@keyframes opencommLoaderPulse {
+  0% {
+    opacity: 0.08;
+  }
+  100% {
+    opacity: 0.22;
+  }
+}
+
+@keyframes opencommLoaderTextFade {
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes opencommLoaderGradientRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reduced Motion Fallback */
+@media (prefers-reduced-motion: reduce) {
+  .opencomm-loader-trace,
+  .opencomm-loader-glow {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    stroke-width: 2.5px;
+  }
+  .opencomm-loader-fill {
+    animation: opencommLoaderPulse 3s ease-in-out infinite alternate;
+    opacity: 0.3;
+  }
+  .opencomm-loader-label {
+    animation: none;
+    opacity: 1;
+  }
+}
