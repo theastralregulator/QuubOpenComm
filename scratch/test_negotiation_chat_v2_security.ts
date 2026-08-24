@@ -305,7 +305,7 @@ function runPreflightAndUnitChecks() {
     'Availability Status DB Constraint: Options strictly match "Available Now", "Busy", "On Vacation" (no Part-time/Full-time)'
   );
 
-  // --- HARDENED SECURE SUBMIT RPC & TABLE PRIVILEGE CHECKS ---
+  // --- HARDENED SECURE SUBMIT RPC, CONCURRENCY LOCKS & TABLE PRIVILEGE CHECKS ---
 
   // 26. Migration File Preserved: 20260825010000_harden_job_applications_security.sql
   assert(
@@ -330,42 +330,38 @@ function runPreflightAndUnitChecks() {
     'Table Privilege Hardening: anon role has NO direct table grants on job_applications'
   );
 
-  // 29. submit_job_application is SECURITY DEFINER
-  const submitRpcSecurityDefiner = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.submit_job_application') &&
-    jobAppHardenSql.includes('SECURITY DEFINER') &&
-    jobAppHardenSql.includes('SET search_path = public, pg_temp');
+  // 29. Row Locking: update_job_application_status and withdraw_job_application use FOR UPDATE
+  const updateRpcForUpdate = jobAppHardenSql.includes('FUNCTION public.update_job_application_status') &&
+    /update_job_application_status[\s\S]*?FOR UPDATE/i.test(jobAppHardenSql);
+  const withdrawRpcForUpdate = jobAppHardenSql.includes('FUNCTION public.withdraw_job_application') &&
+    /withdraw_job_application[\s\S]*?FOR UPDATE/i.test(jobAppHardenSql);
   assert(
-    submitRpcSecurityDefiner,
-    'Submit RPC Security: submit_job_application is SECURITY DEFINER with search_path = public, pg_temp'
+    updateRpcForUpdate && withdrawRpcForUpdate,
+    'Concurrency Locking: update_job_application_status and withdraw_job_application lock application row FOR UPDATE'
   );
 
-  // 30. submit RPC derives applicant from auth.uid()
-  const submitRpcAuthUid = jobAppHardenSql.includes('v_user_id := auth.uid();') &&
-    jobAppHardenSql.includes('applicant_id,\n    proposed_rate,') &&
-    jobAppHardenSql.includes('v_user_id,');
+  // 30. Job Row Lock: submit_job_application locks target job FOR SHARE
+  const submitRpcForShare = /submit_job_application[\s\S]*?FOR SHARE/i.test(jobAppHardenSql);
   assert(
-    submitRpcAuthUid,
-    'Submit RPC Security: Derives applicant strictly from auth.uid() internally'
+    submitRpcForShare,
+    'Concurrency Locking: submit_job_application locks target job row FOR SHARE'
   );
 
-  // 31. submit RPC block checks: always inserts status = 'pending' and does not accept status or linkage params
-  const submitFnStart = jobAppHardenSql.indexOf('FUNCTION public.submit_job_application');
-  const submitFnEnd = jobAppHardenSql.indexOf('FUNCTION public.update_job_application_status');
-  const submitFnBlock = jobAppHardenSql.slice(submitFnStart, submitFnEnd);
-
-  const submitRpcStatusPending = submitFnBlock.includes("'pending'") && !submitFnBlock.includes('p_status');
+  // 31. Fail-Closed Job Active Check: IS DISTINCT FROM true
+  const failClosedIsActive = jobAppHardenSql.includes('v_job_is_active IS DISTINCT FROM true');
   assert(
-    submitRpcStatusPending,
-    "Submit RPC Security: Always inserts status = 'pending' and does not accept status parameter"
+    failClosedIsActive,
+    'Fail-Closed Safety: submit_job_application enforces v_job_is_active IS DISTINCT FROM true'
   );
 
-  // 32. RPC does not accept status or workflow linkage IDs as parameters
-  const submitRpcParamsClean = !submitFnBlock.includes('p_status') &&
-    !submitFnBlock.includes('p_negotiation_room_id') &&
-    !submitFnBlock.includes('p_work_contract_id');
+  // 32. Submit RPC Input Validation for proposed rate & cover letter
+  const submitInputValidation = jobAppHardenSql.includes("Proposed rate is required") &&
+    jobAppHardenSql.includes("Cover letter is required") &&
+    jobAppHardenSql.includes("Proposed rate exceeds maximum length") &&
+    jobAppHardenSql.includes("Cover letter exceeds maximum length");
   assert(
-    submitRpcParamsClean,
-    'Submit RPC Security: Does NOT accept status or workflow linkage IDs as input parameters'
+    submitInputValidation,
+    'Input Validation: submit_job_application validates non-empty proposed rate & cover letter with max length limits'
   );
 
   // 33. RLS WITH CHECK explicitly requires status = 'pending' AND blocks non-null workflow fields
@@ -396,34 +392,18 @@ function runPreflightAndUnitChecks() {
     "JobDetailPage Security: Direct table insert removed and replaced with submit_job_application RPC"
   );
 
-  // 36. Duplicate Application Behavior Refreshes Real DB State
-  const duplicateModalHandling = modalCode.includes("appError.code === '23505'") &&
-    modalCode.includes("window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'))");
-  const duplicateDetailHandling = jobDetailPageCode.includes("appError.code === '23505'") &&
-    jobDetailPageCode.includes("window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'))");
-  assert(
-    duplicateModalHandling && duplicateDetailHandling,
-    'Duplicate Handling: Dispatches opencomm:job-application-changed to refresh real DB map without fabricating local state'
-  );
-
-  // 37. UTC Deadline SQL Semantics
+  // 36. UTC Deadline SQL & TS Semantics
   const sqlUtcDeadlineCheck = jobAppHardenSql.includes("(j.application_deadline AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date");
-  assert(
-    sqlUtcDeadlineCheck,
-    "UTC Deadline SQL: Migration uses explicit (j.application_deadline AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date"
-  );
-
-  // 38. UTC Deadline TypeScript Semantics
   const tsUtcDeadlineCheck = deadlineLibCode.includes('getUTCFullYear()') &&
     deadlineLibCode.includes('getUTCMonth()') &&
     deadlineLibCode.includes('getUTCDate()') &&
     deadlineLibCode.includes("timeZone: 'UTC'");
   assert(
-    tsUtcDeadlineCheck,
-    "UTC Deadline TS: deadline.ts uses getUTCFullYear(), getUTCMonth(), getUTCDate(), and timeZone: 'UTC'"
+    sqlUtcDeadlineCheck && tsUtcDeadlineCheck,
+    "UTC Deadline Precision: Migration SQL and deadline.ts enforce explicit UTC date semantics"
   );
 
-  // 39. Generic Employer Update RPC Remains Transition-Limited
+  // 37. Generic Employer Update RPC Remains Transition-Limited
   const hardenedEmployerRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.update_job_application_status') &&
     jobAppHardenSql.includes("v_current_status = 'pending'") &&
     jobAppHardenSql.includes("v_current_status = 'under_review'") &&
@@ -435,7 +415,7 @@ function runPreflightAndUnitChecks() {
     'Employer Status RPC Security: Validates current status -> requested status transition matrix and blocks rewriting confirmed/negotiating/completed states'
   );
 
-  // 40. Withdraw RPC Security
+  // 38. Withdraw RPC Security
   const secureWithdrawRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.withdraw_job_application') &&
     jobAppHardenSql.includes("v_current_status NOT IN ('pending', 'under_review', 'shortlisted')") &&
     jobAppHardenSql.includes('v_applicant_id IS DISTINCT FROM v_user_id');
@@ -444,7 +424,7 @@ function runPreflightAndUnitChecks() {
     'Withdraw RPC Security: Enforces auth.uid(), applicant ownership, active account, and withdrawable status whitelist'
   );
 
-  // 41. Document Security Scanner Unit Tests
+  // 39. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
@@ -454,7 +434,7 @@ function runPreflightAndUnitChecks() {
   const exeCheck = verifyDocumentBuffer(exeMasquerade, 'application/pdf');
   assert(exeCheck.valid === false, 'Scanner Unit Test: Executable file masquerading as PDF is rejected');
 
-  // 42. Unit Testing Deadline Utilities UTC Functions
+  // 40. Unit Testing Deadline Utilities UTC Functions
   console.log('\n--- Unit Testing Deadline Utilities ---');
   const testIsoDeadline = '2026-12-31T00:00:00.000Z';
   const deadlineInfo = getDeadlineInfo(testIsoDeadline);

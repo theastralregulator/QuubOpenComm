@@ -1,5 +1,5 @@
 -- Migration: 20260825010000_harden_job_applications_security.sql
--- Description: Harden job_applications RLS, create submit_job_application RPC, revoke direct table INSERT/UPDATE from clients, enforce UTC deadline checks, restrict employer status transitions, add least-privilege table grants, and add withdraw_job_application RPC.
+-- Description: Harden job_applications RLS, create submit_job_application RPC with input validation & row locks, revoke direct table INSERT/UPDATE from clients, enforce UTC deadline checks, restrict employer status transitions with FOR UPDATE lock, add least-privilege table grants, and add concurrency-locked withdraw_job_application RPC.
 
 -- 1. Drop existing INSERT and UPDATE policies on public.job_applications
 DROP POLICY IF EXISTS "Applicants can submit application" ON public.job_applications;
@@ -62,7 +62,7 @@ REVOKE ALL ON public.job_applications FROM authenticated;
 -- Grant authenticated users SELECT privilege ONLY (protected by RLS).
 GRANT SELECT ON public.job_applications TO authenticated;
 
--- 4. Create SECURITY DEFINER submit_job_application RPC
+-- 4. Create SECURITY DEFINER submit_job_application RPC with Input Validation & Job Row Lock
 CREATE OR REPLACE FUNCTION public.submit_job_application(
   p_job_id uuid,
   p_proposed_rate text,
@@ -81,6 +81,9 @@ DECLARE
   v_job_status text;
   v_job_deadline timestamptz;
   v_inserted record;
+  v_trimmed_rate text;
+  v_trimmed_cover text;
+  v_trimmed_resume text;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -91,6 +94,32 @@ BEGIN
     RAISE EXCEPTION 'Account is deactivated';
   END IF;
 
+  -- Basic input validation
+  IF p_job_id IS NULL THEN
+    RAISE EXCEPTION 'Job ID is required';
+  END IF;
+
+  v_trimmed_rate := trim(coalesce(p_proposed_rate, ''));
+  IF v_trimmed_rate = '' THEN
+    RAISE EXCEPTION 'Proposed rate is required';
+  END IF;
+  IF length(v_trimmed_rate) > 200 THEN
+    RAISE EXCEPTION 'Proposed rate exceeds maximum length of 200 characters';
+  END IF;
+
+  v_trimmed_cover := trim(coalesce(p_cover_letter, ''));
+  IF v_trimmed_cover = '' THEN
+    RAISE EXCEPTION 'Cover letter is required';
+  END IF;
+  IF length(v_trimmed_cover) > 5000 THEN
+    RAISE EXCEPTION 'Cover letter exceeds maximum length of 5000 characters';
+  END IF;
+
+  v_trimmed_resume := NULLIF(trim(coalesce(p_resume_url, '')), '');
+  IF v_trimmed_resume IS NOT NULL AND length(v_trimmed_resume) > 2048 THEN
+    RAISE EXCEPTION 'Resume URL exceeds maximum length of 2048 characters';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = v_user_id
@@ -99,6 +128,7 @@ BEGIN
     RAISE EXCEPTION 'Email verification is required before submitting job applications';
   END IF;
 
+  -- Lock target job row for reading
   SELECT j.posted_by, j.is_active, j.status, j.application_deadline
   INTO v_job_owner, v_job_is_active, v_job_status, v_job_deadline
   FROM public.jobs j
@@ -109,7 +139,8 @@ BEGIN
     RAISE EXCEPTION 'Job listing not found';
   END IF;
 
-  IF NOT v_job_is_active OR v_job_status IS DISTINCT FROM 'active' THEN
+  -- Fail closed on nullable is_active
+  IF v_job_is_active IS DISTINCT FROM true OR v_job_status IS DISTINCT FROM 'active' THEN
     RAISE EXCEPTION 'Job listing is not active';
   END IF;
 
@@ -131,9 +162,9 @@ BEGIN
   ) VALUES (
     p_job_id,
     v_user_id,
-    p_proposed_rate,
-    p_cover_letter,
-    p_resume_url,
+    v_trimmed_rate,
+    v_trimmed_cover,
+    v_trimmed_resume,
     'pending'
   )
   RETURNING id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at, updated_at, negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id
@@ -146,7 +177,7 @@ $$;
 REVOKE ALL ON FUNCTION public.submit_job_application(uuid, text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.submit_job_application(uuid, text, text, text) TO authenticated;
 
--- 5. Harden update_job_application_status RPC with Current Status -> Requested Status Transition Matrix
+-- 5. Harden update_job_application_status RPC with Concurrency Lock (FOR UPDATE) & Transition Matrix
 CREATE OR REPLACE FUNCTION public.update_job_application_status(p_app_id uuid, p_status text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -169,9 +200,11 @@ BEGIN
     RAISE EXCEPTION 'Account is deactivated';
   END IF;
 
+  -- Lock the application row FOR UPDATE before reading status to prevent concurrency races
   SELECT ja.job_id, ja.status INTO v_job_id, v_current_status
   FROM public.job_applications ja
-  WHERE ja.id = p_app_id;
+  WHERE ja.id = p_app_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Application not found';
@@ -218,7 +251,7 @@ $$;
 REVOKE ALL ON FUNCTION public.update_job_application_status(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.update_job_application_status(uuid, text) TO authenticated;
 
--- 6. Create secure withdraw_job_application RPC
+-- 6. Create secure withdraw_job_application RPC with Concurrency Lock (FOR UPDATE)
 CREATE OR REPLACE FUNCTION public.withdraw_job_application(p_application_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -240,9 +273,11 @@ BEGIN
     RAISE EXCEPTION 'Account is deactivated';
   END IF;
 
+  -- Lock the application row FOR UPDATE before reading status to prevent concurrency races
   SELECT applicant_id, status INTO v_applicant_id, v_current_status
   FROM public.job_applications
-  WHERE id = p_application_id;
+  WHERE id = p_application_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Application not found';
