@@ -24,6 +24,9 @@ interface JobDetailPageProps {
   onEditJob?: (job: Job) => void;
   onDeleteJob?: (job: Job) => Promise<void>;
   applicationsByJobId?: Map<string, any>;
+  isApplicationsLoaded?: boolean;
+  applicationsStatus?: 'idle' | 'loading' | 'ready' | 'error';
+  onRetryApplications?: () => void;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
 }
 
@@ -36,6 +39,9 @@ export default function JobDetailPage({
   onEditJob,
   onDeleteJob,
   applicationsByJobId,
+  isApplicationsLoaded = true,
+  applicationsStatus = 'ready',
+  onRetryApplications,
   onApplicationCreated,
 }: JobDetailPageProps) {
   const { jobId } = useParams<{ jobId: string }>();
@@ -81,9 +87,10 @@ export default function JobDetailPage({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showDeleteConfirm, isDeleting]);
 
-  const [dbApplied, setDbApplied] = useState(false);
-  const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
-  const [existingApp, setExistingApp] = useState<any>(null);
+  const canonicalApp = (jobId && applicationsByJobId) ? applicationsByJobId.get(jobId) : undefined;
+  const dbApplied = Boolean(canonicalApp);
+  const applicationStatus = canonicalApp?.status || null;
+  const existingApp = canonicalApp || null;
 
   // Canonical Employer Profile State (Prevents Flicker)
   const [employerProfile, setEmployerProfile] = useState<{
@@ -129,21 +136,6 @@ export default function JobDetailPage({
         }
         currentAuthUserId = user?.id ?? null;
         setLoggedInId(currentAuthUserId);
-
-        if (currentAuthUserId) {
-          const { data: existingApplication } = await supabase
-            .from('job_applications')
-            .select('id, status, proposed_rate, created_at')
-            .eq('job_id', jobId)
-            .eq('applicant_id', currentAuthUserId)
-            .maybeSingle();
-
-          if (existingApplication) {
-            setDbApplied(true);
-            setApplicationStatus(existingApplication.status);
-            setExistingApp(existingApplication);
-          }
-        }
       }
 
       // Check local jobs first
@@ -367,6 +359,16 @@ export default function JobDetailPage({
       return;
     }
 
+    if (isLoggedIn && !isApplicationsLoaded) {
+      triggerToast('Loading application status...');
+      return;
+    }
+
+    if (isLoggedIn && applicationsStatus === 'error') {
+      triggerToast('Unable to load application status. Please retry.');
+      return;
+    }
+
     if (isOwner) {
       triggerToast('You cannot apply to your own job post.');
       return;
@@ -388,6 +390,16 @@ export default function JobDetailPage({
         return;
       }
 
+      const { assertUserEmailConfirmed } = await import('../../lib/supabase');
+      try {
+        await assertUserEmailConfirmed();
+      } catch (verr: any) {
+        triggerToast(verr.message || 'Email verification is required before submitting job applications.');
+        setIsSubmitting(false);
+        setShowApplyForm(false);
+        return;
+      }
+
       const { data: newApp, error: appError } = await supabase
         .from('job_applications')
         .insert({
@@ -404,7 +416,6 @@ export default function JobDetailPage({
         if (appError.code === '23505') {
           triggerToast('You have already applied for this job.');
           window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'));
-          setDbApplied(true);
         } else {
           console.error('Application submission error:', appError);
           triggerToast('Unable to submit application right now. Please try again.');
@@ -415,9 +426,6 @@ export default function JobDetailPage({
       }
 
       if (newApp) {
-        setDbApplied(true);
-        setApplicationStatus(newApp.status || 'pending');
-        setExistingApp(newApp);
         if (onApplicationCreated) {
           onApplicationCreated(job.id, newApp);
         }
@@ -864,7 +872,25 @@ export default function JobDetailPage({
       {!isOwner && (
         <div className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-white/95 dark:bg-[#080C14]/95 backdrop-blur-xl border-t border-[#ECEEF5] dark:border-slate-800/80 z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
           <div className="max-w-4xl mx-auto flex items-center gap-2.5 sm:gap-3">
-            {!dbApplied ? (
+            {isLoggedIn && !isApplicationsLoaded ? (
+              <div className="w-full h-[52px] rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-semibold flex items-center justify-center space-x-2 border border-slate-200 dark:border-slate-700 animate-pulse">
+                <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
+                <span>Loading application status...</span>
+              </div>
+            ) : isLoggedIn && applicationsStatus === 'error' ? (
+              <div className="w-full h-[52px] rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center justify-between px-4">
+                <span>Unable to load your application status.</span>
+                {onRetryApplications && (
+                  <button
+                    type="button"
+                    onClick={onRetryApplications}
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            ) : !dbApplied ? (
               <button
                 onClick={handleApplyClick}
                 disabled={deadlineInfo.isExpired || isSubmitting}

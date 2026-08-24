@@ -45,6 +45,15 @@ export default function SharedApplicationModal({
           return;
         }
 
+        const { assertUserEmailConfirmed } = await import('../../lib/supabase');
+        try {
+          await assertUserEmailConfirmed();
+        } catch (verr: any) {
+          if (triggerToast) triggerToast(verr.message || "Email verification is required before submitting job applications.");
+          setIsSubmitting(false);
+          return;
+        }
+
         const { data: newApp, error: appError } = await supabase
           .from('job_applications')
           .insert({

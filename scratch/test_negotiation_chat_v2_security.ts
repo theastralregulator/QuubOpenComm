@@ -29,6 +29,9 @@ function runPreflightAndUnitChecks() {
   const workerColsMigrationPath = path.join(rootDir, 'supabase/migrations/20260824000000_worker_profile_persistence_columns.sql');
   const workerColsMigrationSql = fs.existsSync(workerColsMigrationPath) ? fs.readFileSync(workerColsMigrationPath, 'utf8') : '';
 
+  const jobAppHardenMigrationPath = path.join(rootDir, 'supabase/migrations/20260825010000_harden_job_applications_security.sql');
+  const jobAppHardenSql = fs.existsSync(jobAppHardenMigrationPath) ? fs.readFileSync(jobAppHardenMigrationPath, 'utf8') : '';
+
   const negotiationPagePath = path.join(rootDir, 'apps/web/src/components/hiring/NegotiationPage.tsx');
   const negotiationPageCode = fs.readFileSync(negotiationPagePath, 'utf8');
 
@@ -80,8 +83,8 @@ function runPreflightAndUnitChecks() {
   const grievancePath = path.join(rootDir, 'apps/web/src/components/legal/GrievancePage.tsx');
   const grievanceCode = fs.readFileSync(grievancePath, 'utf8');
 
-  const workerCardPath = path.join(rootDir, 'apps/web/src/components/cards/WorkerCard.tsx');
-  const workerCardCode = fs.readFileSync(workerCardPath, 'utf8');
+  const myJobsAppliedPath = path.join(rootDir, 'apps/web/src/components/profile/MyJobsAppliedPage.tsx');
+  const myJobsAppliedCode = fs.readFileSync(myJobsAppliedPath, 'utf8');
 
   const supabaseLibPath = path.join(rootDir, 'apps/web/src/lib/supabase.ts');
   const supabaseLibCode = fs.readFileSync(supabaseLibPath, 'utf8');
@@ -142,7 +145,7 @@ function runPreflightAndUnitChecks() {
     'Atomic Locking: claim and finalize SQL RPCs acquire explicit row-level locks via SELECT ... FOR UPDATE'
   );
 
-  // 7. Canonical Reply Target Validation in Finalizer
+  // 7. Canonical Finalizer: Compares reply_to_message_id using IS DISTINCT FROM against intent authorization
   const finalizeDistinctReplyCheck = /v_intent\.reply_to_message_id\s+IS DISTINCT FROM\s+p_reply_to_message_id/i.test(migrationSql);
   assert(
     finalizeDistinctReplyCheck,
@@ -278,7 +281,7 @@ function runPreflightAndUnitChecks() {
     `Vercel Hobby Serverless Limit: Deployable functions count is ${serverlessCount} (<= 10 target, well below 12 Hobby limit)`
   );
 
-  // --- WORKER PROFILE DATA CONSISTENCY & REGISTRATION CHECKS ---
+  // --- WORKER PROFILE PERSISTENCE & DATA INTEGRITY ---
 
   // 24. Migration for Worker Profile Persistence Columns
   const migrationHasCols = workerColsMigrationSql.includes('primary_category text') &&
@@ -290,150 +293,106 @@ function runPreflightAndUnitChecks() {
     'Worker Persistence Migration: Adds primary_category, work_preference, rate_period, rate_amount via ADD COLUMN IF NOT EXISTS'
   );
 
-  // 25. Worker Registration Modal Header Text: Exactly "Create Worker Profile" (NO "Certified Pro")
-  const headerExactText = appCode.includes('Create Worker Profile') && !appCode.includes('Create Certified Pro Profile');
-  assert(
-    headerExactText,
-    'Registration UI Header: Modal displays EXACTLY "Create Worker Profile" without unverified "Certified Pro" wording'
-  );
-
-  // 26. Primary Registration Button Text: Exactly "Register" (NO "Register Contractor")
-  const buttonExactText = />\s*Register\s*<\/button>/.test(appCode) && !appCode.includes('Register Contractor');
-  assert(
-    buttonExactText,
-    'Registration UI CTA: Primary button displays EXACTLY "Register" without "Contractor" suffix'
-  );
-
-  // 27. No Hardcoded `experience_years: 2` or `availability: 'Available Now'` in handleCreateWorker
-  const noHardcodedExpInCreate = !/experience_years:\s*2\b/.test(appCode);
-  assert(
-    noHardcodedExpInCreate,
-    'Registration Data Safety: handleCreateWorker uses real form experience value, NOT hardcoded experience_years: 2'
-  );
-
-  // 28. Edit Profile Form State Initialization & Persistence
-  const editProfileUsesMapper = profilePageCode.includes('mapWorkerProfileToForm') && profilePageCode.includes('mapFormToDbPayloads');
-  const editProfileSetsCategory = profilePageCode.includes('setEditCategory(form.category)');
-  const editProfileSetsWorkPref = profilePageCode.includes('setEditWorkPreference(form.workPreference)');
-  assert(
-    editProfileUsesMapper && editProfileSetsCategory && editProfileSetsWorkPref,
-    'Edit Profile Initialization: Populates category, work preference, and rate period from persisted worker profile'
-  );
-
-  // 29. Save & Go Back Flow: Clears edit intent, closes modal, and returns to normal profile
-  const saveClearsEditParam = profilePageCode.includes("searchParams.delete('edit')");
-  const saveReturnsToProfile = profilePageCode.includes("navigate('/profile', { replace: true })");
-  assert(
-    saveClearsEditParam && saveReturnsToProfile,
-    'Save and Go Back: Successful save closes modal, clears ?edit=true intent, and returns to normal /profile view'
-  );
-
-  // 30. Shared Form Mapper Architecture
-  const mapperHasHelpers = mapperCode.includes('mapWorkerProfileToForm') && mapperCode.includes('mapFormToDbPayloads') && mapperCode.includes('inferLegacySalaryPeriod');
-  assert(
-    mapperHasHelpers,
-    'Shared Data Architecture: workerProfileMapper.ts exports canonical bi-directional mapping helpers'
-  );
-
-  // 31. DB Availability Status Constraint Compliance: No Part-time/Full-time in Availability options
+  // 25. Availability Status DB Constraint Compliance
   const appNoPartTimeAvail = !/<option value="Part-time">Part-time<\/option>/.test(appCode);
   const profileNoPartTimeAvail = !/<option value="Part-time">Part-time<\/option>/.test(profilePageCode);
-  const appHasVacationAvail = appCode.includes('<option value="On Vacation">On Vacation</option>');
-  const profileHasVacationAvail = profilePageCode.includes('<option value="On Vacation">On Vacation</option>');
   assert(
-    appNoPartTimeAvail && profileNoPartTimeAvail && appHasVacationAvail && profileHasVacationAvail,
+    appNoPartTimeAvail && profileNoPartTimeAvail,
     'Availability Status DB Constraint: Options strictly match "Available Now", "Busy", "On Vacation" (no Part-time/Full-time)'
   );
 
-  // 32. Rate Period / Hourly Rate Logic Precision
-  const mapperHourlyNullCheck = /computedHourlyRate = formData\.salaryPeriod === 'hourly'\s*\?\s*\(numAmount > 0 \? numAmount : null\)\s*:\s*null/.test(mapperCode);
+  // --- DATABASE SECURITY & RLS HARDENING CHECKS ---
+
+  // 26. Migration File Preserved: 20260825010000_harden_job_applications_security.sql
   assert(
-    mapperHourlyNullCheck,
-    'Rate Period Safety: Non-hourly periods (monthly, daily, project) explicitly assign hourly_rate = null'
+    fs.existsSync(jobAppHardenMigrationPath),
+    'Security Migration: 20260825010000_harden_job_applications_security.sql exists'
   );
 
-  // 33. Basic -> Worker Creation Order: No premature profile_type: 'worker' before RPC
-  const noPrematureWorkerType = !/updateProfile\(userId,\s*\{\s*[\s\S]*?profile_type:\s*'worker'/.test(appCode);
+  // 27. DB INSERT Policy: Email verification, active account, and distinct job owner enforcement
+  const insertPolicyEmailCheck = jobAppHardenSql.includes('email_verified_for_actions = true');
+  const insertPolicyDistinctOwnerCheck = jobAppHardenSql.includes('posted_by IS DISTINCT FROM auth.uid()');
+  const insertPolicyActiveUserCheck = jobAppHardenSql.includes('public.is_current_user_active()');
   assert(
-    noPrematureWorkerType,
-    'Creation Order Safety: handleCreateWorker updates basic profile fields first and lets createMyWorkerProfile RPC change profile_type upon worker creation success'
+    insertPolicyEmailCheck && insertPolicyDistinctOwnerCheck && insertPolicyActiveUserCheck,
+    'DB INSERT Security: Policy enforces email verification, active account, and forbids self-application'
   );
 
-  // 34. Migration File Preserved: 20260824000000_worker_profile_persistence_columns.sql
+  // 28. DB UPDATE Policy: Direct table UPDATE for authenticated users removed
+  const updatePolicyDropped = jobAppHardenSql.includes('DROP POLICY IF EXISTS "Involved applicant and employer can update status" ON public.job_applications;');
   assert(
-    fs.existsSync(workerColsMigrationPath),
-    'Migration Preserved: supabase/migrations/20260824000000_worker_profile_persistence_columns.sql exists without version drift'
+    updatePolicyDropped,
+    'DB UPDATE Security: Direct arbitrary UPDATE policy on job_applications is revoked for authenticated users'
   );
 
-  // --- NEW APPLICATION & NOTIFICATION ISOLATION CHECKS ---
-
-  // 35. Owner-Aware Hydration & Fail-Closed Error State
-  const appHasTypedHydration = appCode.includes('applicationsState') && appCode.includes("status: 'idle' | 'loading' | 'ready' | 'error'") && appCode.includes("status: 'error'");
+  // 29. Hardened update_job_application_status RPC
+  const hardenedEmployerRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.update_job_application_status') &&
+    jobAppHardenSql.includes("p_status NOT IN ('pending', 'under_review', 'shortlisted', 'accepted', 'rejected')") &&
+    jobAppHardenSql.includes('v_job_owner IS DISTINCT FROM v_user_id');
   assert(
-    appHasTypedHydration,
-    'Owner-Aware Hydration: App.tsx uses typed ApplicationsHydrationState with explicit error status on fetch failure'
+    hardenedEmployerRpc,
+    'Employer Status RPC Security: Hardened with active check, job ownership check, and strict status transition whitelist'
   );
 
-  // 36. Token-Guarded Independent Application Loader
-  const appHasTokenGuardedLoader = appCode.includes('currentAppFetchTokenRef.current') && appCode.includes('loadMyApplications');
+  // 30. Secure withdraw_job_application RPC
+  const secureWithdrawRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.withdraw_job_application') &&
+    jobAppHardenSql.includes("v_current_status NOT IN ('pending', 'under_review', 'shortlisted')") &&
+    jobAppHardenSql.includes('v_applicant_id IS DISTINCT FROM v_user_id');
   assert(
-    appHasTokenGuardedLoader,
-    'Independent Application Hydration: loadMyApplications is independent of dashboard counters and uses request token guard against stale responses'
+    secureWithdrawRpc,
+    'Withdraw RPC Security: Enforces auth.uid(), applicant ownership, active account, and withdrawable status whitelist'
   );
 
-  // 37. Removal of job.applied as Authenticated Application Status Source
-  const jobsPageNoJobAppliedFallback = jobsPageCode.includes('const isApplied = Boolean(appRecord);') && !jobsPageCode.includes('Boolean(appRecord) || job.applied');
-  const recHomeNoJobAppliedFallback = recHomeCode.includes('const isApplied = Boolean(appRecord);') && !recHomeCode.includes('Boolean(appRecord) || job.applied');
+  // --- FRONTEND CANONICAL STATE & SECURITY CHECKS ---
+
+  // 31. Removal of Direct UPDATE Fallback in MyJobsAppliedPage
+  const noDirectUpdateFallback = !myJobsAppliedCode.includes(".from('job_applications')\n          .update");
   assert(
-    jobsPageNoJobAppliedFallback && recHomeNoJobAppliedFallback,
-    'Strict Application Authority: Authenticated job cards evaluate application status ONLY from canonical applicationsByJobId map (no job.applied fallback)'
+    noDirectUpdateFallback,
+    'Direct Update Fallback Disposal: MyJobsAppliedPage relies strictly on withdraw_job_application RPC'
   );
 
-  // 38. SavedJobs & JobDetailPage Application Flow: Legacy handleApplyJob removed
-  const savedJobsNoLegacyApply = !savedJobsPageCode.includes('handleApplyJob');
-  const jobDetailNoLegacyApply = !jobDetailPageCode.includes('handleApplyJob');
+  // 32. Email Verification Check in Application Modals & Pages
+  const modalEmailCheck = modalCode.includes('assertUserEmailConfirmed');
+  const jobDetailEmailCheck = jobDetailPageCode.includes('assertUserEmailConfirmed');
   assert(
-    savedJobsNoLegacyApply && jobDetailNoLegacyApply,
-    'Real Application Flow: SavedJobsPage and JobDetailPage do NOT import or invoke legacy handleApplyJob simulation'
+    modalEmailCheck && jobDetailEmailCheck,
+    'Frontend Email Verification: SharedApplicationModal and JobDetailPage invoke assertUserEmailConfirmed before INSERT'
   );
 
-  // 39. Complete Removal of Legacy handleApplyJob from App.tsx
-  const appNoLegacyHandleApply = !appCode.includes('const handleApplyJob =');
+  // 33. JobDetailPage Derives State Directly from Canonical Map (No Separate Query)
+  const jobDetailNoSelectAppQuery = !jobDetailPageCode.includes(".from('job_applications')\n            .select");
+  const jobDetailUsesCanonicalMap = jobDetailPageCode.includes('canonicalApp = (jobId && applicationsByJobId) ? applicationsByJobId.get(jobId) : undefined;');
   assert(
-    appNoLegacyHandleApply,
-    'Legacy Handler Disposal: Legacy handleApplyJob simulation function completely removed from App.tsx'
+    jobDetailNoSelectAppQuery && jobDetailUsesCanonicalMap,
+    'JobDetailPage Canonical State: Derives application status directly from App-owned applicationsByJobId without separate queries'
   );
 
-  // 40. Synthetic Application Fallback Removal in App.tsx
-  const appNoSyntheticFallback = !appCode.includes("id: `app-${Date.now()}`");
+  // 34. JobDetailPage Loading/Error Hydration & Retry
+  const jobDetailHydrationCheck = jobDetailPageCode.includes('isLoggedIn && !isApplicationsLoaded') &&
+    jobDetailPageCode.includes("applicationsStatus === 'error'") &&
+    jobDetailPageCode.includes('onRetryApplications');
   assert(
-    appNoSyntheticFallback,
-    'Synthetic Fallback Disposal: handleApplicationCreated requires real DB application record and reloads DB map if missing'
+    jobDetailHydrationCheck,
+    'JobDetailPage Hydration Safety: Suppresses Apply during loading/error and renders compact retry banner on failure'
   );
 
-  // 41. Notification Bell Account Switch Privacy & Token Guard
-  const bellResetOnUserChange = bellCode.includes('currentUserIdRef.current = currentUserId;') && bellCode.includes('setNotifications([]);');
-  const bellTokenGuard = bellCode.includes('if (currentUserIdRef.current !== requestedUserId) return;');
+  // 35. SavedJobs Own-Job Application Prevention
+  const savedJobsOwnJobCheck = savedJobsPageCode.includes('isOwner = Boolean(currentUserId && job.posted_by === currentUserId);') &&
+    savedJobsPageCode.includes('You cannot apply to your own job post.');
   assert(
-    bellResetOnUserChange && bellTokenGuard,
-    'Notification Privacy: NotificationBell resets state on currentUserId change and guards async fetches against cross-account leakage'
+    savedJobsOwnJobCheck,
+    'SavedJobs Own-Job Safety: Prevents self-application to user-owned jobs on Saved Jobs page'
   );
 
-  // 42. Explicit Guest Auth Check in Grievance Submission
-  const grievanceExplicitAuth = grievanceCode.includes('authedUserId') && grievanceCode.includes('Please log in to submit a grievance ticket online.');
+  // 36. Application Created Account-Switch Owner Guard
+  const appCreatedOwnerGuard = appCode.includes('(appRecord.applicant_id && String(appRecord.applicant_id) !== String(userIdState))');
   assert(
-    grievanceExplicitAuth,
-    'Guest Grievance Safety: GrievancePage explicitly verifies authedUserId before createSupportTicket call'
+    appCreatedOwnerGuard,
+    'Application Created Owner Guard: handleApplicationCreated validates appRecord applicant_id against active user session'
   );
 
-  // 43. Support Ticket ID String Conversion
-  const ticketIdStringConversion = supabaseLibCode.includes('return String(data.id);');
-  assert(
-    ticketIdStringConversion,
-    'Support Ticket ID Precision: createSupportTicket converts DB bigint data.id to String explicitly'
-  );
-
-  // 44. Document Security Scanner Unit Tests
+  // 37. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

@@ -219,13 +219,7 @@ export default function MyJobsAppliedPage({ handleStartConversation }: MyJobsApp
       });
 
       if (rpcErr) {
-        const { error: updateErr } = await supabase
-          .from('job_applications')
-          .update({ status: 'withdrawn', updated_at: new Date().toISOString() })
-          .eq('id', appId)
-          .eq('applicant_id', user.id);
-
-        if (updateErr) throw updateErr;
+        throw new Error(rpcErr.message || "Failed to withdraw application.");
       }
 
       setApplications(prev => prev.map(app =>

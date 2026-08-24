@@ -23,6 +23,8 @@ interface RecommendedForYouProps {
   isJobsLoaded?: boolean;
   isWorkersLoaded?: boolean;
   isApplicationsLoaded?: boolean;
+  applicationsStatus?: 'idle' | 'loading' | 'ready' | 'error';
+  onRetryApplications?: () => void;
   isLoggedIn?: boolean;
   onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
   triggerToast?: (msg: string) => void;
@@ -42,6 +44,8 @@ export default function RecommendedForYou({
   isJobsLoaded = true,
   isWorkersLoaded = true,
   isApplicationsLoaded = true,
+  applicationsStatus = 'ready',
+  onRetryApplications,
   isLoggedIn = false,
   onOpenAuth,
   triggerToast,
@@ -119,9 +123,23 @@ export default function RecommendedForYou({
             transition={{ duration: 0.25 }}
             className="w-full"
           >
-            {!isJobsLoaded || (currentUserId && !isApplicationsLoaded) ? (
+            {!isJobsLoaded || (currentUserId && applicationsStatus === 'loading') || (currentUserId && !isApplicationsLoaded && applicationsStatus !== 'error') ? (
               <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-x-auto pb-4 sm:pb-0 scrollbar-none snap-x snap-mandatory">
                 <JobCardSkeleton count={6} />
+              </div>
+            ) : currentUserId && applicationsStatus === 'error' ? (
+              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-4 text-center my-4 max-w-md mx-auto">
+                <p className="text-xs font-medium text-red-700 dark:text-red-300">
+                  Unable to load your application status.
+                </p>
+                {onRetryApplications && (
+                  <button
+                    onClick={onRetryApplications}
+                    className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+                  >
+                    Retry
+                  </button>
+                )}
               </div>
             ) : recommendedJobs.length === 0 ? (
               <div className="text-center py-10 text-slate-400 dark:text-slate-600 text-xs font-medium">

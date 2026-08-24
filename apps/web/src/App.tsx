@@ -2623,14 +2623,30 @@ export default function App() {
 
   const myApplicationsByJobId = applicationsReadyForCurrentUser ? applicationsState.byJobId : new Map<string, any>();
 
+  const handleRetryApplications = React.useCallback(() => {
+    if (userIdState) {
+      loadMyApplications(userIdState);
+    }
+  }, [userIdState, loadMyApplications]);
+
   const handleApplicationCreated = React.useCallback((jobId: string, appRecord?: any) => {
-    if (!appRecord || typeof appRecord !== 'object' || (!appRecord.id && !appRecord.job_id)) {
-      if (userIdState) loadMyApplications(userIdState);
+    if (!userIdState) return;
+
+    if (
+      !appRecord ||
+      typeof appRecord !== 'object' ||
+      (!appRecord.id && !appRecord.job_id) ||
+      (appRecord.applicant_id && String(appRecord.applicant_id) !== String(userIdState))
+    ) {
+      loadMyApplications(userIdState);
       return;
     }
 
     const canonicalJobId = appRecord.job_id || jobId;
     setApplicationsState(prev => {
+      if (prev.userId !== userIdState) {
+        return prev;
+      }
       const nextMap = new Map(prev.byJobId);
       nextMap.set(canonicalJobId, appRecord);
       return {
@@ -2952,6 +2968,8 @@ export default function App() {
                 isJobsLoaded={isJobsLoaded}
                 isWorkersLoaded={isWorkersLoaded}
                 isApplicationsLoaded={applicationsReadyForCurrentUser}
+                applicationsStatus={applicationsState.status}
+                onRetryApplications={handleRetryApplications}
                 isLoggedIn={isLoggedIn}
                 onOpenAuth={(tab) => {
                   if (tab === 'signin') navigate('/login');
@@ -2989,6 +3007,8 @@ export default function App() {
                 }}
                 isJobsLoaded={isJobsLoaded}
                 isApplicationsLoaded={applicationsReadyForCurrentUser}
+                applicationsStatus={applicationsState.status}
+                onRetryApplications={handleRetryApplications}
                 applicationsByJobId={myApplicationsByJobId}
                 currentUserId={userIdState}
                 onApplicationCreated={handleApplicationCreated}
@@ -3032,6 +3052,9 @@ export default function App() {
                   else if (tab === 'signup') navigate('/signup');
                 }}
                 applicationsByJobId={myApplicationsByJobId}
+                isApplicationsLoaded={applicationsReadyForCurrentUser}
+                applicationsStatus={applicationsState.status}
+                onRetryApplications={handleRetryApplications}
                 onApplicationCreated={handleApplicationCreated}
               />
             </motion.div>
@@ -3311,6 +3334,8 @@ export default function App() {
                   onExplore={() => navigate('/jobs')}
                   applicationsByJobId={myApplicationsByJobId}
                   isApplicationsLoaded={applicationsReadyForCurrentUser}
+                  applicationsStatus={applicationsState.status}
+                  onRetryApplications={handleRetryApplications}
                   onApplicationCreated={handleApplicationCreated}
                   triggerToast={triggerToast}
                 />

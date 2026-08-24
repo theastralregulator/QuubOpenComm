@@ -25,6 +25,8 @@ interface JobsPageProps {
   onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
   isJobsLoaded?: boolean;
   isApplicationsLoaded?: boolean;
+  applicationsStatus?: 'idle' | 'loading' | 'ready' | 'error';
+  onRetryApplications?: () => void;
   applicationsByJobId?: Map<string, any>;
   currentUserId?: string | null;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
@@ -42,6 +44,8 @@ export default function JobsPage({
   onOpenAuth,
   isJobsLoaded = true,
   isApplicationsLoaded = true,
+  applicationsStatus = 'ready',
+  onRetryApplications,
   applicationsByJobId,
   currentUserId,
   onApplicationCreated,
@@ -309,9 +313,23 @@ export default function JobsPage({
 
           {/* JOBS LIST GRID */}
           <div className="lg:col-span-9 w-full space-y-4">
-            {!isJobsLoaded || (isLoggedIn && !isApplicationsLoaded) ? (
+            {!isJobsLoaded || (isLoggedIn && applicationsStatus === 'loading') || (isLoggedIn && !isApplicationsLoaded && applicationsStatus !== 'error') ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4 w-full">
                 <JobCardSkeleton count={6} />
+              </div>
+            ) : isLoggedIn && applicationsStatus === 'error' ? (
+              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-4 text-center my-4">
+                <p className="text-xs font-medium text-red-700 dark:text-red-300">
+                  Unable to load your application status.
+                </p>
+                {onRetryApplications && (
+                  <button
+                    onClick={onRetryApplications}
+                    className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+                  >
+                    Retry
+                  </button>
+                )}
               </div>
             ) : sortedJobs.length === 0 ? (
               <div className="bg-white dark:bg-[#0F172A] border border-[#ECEEF5] dark:border-slate-800 rounded-[24px] p-8 text-center space-y-3 shadow-2xs">
