@@ -1,5 +1,5 @@
 -- Migration: 20260825010000_harden_job_applications_security.sql
--- Description: Harden job_applications INSERT RLS, remove direct UPDATE RLS policies, harden update_job_application_status RPC, and add withdraw_job_application RPC.
+-- Description: Harden job_applications RLS, enforce deadline check, revoke direct table UPDATE, restrict employer status transitions, add least-privilege table grants, and add withdraw_job_application RPC.
 
 -- 1. Drop existing INSERT and UPDATE policies on public.job_applications
 DROP POLICY IF EXISTS "Applicants can submit application" ON public.job_applications;
@@ -9,7 +9,13 @@ DROP POLICY IF EXISTS "Involved applicant and employer can update status" ON pub
 DROP POLICY IF EXISTS "Applicants and employers can update job applications" ON public.job_applications;
 
 -- 2. Create hardened INSERT policy for public.job_applications
--- Requires: auth.uid() = applicant_id AND account active AND email_verified_for_actions = true AND job exists, is active, and NOT posted by applicant
+-- Requires:
+-- - auth.uid() = applicant_id
+-- - account active (public.is_current_user_active())
+-- - profiles.email_verified_for_actions = true
+-- - target job exists, is_active = true, status = 'active'
+-- - posted_by IS DISTINCT FROM auth.uid() (cannot apply to own job)
+-- - application_deadline is NULL OR application_deadline has not expired (date_trunc('day', j.application_deadline) >= date_trunc('day', now()))
 CREATE POLICY "Verified applicants can submit application"
 ON public.job_applications
 FOR INSERT
@@ -27,16 +33,27 @@ WITH CHECK (
       AND j.is_active = true
       AND j.status = 'active'
       AND j.posted_by IS DISTINCT FROM auth.uid()
+      AND (
+        j.application_deadline IS NULL
+        OR date_trunc('day', j.application_deadline) >= date_trunc('day', now())
+      )
   )
 );
 
 -- 3. Direct UPDATE policy on public.job_applications is purposely NOT recreated for authenticated users.
--- Normal browser clients must NOT have arbitrary direct UPDATE access to job_applications.
--- Employer actions use update_job_application_status RPC.
--- Applicant withdrawal uses withdraw_job_application RPC.
--- Negotiation & contract workflows use their respective SECURITY DEFINER functions.
+-- Direct table UPDATE access is blocked for normal browser clients.
+-- Employer review actions use update_job_application_status RPC.
+-- Applicant withdrawals use withdraw_job_application RPC.
+-- Workflow state changes use their respective SECURITY DEFINER functions.
 
--- 4. Harden update_job_application_status RPC
+-- 4. Apply Least-Privilege Table Grants on public.job_applications
+REVOKE ALL ON public.job_applications FROM PUBLIC, anon;
+GRANT SELECT ON public.job_applications TO anon;
+
+REVOKE ALL ON public.job_applications FROM authenticated;
+GRANT SELECT, INSERT ON public.job_applications TO authenticated;
+
+-- 5. Harden update_job_application_status RPC with Current Status -> Requested Status Transition Matrix
 CREATE OR REPLACE FUNCTION public.update_job_application_status(p_app_id uuid, p_status text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -59,10 +76,6 @@ BEGIN
     RAISE EXCEPTION 'Account is deactivated';
   END IF;
 
-  IF p_status NOT IN ('pending', 'under_review', 'shortlisted', 'accepted', 'rejected') THEN
-    RAISE EXCEPTION 'Invalid status transition for employer';
-  END IF;
-
   SELECT ja.job_id, ja.status INTO v_job_id, v_current_status
   FROM public.job_applications ja
   WHERE ja.id = p_app_id;
@@ -79,6 +92,27 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: You do not own this job posting';
   END IF;
 
+  -- Transition matrix validation for generic employer status RPC:
+  IF v_current_status = 'pending' THEN
+    IF p_status NOT IN ('under_review', 'shortlisted', 'accepted', 'rejected') THEN
+      RAISE EXCEPTION 'Invalid status transition from pending to %', p_status;
+    END IF;
+  ELSIF v_current_status = 'under_review' THEN
+    IF p_status NOT IN ('pending', 'shortlisted', 'accepted', 'rejected') THEN
+      RAISE EXCEPTION 'Invalid status transition from under_review to %', p_status;
+    END IF;
+  ELSIF v_current_status = 'shortlisted' THEN
+    IF p_status NOT IN ('pending', 'accepted', 'rejected') THEN
+      RAISE EXCEPTION 'Invalid status transition from shortlisted to %', p_status;
+    END IF;
+  ELSIF v_current_status = 'rejected' THEN
+    IF p_status NOT IN ('pending') THEN
+      RAISE EXCEPTION 'Invalid status transition from rejected to %', p_status;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Application status % is workflow-managed or final and cannot be manually modified by employer', v_current_status;
+  END IF;
+
   UPDATE public.job_applications
   SET status = p_status, updated_at = now()
   WHERE id = p_app_id
@@ -91,7 +125,7 @@ $$;
 REVOKE ALL ON FUNCTION public.update_job_application_status(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.update_job_application_status(uuid, text) TO authenticated;
 
--- 5. Create secure withdraw_job_application RPC
+-- 6. Create secure withdraw_job_application RPC
 CREATE OR REPLACE FUNCTION public.withdraw_job_application(p_application_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql

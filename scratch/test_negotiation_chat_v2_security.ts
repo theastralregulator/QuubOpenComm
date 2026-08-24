@@ -309,13 +309,15 @@ function runPreflightAndUnitChecks() {
     'Security Migration: 20260825010000_harden_job_applications_security.sql exists'
   );
 
-  // 27. DB INSERT Policy: Email verification, active account, and distinct job owner enforcement
+  // 27. DB INSERT Policy: Email verification, active account, distinct job owner, AND application deadline check
   const insertPolicyEmailCheck = jobAppHardenSql.includes('email_verified_for_actions = true');
   const insertPolicyDistinctOwnerCheck = jobAppHardenSql.includes('posted_by IS DISTINCT FROM auth.uid()');
   const insertPolicyActiveUserCheck = jobAppHardenSql.includes('public.is_current_user_active()');
+  const insertPolicyDeadlineCheck = jobAppHardenSql.includes('application_deadline IS NULL') &&
+    jobAppHardenSql.includes("date_trunc('day', j.application_deadline) >= date_trunc('day', now())");
   assert(
-    insertPolicyEmailCheck && insertPolicyDistinctOwnerCheck && insertPolicyActiveUserCheck,
-    'DB INSERT Security: Policy enforces email verification, active account, and forbids self-application'
+    insertPolicyEmailCheck && insertPolicyDistinctOwnerCheck && insertPolicyActiveUserCheck && insertPolicyDeadlineCheck,
+    'DB INSERT Security: Policy enforces email verification, active account, forbids self-application, and blocks expired deadlines'
   );
 
   // 28. DB UPDATE Policy: Direct table UPDATE for authenticated users removed
@@ -325,16 +327,29 @@ function runPreflightAndUnitChecks() {
     'DB UPDATE Security: Direct arbitrary UPDATE policy on job_applications is revoked for authenticated users'
   );
 
-  // 29. Hardened update_job_application_status RPC
-  const hardenedEmployerRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.update_job_application_status') &&
-    jobAppHardenSql.includes("p_status NOT IN ('pending', 'under_review', 'shortlisted', 'accepted', 'rejected')") &&
-    jobAppHardenSql.includes('v_job_owner IS DISTINCT FROM v_user_id');
+  // 29. Least-Privilege Table Grants on job_applications
+  const anonGrantsRevoked = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM PUBLIC, anon;') &&
+    jobAppHardenSql.includes('GRANT SELECT ON public.job_applications TO anon;');
+  const authGrantsLeastPrivilege = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM authenticated;') &&
+    jobAppHardenSql.includes('GRANT SELECT, INSERT ON public.job_applications TO authenticated;');
   assert(
-    hardenedEmployerRpc,
-    'Employer Status RPC Security: Hardened with active check, job ownership check, and strict status transition whitelist'
+    anonGrantsRevoked && authGrantsLeastPrivilege,
+    'Least-Privilege Grants: Direct UPDATE/DELETE/TRUNCATE revoked on job_applications for anon and authenticated'
   );
 
-  // 30. Secure withdraw_job_application RPC
+  // 30. Hardened update_job_application_status RPC with Transition Matrix
+  const hardenedEmployerRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.update_job_application_status') &&
+    jobAppHardenSql.includes("v_current_status = 'pending'") &&
+    jobAppHardenSql.includes("v_current_status = 'under_review'") &&
+    jobAppHardenSql.includes("v_current_status = 'shortlisted'") &&
+    jobAppHardenSql.includes("v_current_status = 'rejected'") &&
+    jobAppHardenSql.includes('workflow-managed or final and cannot be manually modified by employer');
+  assert(
+    hardenedEmployerRpc,
+    'Employer Status RPC Security: Validates current status -> requested status transition matrix and blocks rewriting confirmed/negotiating/completed states'
+  );
+
+  // 31. Secure withdraw_job_application RPC
   const secureWithdrawRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.withdraw_job_application') &&
     jobAppHardenSql.includes("v_current_status NOT IN ('pending', 'under_review', 'shortlisted')") &&
     jobAppHardenSql.includes('v_applicant_id IS DISTINCT FROM v_user_id');
@@ -345,14 +360,29 @@ function runPreflightAndUnitChecks() {
 
   // --- FRONTEND CANONICAL STATE & SECURITY CHECKS ---
 
-  // 31. Removal of Direct UPDATE Fallback in MyJobsAppliedPage
+  // 32. getMyJobApplications Select Includes Workflow Linkage Columns
+  const getMyAppsSelectCheck = supabaseLibCode.includes("select('id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at, updated_at, negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id')");
+  assert(
+    getMyAppsSelectCheck,
+    'Canonical App Select: getMyJobApplications returns negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id'
+  );
+
+  // 33. Dashboard Counters Optimization: Duplicate getMyJobApplications request removed from App.tsx Promise.all
+  const dashNoDuplicateGetApps = !appCode.includes('dbService.getMyJobApplications(userIdState).catch(() => ({ data: [], error: null }))');
+  const dashWorksCountDerived = appCode.includes('setDashMyWorksCount(applicationsState.byJobId.size)');
+  assert(
+    dashNoDuplicateGetApps && dashWorksCountDerived,
+    'Dashboard Optimization: Duplicate getMyJobApplications request removed from Promise.all and dashMyWorksCount derived from applicationsState'
+  );
+
+  // 34. Removal of Direct UPDATE Fallback in MyJobsAppliedPage
   const noDirectUpdateFallback = !myJobsAppliedCode.includes(".from('job_applications')\n          .update");
   assert(
     noDirectUpdateFallback,
     'Direct Update Fallback Disposal: MyJobsAppliedPage relies strictly on withdraw_job_application RPC'
   );
 
-  // 32. Email Verification Check in Application Modals & Pages
+  // 35. Email Verification Check in Application Modals & Pages
   const modalEmailCheck = modalCode.includes('assertUserEmailConfirmed');
   const jobDetailEmailCheck = jobDetailPageCode.includes('assertUserEmailConfirmed');
   assert(
@@ -360,7 +390,7 @@ function runPreflightAndUnitChecks() {
     'Frontend Email Verification: SharedApplicationModal and JobDetailPage invoke assertUserEmailConfirmed before INSERT'
   );
 
-  // 33. JobDetailPage Derives State Directly from Canonical Map (No Separate Query)
+  // 36. JobDetailPage Derives State Directly from Canonical Map
   const jobDetailNoSelectAppQuery = !jobDetailPageCode.includes(".from('job_applications')\n            .select");
   const jobDetailUsesCanonicalMap = jobDetailPageCode.includes('canonicalApp = (jobId && applicationsByJobId) ? applicationsByJobId.get(jobId) : undefined;');
   assert(
@@ -368,7 +398,7 @@ function runPreflightAndUnitChecks() {
     'JobDetailPage Canonical State: Derives application status directly from App-owned applicationsByJobId without separate queries'
   );
 
-  // 34. JobDetailPage Loading/Error Hydration & Retry
+  // 37. JobDetailPage Loading/Error Hydration & Retry
   const jobDetailHydrationCheck = jobDetailPageCode.includes('isLoggedIn && !isApplicationsLoaded') &&
     jobDetailPageCode.includes("applicationsStatus === 'error'") &&
     jobDetailPageCode.includes('onRetryApplications');
@@ -377,7 +407,7 @@ function runPreflightAndUnitChecks() {
     'JobDetailPage Hydration Safety: Suppresses Apply during loading/error and renders compact retry banner on failure'
   );
 
-  // 35. SavedJobs Own-Job Application Prevention
+  // 38. SavedJobs Own-Job Application Prevention
   const savedJobsOwnJobCheck = savedJobsPageCode.includes('isOwner = Boolean(currentUserId && job.posted_by === currentUserId);') &&
     savedJobsPageCode.includes('You cannot apply to your own job post.');
   assert(
@@ -385,14 +415,14 @@ function runPreflightAndUnitChecks() {
     'SavedJobs Own-Job Safety: Prevents self-application to user-owned jobs on Saved Jobs page'
   );
 
-  // 36. Application Created Account-Switch Owner Guard
+  // 39. Application Created Account-Switch Owner Guard
   const appCreatedOwnerGuard = appCode.includes('(appRecord.applicant_id && String(appRecord.applicant_id) !== String(userIdState))');
   assert(
     appCreatedOwnerGuard,
     'Application Created Owner Guard: handleApplicationCreated validates appRecord applicant_id against active user session'
   );
 
-  // 37. Document Security Scanner Unit Tests
+  // 40. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');

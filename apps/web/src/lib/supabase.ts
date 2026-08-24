@@ -2405,7 +2405,7 @@ export const dbService = {
   async getMyJobApplications(userId: string): Promise<{ data: any[] | null; error: any }> {
     const { data, error } = await supabase
       .from('job_applications')
-      .select('id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at')
+      .select('id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at, updated_at, negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id')
       .eq('applicant_id', userId);
 
     if (error) {

@@ -2581,22 +2581,28 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const [posts, savedJobs, savedWorkers, myWorksRes] = await Promise.all([
+        const [posts, savedJobs, savedWorkers] = await Promise.all([
           dbService.getMyJobPostsCount(userIdState).catch(() => 0),
           dbService.getSavedJobsCount(userIdState).catch(() => 0),
           dbService.getSavedWorkersCount(userIdState).catch(() => 0),
-          dbService.getMyJobApplications(userIdState).catch(() => ({ data: [], error: null })),
         ]);
         if (!cancelled) {
           setDashMyPostsCount(posts);
           setDashSavedJobsCount(savedJobs);
           setDashSavedWorkersCount(savedWorkers);
-          setDashMyWorksCount(myWorksRes?.data?.length || 0);
         }
       } catch { /* silently ignore */ }
     })();
     return () => { cancelled = true; };
   }, [isLoggedIn, userIdState]);
+
+  React.useEffect(() => {
+    if (applicationsState.userId === userIdState && applicationsState.status === 'ready') {
+      setDashMyWorksCount(applicationsState.byJobId.size);
+    } else if (!isLoggedIn) {
+      setDashMyWorksCount(0);
+    }
+  }, [applicationsState, userIdState, isLoggedIn]);
 
   React.useEffect(() => {
     loadMyApplications(isLoggedIn ? userIdState : null);
