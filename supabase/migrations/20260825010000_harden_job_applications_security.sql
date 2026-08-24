@@ -1,5 +1,5 @@
 -- Migration: 20260825010000_harden_job_applications_security.sql
--- Description: Harden job_applications RLS, enforce deadline check, revoke direct table UPDATE, restrict employer status transitions, add least-privilege table grants, and add withdraw_job_application RPC.
+-- Description: Harden job_applications RLS, create submit_job_application RPC, revoke direct table INSERT/UPDATE from clients, enforce UTC deadline checks, restrict employer status transitions, add least-privilege table grants, and add withdraw_job_application RPC.
 
 -- 1. Drop existing INSERT and UPDATE policies on public.job_applications
 DROP POLICY IF EXISTS "Applicants can submit application" ON public.job_applications;
@@ -8,14 +8,17 @@ DROP POLICY IF EXISTS "Verified applicants can submit application" ON public.job
 DROP POLICY IF EXISTS "Involved applicant and employer can update status" ON public.job_applications;
 DROP POLICY IF EXISTS "Applicants and employers can update job applications" ON public.job_applications;
 
--- 2. Create hardened INSERT policy for public.job_applications
+-- 2. Defense-in-Depth RLS INSERT Policy for public.job_applications
+-- Even though direct table INSERT is revoked for authenticated users, keep hardened WITH CHECK policy as defense in depth.
 -- Requires:
 -- - auth.uid() = applicant_id
 -- - account active (public.is_current_user_active())
 -- - profiles.email_verified_for_actions = true
 -- - target job exists, is_active = true, status = 'active'
 -- - posted_by IS DISTINCT FROM auth.uid() (cannot apply to own job)
--- - application_deadline is NULL OR application_deadline has not expired (date_trunc('day', j.application_deadline) >= date_trunc('day', now()))
+-- - application_deadline is NULL OR application_deadline has not expired in UTC
+-- - status = 'pending'
+-- - workflow-controlled / linkage fields are strictly NULL
 CREATE POLICY "Verified applicants can submit application"
 ON public.job_applications
 FOR INSERT
@@ -35,23 +38,113 @@ WITH CHECK (
       AND j.posted_by IS DISTINCT FROM auth.uid()
       AND (
         j.application_deadline IS NULL
-        OR date_trunc('day', j.application_deadline) >= date_trunc('day', now())
+        OR (j.application_deadline AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date
       )
   )
+  AND status = 'pending'
+  AND negotiation_room_id IS NULL
+  AND active_proposal_id IS NULL
+  AND work_contract_id IS NULL
+  AND permanent_conversation_id IS NULL
+  AND confirmed_at IS NULL
+  AND cancelled_at IS NULL
+  AND completed_at IS NULL
+  AND decline_reason IS NULL
+  AND cancellation_reason IS NULL
 );
 
--- 3. Direct UPDATE policy on public.job_applications is purposely NOT recreated for authenticated users.
--- Direct table UPDATE access is blocked for normal browser clients.
--- Employer review actions use update_job_application_status RPC.
--- Applicant withdrawals use withdraw_job_application RPC.
--- Workflow state changes use their respective SECURITY DEFINER functions.
-
--- 4. Apply Least-Privilege Table Grants on public.job_applications
+-- 3. Least-Privilege Table Grants on public.job_applications
+-- Revoke all table privileges from PUBLIC, anon, and authenticated.
+-- Direct table INSERT, UPDATE, DELETE, TRUNCATE, etc. are BLOCKED for clients.
 REVOKE ALL ON public.job_applications FROM PUBLIC, anon;
-GRANT SELECT ON public.job_applications TO anon;
-
 REVOKE ALL ON public.job_applications FROM authenticated;
-GRANT SELECT, INSERT ON public.job_applications TO authenticated;
+
+-- Grant authenticated users SELECT privilege ONLY (protected by RLS).
+GRANT SELECT ON public.job_applications TO authenticated;
+
+-- 4. Create SECURITY DEFINER submit_job_application RPC
+CREATE OR REPLACE FUNCTION public.submit_job_application(
+  p_job_id uuid,
+  p_proposed_rate text,
+  p_cover_letter text,
+  p_resume_url text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_job_owner uuid;
+  v_job_is_active boolean;
+  v_job_status text;
+  v_job_deadline timestamptz;
+  v_inserted record;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF NOT public.is_current_user_active() THEN
+    RAISE EXCEPTION 'Account is deactivated';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = v_user_id
+      AND email_verified_for_actions = true
+  ) THEN
+    RAISE EXCEPTION 'Email verification is required before submitting job applications';
+  END IF;
+
+  SELECT j.posted_by, j.is_active, j.status, j.application_deadline
+  INTO v_job_owner, v_job_is_active, v_job_status, v_job_deadline
+  FROM public.jobs j
+  WHERE j.id = p_job_id
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Job listing not found';
+  END IF;
+
+  IF NOT v_job_is_active OR v_job_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'Job listing is not active';
+  END IF;
+
+  IF v_job_owner = v_user_id THEN
+    RAISE EXCEPTION 'You cannot apply to your own job post';
+  END IF;
+
+  IF v_job_deadline IS NOT NULL AND (v_job_deadline AT TIME ZONE 'UTC')::date < (now() AT TIME ZONE 'UTC')::date THEN
+    RAISE EXCEPTION 'Application deadline has passed';
+  END IF;
+
+  INSERT INTO public.job_applications (
+    job_id,
+    applicant_id,
+    proposed_rate,
+    cover_letter,
+    resume_url,
+    status
+  ) VALUES (
+    p_job_id,
+    v_user_id,
+    p_proposed_rate,
+    p_cover_letter,
+    p_resume_url,
+    'pending'
+  )
+  RETURNING id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at, updated_at, negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id
+  INTO v_inserted;
+
+  RETURN to_jsonb(v_inserted);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.submit_job_application(uuid, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_job_application(uuid, text, text, text) TO authenticated;
 
 -- 5. Harden update_job_application_status RPC with Current Status -> Requested Status Transition Matrix
 CREATE OR REPLACE FUNCTION public.update_job_application_status(p_app_id uuid, p_status text)

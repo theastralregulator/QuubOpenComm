@@ -1,5 +1,6 @@
 /**
  * Job Application Deadline and Date Range Utilities for OpenComm
+ * Uses explicit UTC calendar date semantics for deterministic global behavior.
  */
 
 export interface DeadlineInfo {
@@ -24,9 +25,9 @@ export function formatDateDDMMYYYY(dateStrOrObj?: string | Date | null): string 
   if (!dateStrOrObj) return '';
   const d = new Date(dateStrOrObj);
   if (isNaN(d.getTime())) return '';
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = d.getUTCFullYear();
   return `${day}/${month}/${year}`;
 }
 
@@ -37,7 +38,8 @@ export function formatDateReadable(dateStrOrObj?: string | Date | null): string 
   return new Intl.DateTimeFormat('en-IN', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'UTC',
   }).format(d);
 }
 
@@ -71,16 +73,17 @@ export function getDeadlineInfo(deadlineDateStr?: string | Date | null): Deadlin
 function calculateDeadline(deadline: Date): DeadlineInfo {
   const now = new Date();
   
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const deadlineStart = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const deadlineStart = Date.UTC(deadline.getUTCFullYear(), deadline.getUTCMonth(), deadline.getUTCDate());
   
-  const diffTime = deadlineStart.getTime() - todayStart.getTime();
+  const diffTime = deadlineStart - todayStart;
   const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
   const formattedDate = new Intl.DateTimeFormat('en-IN', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'UTC',
   }).format(deadline);
 
   if (daysRemaining < 0) {
@@ -160,10 +163,10 @@ export function getJobDateRangeInfo(
   const deadlineReadable = formatDateReadable(deadline);
 
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const deadlineStart = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const deadlineStart = Date.UTC(deadline.getUTCFullYear(), deadline.getUTCMonth(), deadline.getUTCDate());
   
-  const diffTime = deadlineStart.getTime() - todayStart.getTime();
+  const diffTime = deadlineStart - todayStart;
   const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
   if (daysRemaining < 0) {

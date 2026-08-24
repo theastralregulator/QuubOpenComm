@@ -400,17 +400,11 @@ export default function JobDetailPage({
         return;
       }
 
-      const { data: newApp, error: appError } = await supabase
-        .from('job_applications')
-        .insert({
-          job_id: job.id,
-          applicant_id: loggedInId,
-          proposed_rate: bidRate.trim(),
-          cover_letter: coverLetter.trim(),
-          status: 'pending',
-        })
-        .select()
-        .single();
+      const { data: newApp, error: appError } = await supabase.rpc('submit_job_application', {
+        p_job_id: job.id,
+        p_proposed_rate: bidRate.trim(),
+        p_cover_letter: coverLetter.trim(),
+      });
 
       if (appError) {
         if (appError.code === '23505') {

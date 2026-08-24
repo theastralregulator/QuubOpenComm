@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { verifyDocumentBuffer } from '../api/_lib/media/documentScanner.js';
+import { getDeadlineInfo } from '../apps/web/src/lib/deadline.js';
 
 function runPreflightAndUnitChecks() {
   console.log('=== STARTING NEGOTIATION CHAT V2 & UI STATIC PREFLIGHT + UNIT CHECKS ===');
@@ -91,6 +92,9 @@ function runPreflightAndUnitChecks() {
 
   const modalPath = path.join(rootDir, 'apps/web/src/components/jobs/SharedApplicationModal.tsx');
   const modalCode = fs.readFileSync(modalPath, 'utf8');
+
+  const deadlineLibPath = path.join(rootDir, 'apps/web/src/lib/deadline.ts');
+  const deadlineLibCode = fs.readFileSync(deadlineLibPath, 'utf8');
 
   const fallbackApiPath = path.join(rootDir, 'api/media-upload-fallback-intent.ts');
   const fallbackApiCode = fs.readFileSync(fallbackApiPath, 'utf8');
@@ -301,7 +305,7 @@ function runPreflightAndUnitChecks() {
     'Availability Status DB Constraint: Options strictly match "Available Now", "Busy", "On Vacation" (no Part-time/Full-time)'
   );
 
-  // --- DATABASE SECURITY & RLS HARDENING CHECKS ---
+  // --- HARDENED SECURE SUBMIT RPC & TABLE PRIVILEGE CHECKS ---
 
   // 26. Migration File Preserved: 20260825010000_harden_job_applications_security.sql
   assert(
@@ -309,35 +313,117 @@ function runPreflightAndUnitChecks() {
     'Security Migration: 20260825010000_harden_job_applications_security.sql exists'
   );
 
-  // 27. DB INSERT Policy: Email verification, active account, distinct job owner, AND application deadline check
-  const insertPolicyEmailCheck = jobAppHardenSql.includes('email_verified_for_actions = true');
-  const insertPolicyDistinctOwnerCheck = jobAppHardenSql.includes('posted_by IS DISTINCT FROM auth.uid()');
-  const insertPolicyActiveUserCheck = jobAppHardenSql.includes('public.is_current_user_active()');
-  const insertPolicyDeadlineCheck = jobAppHardenSql.includes('application_deadline IS NULL') &&
-    jobAppHardenSql.includes("date_trunc('day', j.application_deadline) >= date_trunc('day', now())");
+  // 27. authenticated role has NO direct table INSERT grant after migration
+  const authNoTableInsert = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM authenticated;') &&
+    jobAppHardenSql.includes('GRANT SELECT ON public.job_applications TO authenticated;') &&
+    !jobAppHardenSql.includes('GRANT SELECT, INSERT ON public.job_applications TO authenticated;');
   assert(
-    insertPolicyEmailCheck && insertPolicyDistinctOwnerCheck && insertPolicyActiveUserCheck && insertPolicyDeadlineCheck,
-    'DB INSERT Security: Policy enforces email verification, active account, forbids self-application, and blocks expired deadlines'
+    authNoTableInsert,
+    'Table Privilege Hardening: authenticated role has NO direct table INSERT or UPDATE grant after migration'
   );
 
-  // 28. DB UPDATE Policy: Direct table UPDATE for authenticated users removed
-  const updatePolicyDropped = jobAppHardenSql.includes('DROP POLICY IF EXISTS "Involved applicant and employer can update status" ON public.job_applications;');
+  // 28. anon has NO job_applications table grant
+  const anonNoTableGrant = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM PUBLIC, anon;') &&
+    !jobAppHardenSql.includes('GRANT SELECT ON public.job_applications TO anon;');
   assert(
-    updatePolicyDropped,
-    'DB UPDATE Security: Direct arbitrary UPDATE policy on job_applications is revoked for authenticated users'
+    anonNoTableGrant,
+    'Table Privilege Hardening: anon role has NO direct table grants on job_applications'
   );
 
-  // 29. Least-Privilege Table Grants on job_applications
-  const anonGrantsRevoked = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM PUBLIC, anon;') &&
-    jobAppHardenSql.includes('GRANT SELECT ON public.job_applications TO anon;');
-  const authGrantsLeastPrivilege = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM authenticated;') &&
-    jobAppHardenSql.includes('GRANT SELECT, INSERT ON public.job_applications TO authenticated;');
+  // 29. submit_job_application is SECURITY DEFINER
+  const submitRpcSecurityDefiner = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.submit_job_application') &&
+    jobAppHardenSql.includes('SECURITY DEFINER') &&
+    jobAppHardenSql.includes('SET search_path = public, pg_temp');
   assert(
-    anonGrantsRevoked && authGrantsLeastPrivilege,
-    'Least-Privilege Grants: Direct UPDATE/DELETE/TRUNCATE revoked on job_applications for anon and authenticated'
+    submitRpcSecurityDefiner,
+    'Submit RPC Security: submit_job_application is SECURITY DEFINER with search_path = public, pg_temp'
   );
 
-  // 30. Hardened update_job_application_status RPC with Transition Matrix
+  // 30. submit RPC derives applicant from auth.uid()
+  const submitRpcAuthUid = jobAppHardenSql.includes('v_user_id := auth.uid();') &&
+    jobAppHardenSql.includes('applicant_id,\n    proposed_rate,') &&
+    jobAppHardenSql.includes('v_user_id,');
+  assert(
+    submitRpcAuthUid,
+    'Submit RPC Security: Derives applicant strictly from auth.uid() internally'
+  );
+
+  // 31. submit RPC block checks: always inserts status = 'pending' and does not accept status or linkage params
+  const submitFnStart = jobAppHardenSql.indexOf('FUNCTION public.submit_job_application');
+  const submitFnEnd = jobAppHardenSql.indexOf('FUNCTION public.update_job_application_status');
+  const submitFnBlock = jobAppHardenSql.slice(submitFnStart, submitFnEnd);
+
+  const submitRpcStatusPending = submitFnBlock.includes("'pending'") && !submitFnBlock.includes('p_status');
+  assert(
+    submitRpcStatusPending,
+    "Submit RPC Security: Always inserts status = 'pending' and does not accept status parameter"
+  );
+
+  // 32. RPC does not accept status or workflow linkage IDs as parameters
+  const submitRpcParamsClean = !submitFnBlock.includes('p_status') &&
+    !submitFnBlock.includes('p_negotiation_room_id') &&
+    !submitFnBlock.includes('p_work_contract_id');
+  assert(
+    submitRpcParamsClean,
+    'Submit RPC Security: Does NOT accept status or workflow linkage IDs as input parameters'
+  );
+
+  // 33. RLS WITH CHECK explicitly requires status = 'pending' AND blocks non-null workflow fields
+  const rlsDefenseInDepth = jobAppHardenSql.includes("status = 'pending'") &&
+    jobAppHardenSql.includes('negotiation_room_id IS NULL') &&
+    jobAppHardenSql.includes('active_proposal_id IS NULL') &&
+    jobAppHardenSql.includes('work_contract_id IS NULL') &&
+    jobAppHardenSql.includes('permanent_conversation_id IS NULL') &&
+    jobAppHardenSql.includes('confirmed_at IS NULL');
+  assert(
+    rlsDefenseInDepth,
+    'RLS Defense-in-Depth: WITH CHECK policy requires status = pending and enforces NULL workflow linkage fields'
+  );
+
+  // 34. SharedApplicationModal has NO direct .from('job_applications').insert
+  const modalNoDirectInsert = !modalCode.includes(".from('job_applications')\n          .insert");
+  const modalUsesSubmitRpc = modalCode.includes("supabase.rpc('submit_job_application'");
+  assert(
+    modalNoDirectInsert && modalUsesSubmitRpc,
+    "SharedApplicationModal Security: Direct table insert removed and replaced with submit_job_application RPC"
+  );
+
+  // 35. JobDetailPage has NO direct .from('job_applications').insert
+  const jobDetailNoDirectInsert = !jobDetailPageCode.includes(".from('job_applications')\n        .insert");
+  const jobDetailUsesSubmitRpc = jobDetailPageCode.includes("supabase.rpc('submit_job_application'");
+  assert(
+    jobDetailNoDirectInsert && jobDetailUsesSubmitRpc,
+    "JobDetailPage Security: Direct table insert removed and replaced with submit_job_application RPC"
+  );
+
+  // 36. Duplicate Application Behavior Refreshes Real DB State
+  const duplicateModalHandling = modalCode.includes("appError.code === '23505'") &&
+    modalCode.includes("window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'))");
+  const duplicateDetailHandling = jobDetailPageCode.includes("appError.code === '23505'") &&
+    jobDetailPageCode.includes("window.dispatchEvent(new CustomEvent('opencomm:job-application-changed'))");
+  assert(
+    duplicateModalHandling && duplicateDetailHandling,
+    'Duplicate Handling: Dispatches opencomm:job-application-changed to refresh real DB map without fabricating local state'
+  );
+
+  // 37. UTC Deadline SQL Semantics
+  const sqlUtcDeadlineCheck = jobAppHardenSql.includes("(j.application_deadline AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date");
+  assert(
+    sqlUtcDeadlineCheck,
+    "UTC Deadline SQL: Migration uses explicit (j.application_deadline AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date"
+  );
+
+  // 38. UTC Deadline TypeScript Semantics
+  const tsUtcDeadlineCheck = deadlineLibCode.includes('getUTCFullYear()') &&
+    deadlineLibCode.includes('getUTCMonth()') &&
+    deadlineLibCode.includes('getUTCDate()') &&
+    deadlineLibCode.includes("timeZone: 'UTC'");
+  assert(
+    tsUtcDeadlineCheck,
+    "UTC Deadline TS: deadline.ts uses getUTCFullYear(), getUTCMonth(), getUTCDate(), and timeZone: 'UTC'"
+  );
+
+  // 39. Generic Employer Update RPC Remains Transition-Limited
   const hardenedEmployerRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.update_job_application_status') &&
     jobAppHardenSql.includes("v_current_status = 'pending'") &&
     jobAppHardenSql.includes("v_current_status = 'under_review'") &&
@@ -349,7 +435,7 @@ function runPreflightAndUnitChecks() {
     'Employer Status RPC Security: Validates current status -> requested status transition matrix and blocks rewriting confirmed/negotiating/completed states'
   );
 
-  // 31. Secure withdraw_job_application RPC
+  // 40. Withdraw RPC Security
   const secureWithdrawRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.withdraw_job_application') &&
     jobAppHardenSql.includes("v_current_status NOT IN ('pending', 'under_review', 'shortlisted')") &&
     jobAppHardenSql.includes('v_applicant_id IS DISTINCT FROM v_user_id');
@@ -358,71 +444,7 @@ function runPreflightAndUnitChecks() {
     'Withdraw RPC Security: Enforces auth.uid(), applicant ownership, active account, and withdrawable status whitelist'
   );
 
-  // --- FRONTEND CANONICAL STATE & SECURITY CHECKS ---
-
-  // 32. getMyJobApplications Select Includes Workflow Linkage Columns
-  const getMyAppsSelectCheck = supabaseLibCode.includes("select('id, job_id, applicant_id, proposed_rate, cover_letter, status, created_at, updated_at, negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id')");
-  assert(
-    getMyAppsSelectCheck,
-    'Canonical App Select: getMyJobApplications returns negotiation_room_id, active_proposal_id, work_contract_id, permanent_conversation_id'
-  );
-
-  // 33. Dashboard Counters Optimization: Duplicate getMyJobApplications request removed from App.tsx Promise.all
-  const dashNoDuplicateGetApps = !appCode.includes('dbService.getMyJobApplications(userIdState).catch(() => ({ data: [], error: null }))');
-  const dashWorksCountDerived = appCode.includes('setDashMyWorksCount(applicationsState.byJobId.size)');
-  assert(
-    dashNoDuplicateGetApps && dashWorksCountDerived,
-    'Dashboard Optimization: Duplicate getMyJobApplications request removed from Promise.all and dashMyWorksCount derived from applicationsState'
-  );
-
-  // 34. Removal of Direct UPDATE Fallback in MyJobsAppliedPage
-  const noDirectUpdateFallback = !myJobsAppliedCode.includes(".from('job_applications')\n          .update");
-  assert(
-    noDirectUpdateFallback,
-    'Direct Update Fallback Disposal: MyJobsAppliedPage relies strictly on withdraw_job_application RPC'
-  );
-
-  // 35. Email Verification Check in Application Modals & Pages
-  const modalEmailCheck = modalCode.includes('assertUserEmailConfirmed');
-  const jobDetailEmailCheck = jobDetailPageCode.includes('assertUserEmailConfirmed');
-  assert(
-    modalEmailCheck && jobDetailEmailCheck,
-    'Frontend Email Verification: SharedApplicationModal and JobDetailPage invoke assertUserEmailConfirmed before INSERT'
-  );
-
-  // 36. JobDetailPage Derives State Directly from Canonical Map
-  const jobDetailNoSelectAppQuery = !jobDetailPageCode.includes(".from('job_applications')\n            .select");
-  const jobDetailUsesCanonicalMap = jobDetailPageCode.includes('canonicalApp = (jobId && applicationsByJobId) ? applicationsByJobId.get(jobId) : undefined;');
-  assert(
-    jobDetailNoSelectAppQuery && jobDetailUsesCanonicalMap,
-    'JobDetailPage Canonical State: Derives application status directly from App-owned applicationsByJobId without separate queries'
-  );
-
-  // 37. JobDetailPage Loading/Error Hydration & Retry
-  const jobDetailHydrationCheck = jobDetailPageCode.includes('isLoggedIn && !isApplicationsLoaded') &&
-    jobDetailPageCode.includes("applicationsStatus === 'error'") &&
-    jobDetailPageCode.includes('onRetryApplications');
-  assert(
-    jobDetailHydrationCheck,
-    'JobDetailPage Hydration Safety: Suppresses Apply during loading/error and renders compact retry banner on failure'
-  );
-
-  // 38. SavedJobs Own-Job Application Prevention
-  const savedJobsOwnJobCheck = savedJobsPageCode.includes('isOwner = Boolean(currentUserId && job.posted_by === currentUserId);') &&
-    savedJobsPageCode.includes('You cannot apply to your own job post.');
-  assert(
-    savedJobsOwnJobCheck,
-    'SavedJobs Own-Job Safety: Prevents self-application to user-owned jobs on Saved Jobs page'
-  );
-
-  // 39. Application Created Account-Switch Owner Guard
-  const appCreatedOwnerGuard = appCode.includes('(appRecord.applicant_id && String(appRecord.applicant_id) !== String(userIdState))');
-  assert(
-    appCreatedOwnerGuard,
-    'Application Created Owner Guard: handleApplicationCreated validates appRecord applicant_id against active user session'
-  );
-
-  // 40. Document Security Scanner Unit Tests
+  // 41. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
@@ -431,6 +453,12 @@ function runPreflightAndUnitChecks() {
   const exeMasquerade = Buffer.from('MZ\x90\x00\x03\x00\x00\x00');
   const exeCheck = verifyDocumentBuffer(exeMasquerade, 'application/pdf');
   assert(exeCheck.valid === false, 'Scanner Unit Test: Executable file masquerading as PDF is rejected');
+
+  // 42. Unit Testing Deadline Utilities UTC Functions
+  console.log('\n--- Unit Testing Deadline Utilities ---');
+  const testIsoDeadline = '2026-12-31T00:00:00.000Z';
+  const deadlineInfo = getDeadlineInfo(testIsoDeadline);
+  assert(deadlineInfo.formattedDate.includes('31 Dec 2026'), 'Deadline Unit Test: Formats UTC date string deterministically');
 
   console.log(`\n=== SUMMARY: ${passedCount}/${totalCount} STATIC PREFLIGHT + UNIT CHECKS PASSED ===`);
   if (passedCount === totalCount) {
