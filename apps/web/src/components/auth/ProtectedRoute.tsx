@@ -45,7 +45,7 @@ export default function ProtectedRoute({
   }
 
   if (!isOnboardingCompleted) {
-    return <Navigate to="/signup" replace />;
+    return <Navigate to="/complete-profile" replace />;
   }
 
   return <>{children}</>;

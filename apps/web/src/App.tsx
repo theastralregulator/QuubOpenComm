@@ -7,7 +7,7 @@ import {
   Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
 } from 'lucide-react';
 import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
-import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL } from './lib/supabase';
+import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL, LocalProfile } from './lib/supabase';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
 import { mapWorkerProfileToForm, mapFormToDbPayloads } from './lib/workerProfileMapper';
@@ -46,6 +46,7 @@ import ManageApplicationsPage from './components/profile/ManageApplicationsPage'
 import SettingsPage from './components/settings/SettingsPage';
 import HireRequestForm from './components/hiring/HireRequestForm';
 import ResetPasswordPage from './components/auth/ResetPasswordPage';
+import CompleteProfilePage from './components/profile/CompleteProfilePage';
 import HireRequestsPage from './components/hiring/HireRequestsPage';
 import HireRequestDetailsPage from './components/hiring/HireRequestDetailsPage';
 import NegotiationPage from './components/hiring/NegotiationPage';
@@ -201,6 +202,7 @@ export default function App() {
   else if (path === '/profile/saved-jobs') currentView = 'saved-jobs';
   else if (path === '/profile/saved-workers') currentView = 'saved-workers';
   else if (path === '/verify-email') currentView = 'verify-email';
+  else if (path === '/complete-profile') currentView = 'complete-profile';
   else if (path === '/signup') currentView = 'signup';
   else if (path === '/login') currentView = 'login';
 
@@ -214,6 +216,7 @@ export default function App() {
     else if (viewId === 'saved-jobs') navigate('/profile/saved-jobs');
     else if (viewId === 'saved-workers') navigate('/profile/saved-workers');
     else if (viewId === 'verify-email') navigate('/verify-email');
+    else if (viewId === 'complete-profile') navigate('/complete-profile');
     else if (viewId === 'signup') navigate('/signup');
     else if (viewId === 'login') navigate('/login');
   };
@@ -224,6 +227,7 @@ export default function App() {
   const [username, setUsername] = useState('User');
   const [userIdState, setUserIdState] = useState<string | null>(null);
   const [userPhoto, setUserPhoto] = useState('');
+  const [currentProfileObj, setCurrentProfileObj] = useState<LocalProfile | null>(null);
 
   // UI Modals & Menus
   const [showPostJob, setShowPostJob] = useState(false);
@@ -232,26 +236,30 @@ export default function App() {
 
   const handleBecomeWorkerFromIntro = async () => {
     setShowBasicWorkerIntroModal(false);
-    if (userIdState) {
-      localStorage.setItem(`opencomm_basic_intro_seen_${userIdState}`, 'true');
-      await dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
-
-      // Fresh idempotent worker profile existence check
-      const workerExists = await dbService.hasWorkerProfile(userIdState);
-      if (workerExists) {
-        triggerToast("You already have a Worker Profile.");
-        return;
+    try {
+      await dbService.acknowledgeBasicAccountIntro();
+      if (userIdState) {
+        const updated = await dbService.getProfile(userIdState);
+        if (updated) setCurrentProfileObj(updated);
       }
+    } catch (err) {
+      console.error('Failed to acknowledge intro:', err);
     }
     setShowCreateProfile(true);
   };
 
   const handleContinueBasicFromIntro = async () => {
     setShowBasicWorkerIntroModal(false);
-    if (userIdState) {
-      localStorage.setItem(`opencomm_basic_intro_seen_${userIdState}`, 'true');
-      await dbService.updateProfile(userIdState, { basic_account_intro_seen: true }).catch(() => {});
+    try {
+      await dbService.acknowledgeBasicAccountIntro();
+      if (userIdState) {
+        const updated = await dbService.getProfile(userIdState);
+        if (updated) setCurrentProfileObj(updated);
+      }
+    } catch (err) {
+      console.error('Failed to acknowledge intro:', err);
     }
+    navigate('/');
   };
 
   // Prevent background scroll when Worker Modal is open
@@ -528,6 +536,7 @@ export default function App() {
         p === '/signup' ||
         p === '/login' ||
         p === '/verify-email' ||
+        p === '/complete-profile' ||
         p.startsWith('/auth/callback') ||
         p.startsWith('/reset-password') ||
         p.startsWith('/recovery')) {
@@ -549,14 +558,13 @@ export default function App() {
           navigate('/verify-email', { replace: true });
         }
       } else if (!isOnboardingCompleted) {
-        if (path !== '/signup') {
-          navigate('/signup', { replace: true });
+        if (path !== '/complete-profile' && !isPublicPath(path)) {
+          navigate('/complete-profile', { replace: true });
         }
-        _setShowAuthModal('signup');
       } else {
-        // Authenticated, confirmed, onboarding completed -> NEVER REDIRECT TO SIGNUP
+        // Authenticated, confirmed, onboarding completed -> NEVER REDIRECT TO SIGNUP OR COMPLETE PROFILE
         _setShowAuthModal(null);
-        if (path === '/signup' || path === '/login' || path === '/verify-email') {
+        if (path === '/signup' || path === '/login' || path === '/verify-email' || path === '/complete-profile') {
           navigate('/', { replace: true });
         }
       }
@@ -980,9 +988,8 @@ export default function App() {
       // Clear URL and redirect
       setTimeout(() => {
         window.history.replaceState({}, '', '/');
-        const isOnboarded = !!(profile?.onboarding_completed || profile?.city || profile?.bio);
+        const isOnboarded = profile?.onboarding_completed === true;
         setIsOnboardingCompleted(isOnboarded);
-        localStorage.setItem('opencomm_onboarding_completed', isOnboarded ? 'true' : 'false');
 
         if (profile && isOnboarded) {
           // Already onboarded
@@ -990,16 +997,10 @@ export default function App() {
           setCurrentView('home');
           triggerToast("Email verified successfully! Welcome back.");
         } else {
-          // Needs onboarding
-          setShowAuthModal('signup');
-          setSignupStep(2);
-          setSignupForm(prev => ({
-            ...prev,
-            email: user.email || '',
-            name: user.user_metadata?.full_name || (user.email || '').split('@')[0],
-            phone: user.user_metadata?.phone || ''
-          }));
-          triggerToast("Email verified successfully! Let's complete your profile setup.");
+          // Needs profile completion
+          setShowAuthModal(null);
+          navigate('/complete-profile');
+          triggerToast("Authentication successful! Let's complete your profile setup.");
         }
       }, 1500);
     };
@@ -1073,46 +1074,27 @@ export default function App() {
 
     // Removed opencomm_user_id and opencomm_is_logged_in from localStorage
 
-    const isOnboarded = Boolean(
-      profile?.onboarding_completed ||
-      localStorage.getItem('opencomm_onboarding_completed') === 'true' ||
-      (profile?.city && profile?.bio)
-    );
+    const isOnboarded = profile?.onboarding_completed === true;
     setIsOnboardingCompleted(isOnboarded);
-    localStorage.setItem('opencomm_onboarding_completed', isOnboarded ? 'true' : 'false');
 
-    if (!isOnboarded && !isSavingProfileRef.current) {
-      _setShowAuthModal('signup');
-      setSignupStep(2);
-      setOnboardingSubStep('A');
-      setWorkerForm(prev => ({
-        ...prev,
-        fullName: profile?.full_name || user.user_metadata?.full_name || userEmail.split('@')[0],
-        phone: profile?.phone || user.user_metadata?.phone || '',
-        avatarUrl: profile?.avatar_url || ''
-      }));
-    } else if (isOnboarded) {
+    if (isOnboarded) {
       _setShowAuthModal(null);
-      if (!profile.onboarding_completed) {
-        dbService.updateProfile(userId, { onboarding_completed: true });
-        profile.onboarding_completed = true;
-      }
-      if (
-        profile &&
-        profile.profile_type === 'basic' &&
-        !profile.is_worker_listed &&
-        profile.basic_account_intro_seen === false &&
-        localStorage.getItem(`opencomm_basic_intro_seen_${userId}`) !== 'true'
-      ) {
-        dbService.hasWorkerProfile(userId).then(workerExists => {
-          if (workerExists) {
-            localStorage.setItem(`opencomm_basic_intro_seen_${userId}`, 'true');
-            dbService.updateProfile(userId, { basic_account_intro_seen: true }).catch(() => {});
-          } else {
-            setShowBasicWorkerIntroModal(true);
-          }
-        });
-      }
+    }
+    if (
+      profile &&
+      profile.profile_type === 'basic' &&
+      !profile.is_worker_listed &&
+      profile.basic_account_intro_seen === false &&
+      localStorage.getItem(`opencomm_basic_intro_seen_${userId}`) !== 'true'
+    ) {
+      dbService.hasWorkerProfile(userId).then(workerExists => {
+        if (workerExists) {
+          localStorage.setItem(`opencomm_basic_intro_seen_${userId}`, 'true');
+          dbService.updateProfile(userId, { basic_account_intro_seen: true }).catch(() => {});
+        } else {
+          setShowBasicWorkerIntroModal(true);
+        }
+      });
     }
 
     // Parallel load authenticated user's saved jobs and saved workers
@@ -1321,15 +1303,23 @@ export default function App() {
       }
     }
 
-    if (isVerified) {
-      onVerified();
-    } else {
+    if (!isVerified) {
       setVerificationActionName(actionName);
       setVerificationSuccessCallback(() => onVerified);
       setAuthError('');
       setEmailSentSuccessfully(false);
       setShowVerificationModal(true);
+      return;
     }
+
+    const isProfileComplete = currentProfileObj?.onboarding_completed === true;
+    if (!isProfileComplete) {
+      triggerToast("Complete your profile to continue.");
+      navigate('/complete-profile');
+      return;
+    }
+
+    onVerified();
   };
 
   const checkEmailVerificationFreshStatus = async () => {
@@ -1512,221 +1502,43 @@ export default function App() {
   // --- MULTI-STEP SIGNUP FLOW HANDLERS ---
 
   // --- SINGLE-PAGE SIGNUP SUBMIT HANDLER ---
-
   const handleSinglePageSignUp = async (e: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError('');
 
-    if (selectedAccountType === 'company') {
-      setAuthError("Company Account registration is Coming Soon. Please choose Worker Account or continue with a Basic Account.");
-      return;
-    }
-
     if (!acceptTerms || !acceptPrivacy) {
-      setAuthError("You must read and agree to both the Terms of Service and Privacy Policy.");
+      setAuthError("You must read and agree to the Terms of Service and Privacy Policy.");
       return;
     }
 
-    // Validate Section 1 using Zod signUpSchema (passwords only validated if logged-out)
-    if (!isLoggedIn) {
-      const parseResult = signUpSchema.safeParse({
-        full_name: signupForm.name,
-        email: signupForm.email,
-        phone: signupForm.phone,
-        password: signupPassword,
-        confirm_password: signupConfirmPassword,
-        accept_terms: acceptTerms && acceptPrivacy
-      });
+    const parseResult = signUpSchema.safeParse({
+      full_name: signupForm.name,
+      email: signupForm.email,
+      password: signupPassword,
+      accept_terms: acceptTerms && acceptPrivacy
+    });
 
-      if (!parseResult.success) {
-        const firstError = parseResult.error.issues[0]?.message || 'Invalid registration details';
-        setAuthError(firstError);
-        return;
-      }
-    } else {
-      if (!signupForm.name || !signupForm.name.trim()) {
-        setAuthError("Full Name is required.");
-        return;
-      }
-      if (!signupForm.phone || !signupForm.phone.trim()) {
-        setAuthError("Phone Number is required.");
-        return;
-      }
-    }
-
-    const isWorker = listInWorkerDirectory;
-
-    // Validate Profile Picture or Avatar is required for all accounts
-    if (!workerForm.avatarUrl && !selectedAvatar && !croppedFile) {
-      setAuthError("Please upload a profile photo or select a valid avatar to continue.");
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0]?.message || 'Invalid registration details';
+      setAuthError(firstError);
       return;
-    }
-
-    // Validate Section 2 if Worker Account is selected
-    if (isWorker) {
-      if (!workerForm.city) {
-        setAuthError("Please select a base location for your worker profile.");
-        return;
-      }
-      if (!workerForm.preferredLanguage || !workerForm.preferredLanguage.trim()) {
-        setAuthError("Please enter your preferred language.");
-        return;
-      }
     }
 
     if (!supabase) {
-      setAuthError("Supabase is not configured. Please supply VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      setAuthError("Supabase is not configured.");
       return;
     }
 
     setIsAuthSubmitting(true);
 
-    // Case 1: Already logged in, save profile changes directly
-    if (isLoggedIn) {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id;
-      if (!userId) {
-        setAuthError("No active user session found.");
-        setIsAuthSubmitting(false);
-        return;
-      }
-      try {
-        const formFullName = signupForm.name.trim() || workerForm.fullName.trim() || 'User';
-        const formPhone = signupForm.phone.trim() || workerForm.phone.trim();
-        const formBio = workerForm.bio.trim();
-        let finalAvatarUrl = workerForm.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80';
-
-        // Upload cropped avatar file if exists
-        if (croppedFile) {
-          const safeExtension = croppedFile.type === 'image/png' ? 'png' : croppedFile.type === 'image/webp' ? 'webp' : 'jpg';
-          const filePath = `${userId}/${Date.now()}-profile.${safeExtension}`;
-          const { error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(filePath, croppedFile, {
-              cacheControl: '3600',
-              upsert: false,
-              contentType: croppedFile.type
-            });
-
-          if (!uploadError) {
-            const { data: publicUrlData } = supabase.storage
-              .from('avatars')
-              .getPublicUrl(filePath);
-            finalAvatarUrl = publicUrlData.publicUrl;
-          }
-        }
-
-        const currentProfile = await dbService.getProfile(userId);
-        const existingIntroSeen = currentProfile?.basic_account_intro_seen ?? true;
-        const profilePayload = {
-          id: userId,
-          full_name: formFullName,
-          phone: formPhone,
-          city: workerForm.city,
-          state: workerForm.state,
-          country: workerForm.country,
-          country_code: workerForm.country_code,
-          state_code: workerForm.state_code,
-          district: workerForm.district,
-          latitude: workerForm.latitude,
-          longitude: workerForm.longitude,
-          preferred_language: workerForm.preferredLanguage,
-          bio: formBio,
-          avatar_url: finalAvatarUrl,
-          profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
-          account_status: 'active' as const,
-          email_verified_for_actions: true,
-          onboarding_completed: true,
-          basic_account_intro_seen: isWorker ? true : existingIntroSeen,
-          whatsapp_preference: whatsappSameNumber,
-          telegram_username: telegramUsername
-        };
-
-        const savedProfile = await dbService.updateProfile(userId, profilePayload);
-        if (!savedProfile) {
-          throw new Error("Failed to save user profile. Please try again.");
-        }
-
-        if (isWorker) {
-          await dbService.createWorkerProfile({
-            id: userId,
-            profession: workerForm.professionalTitle,
-            skills: workerForm.skills,
-            experience_years: workerForm.experienceLevel === 'Senior' ? 5 : workerForm.experienceLevel === 'Mid' ? 2 : 0,
-            work_location: `${workerForm.city}, ${workerForm.state}`,
-            availability: 'Available Now',
-            bio_summary: formBio,
-            hourly_rate: workerForm.hourlyRate || 75,
-            expected_salary: workerForm.expectedSalaryMin && workerForm.expectedSalaryMax ? `₹${workerForm.expectedSalaryMin} – ₹${workerForm.expectedSalaryMax}/mo` : '',
-            portfolio_url: workerForm.portfolioUrl
-          });
-
-          const mappedWorker: Worker = {
-            id: userId,
-            name: formFullName,
-            photo: finalAvatarUrl,
-            title: workerForm.professionalTitle || 'Independent Provider',
-            experience: 1,
-            rating: 5.0,
-            availability: 'Available Now',
-            location: `${workerForm.city}, ${workerForm.state}`,
-            bio: formBio,
-            skills: workerForm.skills.length > 0 ? workerForm.skills : ['Local Care', 'Bespoke Custom Work'],
-            completedWorks: 0,
-            hourlyRate: workerForm.hourlyRate || 75,
-            verified: true
-          };
-          setWorkers(prev => [mappedWorker, ...prev.filter(w => w.id !== userId)]);
-        }
-
-        setIsOnboardingCompleted(true);
-        localStorage.setItem('opencomm_onboarding_completed', 'true');
-        setUsername(formFullName);
-        setUserPhoto(finalAvatarUrl);
-        setUserType(isWorker ? 'worker' : 'normal');
-        localStorage.setItem('opencomm_username', formFullName);
-        if (userId) {
-          localStorage.setItem(`opencomm_user_photo_${userId}`, finalAvatarUrl);
-        }
-        localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
-
-        clearSignupTempState(true);
-        _setShowAuthModal(null);
-        setLockedFeature(null);
-        setIsAuthSubmitting(false);
-        triggerToast("Profile onboarding completed successfully!");
-
-        if (!isWorker && existingIntroSeen === false) {
-          const workerExists = await dbService.hasWorkerProfile(userId);
-          if (!workerExists) {
-            setShowBasicWorkerIntroModal(true);
-          }
-        }
-
-      } catch (err: any) {
-        setIsAuthSubmitting(false);
-        setAuthError(err.message || "Failed to save profile.");
-      }
-      return;
-    }
-
-    // Case 2: Logged-out user signing up
     try {
-      setWorkerForm(prev => ({
-        ...prev,
-        fullName: signupForm.name,
-        phone: signupForm.phone,
-      }));
-
-      // Submit actual signup request to Supabase Auth directly
       const { data, error } = await supabase.auth.signUp({
         email: signupForm.email.trim().toLowerCase(),
         password: signupPassword,
         options: {
-          emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/onboarding`,
+          emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/complete-profile`,
           data: {
-            full_name: signupForm.name,
-            phone: signupForm.phone
+            full_name: signupForm.name.trim()
           }
         }
       });
@@ -1735,7 +1547,6 @@ export default function App() {
 
       if (error) {
         console.error("SIGNUP API ERROR:", error);
-
         let errorText = "Registration failed.";
         if (typeof error === 'object' && error !== null) {
           errorText = error.message || (error as any).error_description || JSON.stringify(error);
@@ -1748,8 +1559,6 @@ export default function App() {
           setAuthError("If this email is already associated with an account, try signing in or resetting your password.");
         } else if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
           setAuthError("Rate limit reached. Please wait a moment before trying again.");
-        } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
-          setAuthError("Network error. Please check your connection and try again.");
         } else {
           setAuthError(errorText === "{}" ? "An unknown error occurred during signup." : errorText);
         }
@@ -1762,53 +1571,41 @@ export default function App() {
         return;
       }
 
-      // Store verification details and form state in localStorage so progress is not lost
       updatePendingEmail(signupForm.email);
       setVerificationCodeInput('');
-
-      localStorage.setItem('opencomm_pending_signup_name', signupForm.name);
-      localStorage.setItem('opencomm_pending_signup_phone', signupForm.phone);
-      localStorage.setItem('opencomm_pending_signup_worker_dir', listInWorkerDirectory ? 'true' : 'false');
-      const signupAvatar = selectedAvatar || workerForm.avatarUrl || '';
-      if (signupAvatar) {
-        localStorage.setItem('opencomm_pending_signup_avatar', signupAvatar);
-      }
-
-      if (isWorker) {
-        localStorage.setItem('opencomm_pending_signup_city', workerForm.city || '');
-        localStorage.setItem('opencomm_pending_signup_state', workerForm.state || '');
-        localStorage.setItem('opencomm_pending_signup_country', workerForm.country || '');
-        localStorage.setItem('opencomm_pending_signup_country_code', workerForm.country_code || '');
-        localStorage.setItem('opencomm_pending_signup_state_code', workerForm.state_code || '');
-        localStorage.setItem('opencomm_pending_signup_district', workerForm.district || '');
-        localStorage.setItem('opencomm_pending_signup_language', workerForm.preferredLanguage || '');
-        localStorage.setItem('opencomm_pending_signup_bio', workerForm.bio || '');
-      }
-
-      // Move to Stage 3: Email OTP Verification
       setSignupStep(3);
       triggerToast("Account registered! A 6-digit verification code has been sent to your email.");
       analytics.trackSignUp('email', user.id);
-
     } catch (err: any) {
       console.error("SIGNUP EXCEPTION:", err);
       setIsAuthSubmitting(false);
+      setAuthError(err.message || "Registration failed.");
+    }
+  };
 
-      let errorText = "Registration failed.";
-      if (typeof err === 'object' && err !== null) {
-        errorText = err.message || (err as any).error_description || JSON.stringify(err);
-      } else if (typeof err === 'string') {
-        errorText = err;
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsAuthSubmitting(true);
+      setAuthError('');
+      if (!supabase) {
+        setAuthError('Supabase client is not configured.');
+        return;
       }
-
-      const errMsg = String(errorText).toLowerCase();
-      if (errMsg.includes('rate limit') || errMsg.includes('rate_limit') || errMsg.includes('too many requests')) {
-        setAuthError("Rate limit reached. Please wait a moment before trying again.");
-      } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
-        setAuthError("Network error. Please check your connection and try again.");
-      } else {
-        setAuthError(errorText === "{}" ? "Registration failed due to an unknown database error." : errorText);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/complete-profile`
+        }
+      });
+      if (error) {
+        setAuthError(error.message);
+        triggerToast(error.message);
       }
+    } catch (err: any) {
+      console.error('Google Auth Error:', err);
+      setAuthError(err.message || 'Failed to initialize Google Sign In');
+    } finally {
+      setIsAuthSubmitting(false);
     }
   };
 
@@ -1837,7 +1634,6 @@ export default function App() {
     isSavingProfileRef.current = true;
 
     try {
-      // 1. Verify OTP using 'email' or fallback 'signup'
       let result = await supabase.auth.verifyOtp({
         email: emailToVerify.trim().toLowerCase(),
         token: otp,
@@ -1856,12 +1652,10 @@ export default function App() {
       }
 
       const { data, error } = result;
-
       if (error || !data?.user) {
         throw new Error("Invalid or expired verification code.");
       }
 
-      // 2. Verify Session & User
       let session = data.session;
       if (!session) {
         const { data: { session: freshSession } } = await supabase.auth.getSession();
@@ -1873,10 +1667,6 @@ export default function App() {
       }
 
       const authUser = data.user;
-      if (authUser.email?.trim().toLowerCase() !== emailToVerify.trim().toLowerCase()) {
-        throw new Error("Invalid or expired verification code.");
-      }
-
       const emailConfirmed = Boolean(authUser.email_confirmed_at || authUser.confirmed_at);
       if (!emailConfirmed) {
         throw new Error("Invalid or expired verification code.");
@@ -1889,198 +1679,30 @@ export default function App() {
 
       const verifiedUser = userResult.user;
 
-      // Preserve form values prior to async calls
-      const formFullName = workerForm.fullName.trim() || signupForm.name.trim() || verifiedUser.email?.split('@')[0] || 'User';
-      const formPhone = workerForm.phone.trim() || signupForm.phone.trim();
-      const formBio = workerForm.bio.trim();
-
-      // 3. Handle Avatar Storage / Linking
-      let finalAvatarUrl = '';
-      let finalAvatarId = '';
-
-      if (croppedFile) {
-        try {
-          await supabase.auth.setSession({
-            access_token: session.access_token,
-            refresh_token: session.refresh_token
-          });
-
-          const safeExtension =
-            croppedFile.type === 'image/png'
-              ? 'png'
-              : croppedFile.type === 'image/webp'
-                ? 'webp'
-                : 'jpg';
-
-          const filePath = `${verifiedUser.id}/${Date.now()}-profile.${safeExtension}`;
-
-          const { error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(filePath, croppedFile, {
-              cacheControl: '3600',
-              upsert: false,
-              contentType: croppedFile.type
-            });
-
-          if (!uploadError) {
-            const { data: publicUrlData } = supabase.storage
-              .from('avatars')
-              .getPublicUrl(filePath);
-            finalAvatarUrl = publicUrlData.publicUrl;
-          }
-        } catch (e) {
-          console.warn("Avatar upload warning:", e);
-        }
-      } else {
-        const pendingAvatar = localStorage.getItem('opencomm_pending_signup_avatar') || '';
-        finalAvatarUrl = selectedAvatar || workerForm.avatarUrl || pendingAvatar || '';
-      }
-
-      const resolvedAvatarUrl = finalAvatarUrl || selectedAvatar || workerForm.avatarUrl || localStorage.getItem('opencomm_pending_signup_avatar') || DEFAULT_AVATAR_URL;
-
-      // 4. Upload resume file if present
-      if (resumeFile) {
-        try {
-          const resumeExt = resumeFile.name.split('.').pop()?.toLowerCase();
-          const resumePath = `${verifiedUser.id}/${Date.now()}-resume.${resumeExt}`;
-          const { error: uploadResErr } = await supabase.storage
-            .from('resumes')
-            .upload(resumePath, resumeFile, {
-              cacheControl: '3600',
-              upsert: false,
-              contentType: resumeFile.type
-            });
-          if (!uploadResErr) {
-            workerForm.resumePath = resumePath;
-          }
-        } catch (e) {
-          console.warn("Resume upload warning:", e);
-        }
-      }
-
-      // 5. Update core profile with onboarding_completed = true
-      const isWorker = listInWorkerDirectory;
-
-      const profilePayload = {
-        id: verifiedUser.id,
-        full_name: formFullName,
-        email: emailToVerify,
-        phone: `${phoneCountryCode} ${formPhone}`,
-        phone_country_code: phoneCountryCode,
-        phone_number: formPhone,
-        whatsapp_same_as_phone: whatsappSameNumber,
-        telegram_username: telegramUsername,
-        city: workerForm.city,
-        state: workerForm.state,
-        country: workerForm.country,
-        country_code: workerForm.country_code,
-        state_code: workerForm.state_code,
-        district: workerForm.district,
-        latitude: workerForm.latitude,
-        longitude: workerForm.longitude,
-        preferred_language: workerForm.preferredLanguage,
-        bio: formBio || signupForm.bio,
-        short_bio: signupForm.bio || formBio,
-        avatar_url: resolvedAvatarUrl,
-        profile_type: (isWorker ? 'worker' : 'basic') as 'worker' | 'basic',
-        is_worker_listed: isWorker,
-        account_status: 'active' as const,
-        email_verified_for_actions: true,
-        onboarding_completed: true,
-        basic_account_intro_seen: isWorker ? true : false
-      };
-
-      const savedProfile = await dbService.updateProfile(verifiedUser.id, profilePayload);
-      if (!savedProfile) {
-        throw new Error("Failed to save user profile. Please try again.");
-      }
-
-      setUserPhoto(resolvedAvatarUrl);
-      localStorage.setItem('opencomm_user_photo', resolvedAvatarUrl);
-      clearProfileCache();
-      localStorage.removeItem('opencomm_pending_signup_avatar');
-
-      // 6. Create worker profile if selected
-      if (isWorker) {
-        await dbService.createWorkerProfile({
-          id: verifiedUser.id,
-          profession: workerForm.professionalTitle,
-          skills: workerForm.skills,
-          experience_years: workerForm.yearsExperience,
-          work_location: `${workerForm.city}, ${workerForm.state}`,
-          availability: workerForm.availabilityStatus as any,
-          bio_summary: formBio,
-          hourly_rate: workerForm.hourlyRate,
-          expected_salary: workerForm.expectedSalaryMin && workerForm.expectedSalaryMax ? `₹${workerForm.expectedSalaryMin} – ₹${workerForm.expectedSalaryMax}/mo` : '',
-          portfolio_url: workerForm.portfolioUrl
-        });
-
-        const mappedWorker: Worker = {
-          id: verifiedUser.id,
-          name: formFullName,
-          photo: finalAvatarUrl,
-          title: workerForm.professionalTitle,
-          experience: Number(workerForm.yearsExperience) || 0,
-          rating: 5.0,
-          availability: workerForm.availabilityStatus as any || 'Available Now',
-          location: `${workerForm.city}, ${workerForm.state}`,
-          bio: formBio,
-          skills: workerForm.skills,
-          completedWorks: 0,
-          hourlyRate: Number(workerForm.hourlyRate) || 0,
-          verified: true
-        };
-
-        setWorkers(prev => [mappedWorker, ...prev.filter(w => w.id !== verifiedUser.id)]);
-      }
-
-      // 7. Log terms consent
-      await dbService.logTermsConsent({
-        user_id: verifiedUser.id,
-        terms_version: "2026-07-19-v1",
-        privacy_version: "2026-07-19-v1",
-        account_type: isWorker ? 'worker' : 'basic'
-      });
-
-      // 8. Update in-memory & localStorage auth states
       setIsLoggedIn(true);
       setIsEmailVerified(true);
-      setIsOnboardingCompleted(true);
-      const resolvedPhoto = resolveProfileImage(profilePayload as any);
-      setUsername(formFullName);
-      setUserPhoto(resolvedPhoto);
-      setUserType(isWorker ? 'worker' : 'normal');
-
-      localStorage.setItem('opencomm_is_logged_in', 'true');
-      localStorage.setItem('opencomm_username', formFullName);
-      localStorage.setItem(`opencomm_user_photo_${verifiedUser.id}`, resolvedPhoto);
       setUserIdState(verifiedUser.id);
-      localStorage.setItem('opencomm_user_type', isWorker ? 'worker' : 'normal');
-      localStorage.setItem('opencomm_onboarding_completed', 'true');
+      setUsername(verifiedUser.user_metadata?.full_name || verifiedUser.email?.split('@')[0] || 'User');
 
-      // 9. Clear temporary signup state AFTER DB save
-      clearSignupTempState(true);
-      setSignupStep(1);
+      updatePendingEmail('');
+      setVerificationCodeInput('');
       _setShowAuthModal(null);
-      setLockedFeature(null);
-      setIsAuthSubmitting(false);
+
+      const freshProf = await dbService.getProfile(verifiedUser.id);
+      setCurrentProfileObj(freshProf);
+
       isSavingProfileRef.current = false;
+      setIsAuthSubmitting(false);
 
-      triggerToast("Verification successful! Welcome to OpenComm.");
-
-      if (!isWorker) {
-        const workerExists = await dbService.hasWorkerProfile(verifiedUser.id);
-        if (!workerExists) {
-          setShowBasicWorkerIntroModal(true);
-        }
+      if (freshProf?.onboarding_completed) {
+        setIsOnboardingCompleted(true);
+        navigate('/');
+        triggerToast("Email verified successfully! Welcome back.");
+      } else {
+        setIsOnboardingCompleted(false);
+        navigate('/complete-profile');
+        triggerToast("Email verified successfully! Let's complete your profile setup.");
       }
-
-      // Single navigation decision
-      const queryParams = new URLSearchParams(window.location.search);
-      const redirectPath = queryParams.get('redirect');
-      const targetPath = (redirectPath && redirectPath !== '/signup' && redirectPath !== '/login') ? redirectPath : '/';
-      navigate(targetPath, { replace: true });
-
     } catch (err: any) {
       console.error("VERIFY OTP EXCEPTION:", err);
       isSavingProfileRef.current = false;
@@ -3564,6 +3186,29 @@ export default function App() {
             <Route path="audit-logs" element={<AdminAuditLogs />} />
           </Route>
 
+          {/* Complete Profile Route */}
+          <Route path="/complete-profile" element={
+            <CompleteProfilePage
+              user={{ id: userIdState, email: signupForm.email || pendingEmail || '' }}
+              profile={currentProfileObj}
+              onCompleteSuccess={async (updatedProfile) => {
+                setCurrentProfileObj(updatedProfile);
+                setIsOnboardingCompleted(true);
+                if (updatedProfile.profile_type === 'basic' && updatedProfile.basic_account_intro_seen === false) {
+                  const workerExists = await dbService.hasWorkerProfile(updatedProfile.id);
+                  if (!workerExists) {
+                    setShowBasicWorkerIntroModal(true);
+                  } else {
+                    navigate('/');
+                  }
+                } else {
+                  navigate('/');
+                }
+              }}
+              triggerToast={triggerToast}
+            />
+          } />
+
           {/* 404 Wildcard Page */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
@@ -4497,7 +4142,8 @@ export default function App() {
                     </p>
                   </div>
                 </form>
-              ))}
+              )
+            )}
 
               {/* --- CASE C: SINGLE-PAGE SIGN UP & ONBOARDING FORM --- */}
               {showAuthModal === 'signup' && (
@@ -4544,295 +4190,103 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* STEP 1: UNIFIED SINGLE PAGE SIGNUP FORM */}
+                  {/* STEP 1: SIMPLIFIED ACCOUNT CREATION SIGNUP FORM */}
                   {signupStep === 1 && (
                     <form onSubmit={handleSinglePageSignUp} noValidate className="space-y-4 text-xs text-left animate-fadeIn">
 
-                      {/* SECTION 1: BASIC PROFILE (REQUIRED FOR EVERY USER) */}
-                      <div className="space-y-3.5">
-                        <div className="border-b border-slate-100 dark:border-zinc-800 pb-1.5">
-                          <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                            Basic Profile Details
-                          </h3>
-                        </div>
-
-                        {/* Full Name */}
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Full Name <span className="text-rose-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={signupForm.name}
-                            onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                            placeholder="Rahul Sharma"
+                      {/* GOOGLE SIGN IN BUTTON */}
+                      <button
+                        type="button"
+                        onClick={handleGoogleSignIn}
+                        disabled={isAuthSubmitting}
+                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-800 dark:text-zinc-200 font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-2.5 disabled:opacity-50"
+                      >
+                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                          <path
+                            fill="#4285F4"
+                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                           />
-                        </div>
-
-                        {/* Email Address */}
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Email Address <span className="text-rose-500">*</span>
-                          </label>
-                          <input
-                            type="email"
-                            disabled={isLoggedIn}
-                            value={signupForm.email}
-                            onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
-                            className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
-                            placeholder="rahul.sharma@example.com"
+                          <path
+                            fill="#34A853"
+                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
                           />
-                        </div>
-
-                        {/* Phone Number with Country Code Selector (Default India +91) */}
-                        <div className="space-y-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Phone Number <span className="text-rose-500">*</span>
-                          </label>
-                          <div className="flex rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 overflow-hidden focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10">
-                            {/* Country Code Dropdown */}
-                            <select
-                              value={phoneCountryCode}
-                              onChange={(e) => setPhoneCountryCode(e.target.value)}
-                              className="h-11 px-2.5 bg-slate-100 dark:bg-zinc-900 text-slate-900 dark:text-white font-mono text-xs font-bold border-r border-slate-200 dark:border-zinc-800 outline-none cursor-pointer shrink-0"
-                            >
-                              {COUNTRY_CODES.map(c => (
-                                <option key={c.code} value={c.dialCode}>
-                                  {c.dialCode}
-                                </option>
-                              ))}
-                            </select>
-                            {/* Phone Input */}
-                            <input
-                              type="tel"
-                              value={signupForm.phone}
-                              onChange={(e) => setSignupForm({...signupForm, phone: e.target.value.replace(/[^\d]/g, '')})}
-                              className="flex-1 h-11 px-3.5 bg-transparent text-slate-950 dark:text-white text-xs font-semibold focus:outline-none placeholder-slate-400"
-                              placeholder="9876543210"
-                            />
-                          </div>
-
-                          {/* Contact Preferences */}
-                          <div className="pt-1.5 space-y-1.5">
-                            <label className="flex items-center space-x-2 text-[11px] text-slate-600 dark:text-zinc-400 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={whatsappSameNumber}
-                                onChange={(e) => setWhatsappSameNumber(e.target.checked)}
-                                className="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
-                              />
-                              <span>WhatsApp uses this same number</span>
-                            </label>
-
-                            <input
-                              type="text"
-                              value={telegramUsername}
-                              onChange={(e) => setTelegramUsername(e.target.value)}
-                              placeholder="Telegram username"
-                              className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-850 bg-slate-50 dark:bg-zinc-950/60 text-slate-900 dark:text-white text-[11px] font-mono placeholder-slate-400 focus:outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Password & Confirm Password */}
-                        {!isLoggedIn && (
-                          <div className="space-y-3 pt-1">
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Password <span className="text-rose-500">*</span>
-                              </label>
-                              <div className="relative">
-                                <input
-                                  type={showSignupPassword ? "text" : "password"}
-                                  autoComplete="new-password"
-                                  value={signupPassword}
-                                  onChange={(e) => setSignupPassword(e.target.value)}
-                                  className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                                  placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowSignupPassword(!showSignupPassword)}
-                                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
-                                  aria-label={showSignupPassword ? "Hide password" : "Show password"}
-                                >
-                                  {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Confirm Password <span className="text-rose-500">*</span>
-                              </label>
-                              <div className="relative">
-                                <input
-                                  type={showSignupConfirmPassword ? "text" : "password"}
-                                  autoComplete="new-password"
-                                  value={signupConfirmPassword}
-                                  onChange={(e) => setSignupConfirmPassword(e.target.value)}
-                                  className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
-                                  placeholder="Confirm password"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
-                                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
-                                  aria-label={showSignupConfirmPassword ? "Hide password" : "Show password"}
-                                >
-                                  {showSignupConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Preferred Language */}
-                        <div className="space-y-1.5 pt-1 text-left">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Preferred Language <span className="text-rose-500">*</span>
-                          </label>
-                          <select
-                            required
-                            value={workerForm.preferredLanguage || 'English'}
-                            onChange={(e) => setWorkerForm(prev => ({ ...prev, preferredLanguage: e.target.value }))}
-                            className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 cursor-pointer"
-                          >
-                            {MAJOR_LANGUAGES.map((lang) => (
-                              <option key={lang} value={lang}>{lang}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Base Location */}
-                        <div className="space-y-1.5 pt-1 text-left">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Base Location <span className="text-rose-500">*</span>
-                          </label>
-                          <LocationSelector
-                            label="Base Location"
-                            value={{
-                              country: workerForm.country,
-                              country_code: workerForm.country_code,
-                              state: workerForm.state,
-                              state_code: workerForm.state_code,
-                              district: workerForm.district,
-                              city: workerForm.city,
-                              latitude: workerForm.latitude,
-                              longitude: workerForm.longitude
-                            }}
-                            onChange={(loc) => setWorkerForm(prev => ({
-                              ...prev,
-                              country: loc.country,
-                              country_code: loc.country_code,
-                              state: loc.state,
-                              state_code: loc.state_code,
-                              district: loc.district,
-                              city: loc.city,
-                              latitude: loc.latitude,
-                              longitude: loc.longitude
-                            }))}
+                          <path
+                            fill="#FBBC05"
+                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
                           />
-                        </div>
-
-                        {/* Profile Picture / Avatar Selector (Required) */}
-                        <div className="space-y-2 pt-1">
-                          <div className="flex justify-between items-center">
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                              Profile Picture or Avatar <span className="text-rose-500">*</span>
-                            </label>
-                          </div>
-
-                          {/* Options Tabs */}
-                          <div className="flex space-x-1.5 p-1 bg-slate-100 dark:bg-zinc-950 rounded-xl">
-                            <button
-                              type="button"
-                              onClick={() => setAvatarTab('upload')}
-                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                avatarTab === 'upload'
-                                  ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
-                              }`}
-                            >
-                              Upload Photo
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAvatarTab('preset');
-                                setShowAvatarGalleryModal(true);
-                              }}
-                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                avatarTab === 'preset' || avatarTab === 'skip'
-                                  ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900'
-                              }`}
-                            >
-                              Choose Avatar
-                            </button>
-                          </div>
-
-                          {avatarTab === 'upload' ? (
-                            <ProfilePhotoUpload
-                              value={workerForm.avatarUrl}
-                              onFileChange={(file) => {
-                                setCroppedFile(file);
-                                if (file) setSelectedAvatar(null);
-                              }}
-                              onChange={(url) => {
-                                setWorkerForm(prev => ({ ...prev, avatarUrl: url }));
-                                setUserPhoto(url);
-                                if (url) setSelectedAvatar(null);
-                              }}
-                              userId={userIdState || ''}
-                              supabase={supabase}
-                              triggerToast={triggerToast}
-                            />
-                          ) : (
-                            <div className="flex items-center space-x-3 p-2.5 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-200/80 dark:border-zinc-800">
-                              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-500/30 bg-white dark:bg-zinc-800 shrink-0 p-0.5 shadow-xs">
-                                <img
-                                  src={selectedAvatar || workerForm.avatarUrl || DEFAULT_AVATAR_URL}
-                                  alt="Avatar preview"
-                                  className="w-full h-full object-cover rounded-full"
-                                />
-                              </div>
-                              <div className="space-y-0.5 text-left flex-1">
-                                <span className="text-[11px] font-bold text-slate-900 dark:text-white block leading-tight">
-                                  {selectedAvatar ? 'Preset Avatar Selected' : 'Choose Preset Avatar'}
-                                </span>
-                                <p className="text-[9px] text-slate-500 dark:text-zinc-400 font-medium">
-                                  Select from 50+ diverse professional avatars
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAvatarGalleryModal(true)}
-                                  className="px-2.5 py-1 mt-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs cursor-pointer inline-block"
-                                >
-                                  Browse Avatar Gallery (50+)
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Short Bio (Optional) */}
-                        <div className="space-y-1 pt-1">
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            Short Bio <span className="text-slate-400 font-normal">(optional)</span>
-                          </label>
-                          <textarea
-                            rows={2}
-                            value={signupForm.bio}
-                            onChange={(e) => setSignupForm({ ...signupForm, bio: e.target.value })}
-                            placeholder="Tell people a little about yourself…"
-                            className="w-full p-3 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-medium resize-none focus:outline-none"
+                          <path
+                            fill="#EA4335"
+                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                           />
-                        </div>
+                        </svg>
+                        <span>Continue with Google</span>
+                      </button>
+
+                      <div className="relative flex items-center justify-center my-2">
+                        <div className="border-t border-slate-200 dark:border-zinc-800 w-full" />
+                        <span className="bg-white dark:bg-zinc-900 px-3 text-[10px] uppercase font-bold text-slate-400 dark:text-zinc-500 absolute">
+                          or
+                        </span>
                       </div>
 
+                      {/* Full Name */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Full Name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={signupForm.name}
+                          onChange={(e) => setSignupForm({...signupForm, name: e.target.value})}
+                          className="w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
+                          placeholder="Rahul Sharma"
+                          required
+                        />
+                      </div>
 
+                      {/* Email Address */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Email Address <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          disabled={isLoggedIn}
+                          value={signupForm.email}
+                          onChange={(e) => setSignupForm({...signupForm, email: e.target.value})}
+                          className={`w-full h-11 px-3.5 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400 ${isLoggedIn ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          placeholder="rahul.sharma@example.com"
+                          required
+                        />
+                      </div>
+
+                      {/* Password */}
+                      {!isLoggedIn && (
+                        <div className="space-y-1 pt-1">
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Password <span className="text-rose-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showSignupPassword ? "text" : "password"}
+                              autoComplete="new-password"
+                              value={signupPassword}
+                              onChange={(e) => setSignupPassword(e.target.value)}
+                              className="w-full h-11 pl-3.5 pr-10 rounded-xl border border-slate-900/12 dark:border-white/12 bg-white/90 dark:bg-zinc-950/90 text-slate-950 dark:text-white text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 placeholder-slate-400"
+                              placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowSignupPassword(!showSignupPassword)}
+                              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                              aria-label={showSignupPassword ? "Hide password" : "Show password"}
+                            >
+                              {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* TERMS AND PRIVACY CONSENT */}
                       <div className="flex items-start space-x-2.5 pt-2 text-left">

@@ -1140,6 +1140,18 @@ export const dbService = {
     return null;
   },
 
+  async acknowledgeBasicAccountIntro(): Promise<boolean> {
+    if (supabase) {
+      const { error } = await supabase.rpc('acknowledge_basic_account_intro');
+      if (error) {
+        console.error('acknowledge_basic_account_intro error:', error);
+        throw new Error(error.message);
+      }
+      return true;
+    }
+    return false;
+  },
+
   async hasWorkerProfile(userId: string): Promise<boolean> {
     if (!userId) return false;
     if (supabase) {

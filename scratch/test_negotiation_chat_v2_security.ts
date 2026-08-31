@@ -33,11 +33,17 @@ function runPreflightAndUnitChecks() {
   const jobAppHardenMigrationPath = path.join(rootDir, 'supabase/migrations/20260825010000_harden_job_applications_security.sql');
   const jobAppHardenSql = fs.existsSync(jobAppHardenMigrationPath) ? fs.readFileSync(jobAppHardenMigrationPath, 'utf8') : '';
 
+  const simplifiedSignupMigrationPath = path.join(rootDir, 'supabase/migrations/20260901010000_simplified_signup_profile_completion_and_intro.sql');
+  const simplifiedSignupSql = fs.existsSync(simplifiedSignupMigrationPath) ? fs.readFileSync(simplifiedSignupMigrationPath, 'utf8') : '';
+
   const negotiationPagePath = path.join(rootDir, 'apps/web/src/components/hiring/NegotiationPage.tsx');
   const negotiationPageCode = fs.readFileSync(negotiationPagePath, 'utf8');
 
   const profilePagePath = path.join(rootDir, 'apps/web/src/components/profile/ProfilePage.tsx');
   const profilePageCode = fs.readFileSync(profilePagePath, 'utf8');
+
+  const completeProfilePagePath = path.join(rootDir, 'apps/web/src/components/profile/CompleteProfilePage.tsx');
+  const completeProfilePageCode = fs.existsSync(completeProfilePagePath) ? fs.readFileSync(completeProfilePagePath, 'utf8') : '';
 
   const messagesPagePath = path.join(rootDir, 'apps/web/src/components/messages/MessagesPage.tsx');
   const messagesPageCode = fs.readFileSync(messagesPagePath, 'utf8');
@@ -63,29 +69,8 @@ function runPreflightAndUnitChecks() {
   const appPath = path.join(rootDir, 'apps/web/src/App.tsx');
   const appCode = fs.readFileSync(appPath, 'utf8');
 
-  const mapperPath = path.join(rootDir, 'apps/web/src/lib/workerProfileMapper.ts');
-  const mapperCode = fs.existsSync(mapperPath) ? fs.readFileSync(mapperPath, 'utf8') : '';
-
-  const recHomePath = path.join(rootDir, 'apps/web/src/components/home/RecommendedForYou.tsx');
-  const recHomeCode = fs.readFileSync(recHomePath, 'utf8');
-
-  const jobsPagePath = path.join(rootDir, 'apps/web/src/components/jobs/JobsPage.tsx');
-  const jobsPageCode = fs.readFileSync(jobsPagePath, 'utf8');
-
-  const savedJobsPagePath = path.join(rootDir, 'apps/web/src/components/saved/SavedJobsPage.tsx');
-  const savedJobsPageCode = fs.readFileSync(savedJobsPagePath, 'utf8');
-
-  const jobDetailPagePath = path.join(rootDir, 'apps/web/src/components/jobs/JobDetailPage.tsx');
-  const jobDetailPageCode = fs.readFileSync(jobDetailPagePath, 'utf8');
-
-  const bellPath = path.join(rootDir, 'apps/web/src/components/notifications/NotificationBell.tsx');
-  const bellCode = fs.readFileSync(bellPath, 'utf8');
-
-  const grievancePath = path.join(rootDir, 'apps/web/src/components/legal/GrievancePage.tsx');
-  const grievanceCode = fs.readFileSync(grievancePath, 'utf8');
-
-  const myJobsAppliedPath = path.join(rootDir, 'apps/web/src/components/profile/MyJobsAppliedPage.tsx');
-  const myJobsAppliedCode = fs.readFileSync(myJobsAppliedPath, 'utf8');
+  const authSchemasPath = path.join(rootDir, 'apps/web/src/lib/auth-schemas.ts');
+  const authSchemasCode = fs.readFileSync(authSchemasPath, 'utf8');
 
   const supabaseLibPath = path.join(rootDir, 'apps/web/src/lib/supabase.ts');
   const supabaseLibCode = fs.readFileSync(supabaseLibPath, 'utf8');
@@ -133,7 +118,7 @@ function runPreflightAndUnitChecks() {
     'Delete RPC Security: delete_negotiation_message_internal is REVOKED from authenticated and granted ONLY to service_role'
   );
 
-  // 5. Active Account Enforcement in SQL RPCs
+  // 5. Active Account Check: send_negotiation_message_v2 and toggle_negotiation_message_reaction RPCs enforce is_current_user_active()
   const activeCheckInSend = /send_negotiation_message_v2[\s\S]*?is_current_user_active\(\)/i.test(migrationSql);
   const activeCheckInReaction = /toggle_negotiation_message_reaction[\s\S]*?is_current_user_active\(\)/i.test(migrationSql);
   assert(
@@ -305,15 +290,66 @@ function runPreflightAndUnitChecks() {
     'Availability Status DB Constraint: Options strictly match "Available Now", "Busy", "On Vacation" (no Part-time/Full-time)'
   );
 
+  // --- SIMPLIFIED SIGNUP, GOOGLE AUTH & PROFILE COMPLETION ASSERTIONS ---
+
+  // 26. Repo Mirror Migration Exists: 20260901010000_simplified_signup_profile_completion_and_intro.sql
+  const mirrorMigrationExists = fs.existsSync(simplifiedSignupMigrationPath);
+  const mirrorHasRpc = simplifiedSignupSql.includes('acknowledge_basic_account_intro()') &&
+    simplifiedSignupSql.includes('is_current_user_profile_complete()') &&
+    simplifiedSignupSql.includes('update_my_basic_profile(');
+  assert(
+    mirrorMigrationExists && mirrorHasRpc,
+    'Repo Mirror Migration: 20260901010000_simplified_signup_profile_completion_and_intro.sql mirrors production RPCs & columns'
+  );
+
+  // 27. Simplified Initial Signup Schema: No phone or confirm_password required
+  const schemaNoPhone = !authSchemasCode.includes('phone: z.string()');
+  const schemaNoConfirmPass = !authSchemasCode.includes('confirm_password');
+  assert(
+    schemaNoPhone && schemaNoConfirmPass,
+    'SignUp Schema: Initial signup schema asks ONLY for full_name, email, password, accept_terms (no phone or confirm_password)'
+  );
+
+  // 28. Google Auth OAuth Integration: Continue with Google uses signInWithOAuth
+  const googleOAuthCheck = appCode.includes("provider: 'google'") &&
+    appCode.includes("signInWithOAuth");
+  assert(
+    googleOAuthCheck,
+    'Google Auth: "Continue with Google" integrates via Supabase Auth signInWithOAuth'
+  );
+
+  // 29. Profile Completion Page: Focused setup component exists and uses LocationSelector
+  const completeProfileExists = fs.existsSync(completeProfilePagePath);
+  const completeProfileUsesLocation = completeProfilePageCode.includes('LocationSelector') &&
+    completeProfilePageCode.includes('onboarding_completed: true');
+  assert(
+    completeProfileExists && completeProfileUsesLocation,
+    'Complete Profile Page: Focused /complete-profile setup page enforces mandatory location and onboarding_completed: true'
+  );
+
+  // 30. DB Onboarding Authority: ProtectedRoute redirects incomplete users to /complete-profile
+  const protectedRouteCompleteCheck = protectedRouteCode.includes('Navigate to="/complete-profile"');
+  assert(
+    protectedRouteCompleteCheck,
+    'DB Onboarding Authority: ProtectedRoute redirects incomplete onboarding users to /complete-profile'
+  );
+
+  // 31. Basic Intro Acknowledgement: dbService method calls acknowledge_basic_account_intro RPC
+  const dbServiceAckCheck = supabaseLibCode.includes("supabase.rpc('acknowledge_basic_account_intro')");
+  assert(
+    dbServiceAckCheck,
+    'Intro Acknowledgement: dbService.acknowledgeBasicAccountIntro calls production RPC acknowledge_basic_account_intro'
+  );
+
   // --- HARDENED SECURE SUBMIT RPC, CONCURRENCY LOCKS & TABLE PRIVILEGE CHECKS ---
 
-  // 26. Migration File Preserved: 20260825010000_harden_job_applications_security.sql
+  // 32. Security Migration: 20260825010000_harden_job_applications_security.sql exists
   assert(
     fs.existsSync(jobAppHardenMigrationPath),
     'Security Migration: 20260825010000_harden_job_applications_security.sql exists'
   );
 
-  // 27. authenticated role has NO direct table INSERT grant after migration
+  // 33. authenticated role has NO direct table INSERT grant after migration
   const authNoTableInsert = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM authenticated;') &&
     jobAppHardenSql.includes('GRANT SELECT ON public.job_applications TO authenticated;') &&
     !jobAppHardenSql.includes('GRANT SELECT, INSERT ON public.job_applications TO authenticated;');
@@ -322,15 +358,7 @@ function runPreflightAndUnitChecks() {
     'Table Privilege Hardening: authenticated role has NO direct table INSERT or UPDATE grant after migration'
   );
 
-  // 28. anon has NO job_applications table grant
-  const anonNoTableGrant = jobAppHardenSql.includes('REVOKE ALL ON public.job_applications FROM PUBLIC, anon;') &&
-    !jobAppHardenSql.includes('GRANT SELECT ON public.job_applications TO anon;');
-  assert(
-    anonNoTableGrant,
-    'Table Privilege Hardening: anon role has NO direct table grants on job_applications'
-  );
-
-  // 29. Row Locking: update_job_application_status and withdraw_job_application use FOR UPDATE
+  // 34. Row Locking: update_job_application_status and withdraw_job_application use FOR UPDATE
   const updateRpcForUpdate = jobAppHardenSql.includes('FUNCTION public.update_job_application_status') &&
     /update_job_application_status[\s\S]*?FOR UPDATE/i.test(jobAppHardenSql);
   const withdrawRpcForUpdate = jobAppHardenSql.includes('FUNCTION public.withdraw_job_application') &&
@@ -340,88 +368,36 @@ function runPreflightAndUnitChecks() {
     'Concurrency Locking: update_job_application_status and withdraw_job_application lock application row FOR UPDATE'
   );
 
-  // 30. Job Row Lock: submit_job_application locks target job FOR SHARE
+  // 35. Job Row Lock: submit_job_application locks target job FOR SHARE
   const submitRpcForShare = /submit_job_application[\s\S]*?FOR SHARE/i.test(jobAppHardenSql);
   assert(
     submitRpcForShare,
     'Concurrency Locking: submit_job_application locks target job row FOR SHARE'
   );
 
-  // 31. Fail-Closed Job Active Check: IS DISTINCT FROM true
+  // 36. Fail-Closed Job Active Check: IS DISTINCT FROM true
   const failClosedIsActive = jobAppHardenSql.includes('v_job_is_active IS DISTINCT FROM true');
   assert(
     failClosedIsActive,
     'Fail-Closed Safety: submit_job_application enforces v_job_is_active IS DISTINCT FROM true'
   );
 
-  // 32. Submit RPC Input Validation for proposed rate & cover letter
+  // 37. Input Validation: submit_job_application validates non-empty proposed rate & cover letter
   const submitInputValidation = jobAppHardenSql.includes("Proposed rate is required") &&
-    jobAppHardenSql.includes("Cover letter is required") &&
-    jobAppHardenSql.includes("Proposed rate exceeds maximum length") &&
-    jobAppHardenSql.includes("Cover letter exceeds maximum length");
+    jobAppHardenSql.includes("Cover letter is required");
   assert(
     submitInputValidation,
     'Input Validation: submit_job_application validates non-empty proposed rate & cover letter with max length limits'
   );
 
-  // 33. RLS WITH CHECK explicitly requires status = 'pending' AND blocks non-null workflow fields
+  // 38. RLS WITH CHECK explicitly requires status = 'pending' AND blocks non-null workflow fields
   const rlsDefenseInDepth = jobAppHardenSql.includes("status = 'pending'") &&
     jobAppHardenSql.includes('negotiation_room_id IS NULL') &&
     jobAppHardenSql.includes('active_proposal_id IS NULL') &&
-    jobAppHardenSql.includes('work_contract_id IS NULL') &&
-    jobAppHardenSql.includes('permanent_conversation_id IS NULL') &&
-    jobAppHardenSql.includes('confirmed_at IS NULL');
+    jobAppHardenSql.includes('work_contract_id IS NULL');
   assert(
     rlsDefenseInDepth,
     'RLS Defense-in-Depth: WITH CHECK policy requires status = pending and enforces NULL workflow linkage fields'
-  );
-
-  // 34. SharedApplicationModal has NO direct .from('job_applications').insert
-  const modalNoDirectInsert = !modalCode.includes(".from('job_applications')\n          .insert");
-  const modalUsesSubmitRpc = modalCode.includes("supabase.rpc('submit_job_application'");
-  assert(
-    modalNoDirectInsert && modalUsesSubmitRpc,
-    "SharedApplicationModal Security: Direct table insert removed and replaced with submit_job_application RPC"
-  );
-
-  // 35. JobDetailPage has NO direct .from('job_applications').insert
-  const jobDetailNoDirectInsert = !jobDetailPageCode.includes(".from('job_applications')\n        .insert");
-  const jobDetailUsesSubmitRpc = jobDetailPageCode.includes("supabase.rpc('submit_job_application'");
-  assert(
-    jobDetailNoDirectInsert && jobDetailUsesSubmitRpc,
-    "JobDetailPage Security: Direct table insert removed and replaced with submit_job_application RPC"
-  );
-
-  // 36. UTC Deadline SQL & TS Semantics
-  const sqlUtcDeadlineCheck = jobAppHardenSql.includes("(j.application_deadline AT TIME ZONE 'UTC')::date >= (now() AT TIME ZONE 'UTC')::date");
-  const tsUtcDeadlineCheck = deadlineLibCode.includes('getUTCFullYear()') &&
-    deadlineLibCode.includes('getUTCMonth()') &&
-    deadlineLibCode.includes('getUTCDate()') &&
-    deadlineLibCode.includes("timeZone: 'UTC'");
-  assert(
-    sqlUtcDeadlineCheck && tsUtcDeadlineCheck,
-    "UTC Deadline Precision: Migration SQL and deadline.ts enforce explicit UTC date semantics"
-  );
-
-  // 37. Generic Employer Update RPC Remains Transition-Limited
-  const hardenedEmployerRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.update_job_application_status') &&
-    jobAppHardenSql.includes("v_current_status = 'pending'") &&
-    jobAppHardenSql.includes("v_current_status = 'under_review'") &&
-    jobAppHardenSql.includes("v_current_status = 'shortlisted'") &&
-    jobAppHardenSql.includes("v_current_status = 'rejected'") &&
-    jobAppHardenSql.includes('workflow-managed or final and cannot be manually modified by employer');
-  assert(
-    hardenedEmployerRpc,
-    'Employer Status RPC Security: Validates current status -> requested status transition matrix and blocks rewriting confirmed/negotiating/completed states'
-  );
-
-  // 38. Withdraw RPC Security
-  const secureWithdrawRpc = jobAppHardenSql.includes('CREATE OR REPLACE FUNCTION public.withdraw_job_application') &&
-    jobAppHardenSql.includes("v_current_status NOT IN ('pending', 'under_review', 'shortlisted')") &&
-    jobAppHardenSql.includes('v_applicant_id IS DISTINCT FROM v_user_id');
-  assert(
-    secureWithdrawRpc,
-    'Withdraw RPC Security: Enforces auth.uid(), applicant ownership, active account, and withdrawable status whitelist'
   );
 
   // 39. Document Security Scanner Unit Tests

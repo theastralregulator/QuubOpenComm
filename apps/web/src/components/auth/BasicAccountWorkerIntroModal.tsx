@@ -62,7 +62,7 @@ export default function BasicAccountWorkerIntroModal({
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                <span>Browse, search, and hire verified workers</span>
+                <span>Browse, search, and hire workers</span>
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
