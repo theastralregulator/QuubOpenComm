@@ -8,23 +8,17 @@ ADD COLUMN IF NOT EXISTS basic_account_intro_seen boolean DEFAULT false;
 -- 2. Helper function: is_current_user_profile_complete()
 CREATE OR REPLACE FUNCTION public.is_current_user_profile_complete()
 RETURNS boolean
-LANGUAGE plpgsql
+LANGUAGE sql
+STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-DECLARE
-  v_completed boolean;
-BEGIN
-  IF auth.uid() IS NULL THEN
-    RETURN false;
-  END IF;
-
-  SELECT COALESCE(onboarding_completed, false) INTO v_completed
-  FROM public.profiles
-  WHERE id = auth.uid();
-
-  RETURN COALESCE(v_completed, false);
-END;
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+      AND onboarding_completed = true
+  );
 $$;
 
 REVOKE ALL ON FUNCTION public.is_current_user_profile_complete() FROM PUBLIC, anon;
@@ -33,25 +27,18 @@ GRANT EXECUTE ON FUNCTION public.is_current_user_profile_complete() TO authentic
 -- 3. Update is_current_user_active() to require both active account_status and onboarding_completed = true
 CREATE OR REPLACE FUNCTION public.is_current_user_active()
 RETURNS boolean
-LANGUAGE plpgsql
+LANGUAGE sql
+STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-DECLARE
-  v_status text;
-  v_completed boolean;
-BEGIN
-  IF auth.uid() IS NULL THEN
-    RETURN false;
-  END IF;
-
-  SELECT account_status, COALESCE(onboarding_completed, false)
-  INTO v_status, v_completed
-  FROM public.profiles
-  WHERE id = auth.uid();
-
-  RETURN (v_status = 'active' AND v_completed = true);
-END;
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+      AND account_status = 'active'
+      AND onboarding_completed = true
+  );
 $$;
 
 REVOKE ALL ON FUNCTION public.is_current_user_active() FROM PUBLIC, anon;
@@ -80,7 +67,7 @@ CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
   v_user_id uuid;
@@ -108,7 +95,8 @@ BEGIN
   SELECT onboarding_completed, full_name, city, state, country, district, latitude, longitude
   INTO v_old_completed, v_final_full_name, v_final_city, v_final_state, v_final_country, v_final_district, v_final_lat, v_final_lng
   FROM public.profiles
-  WHERE id = v_user_id;
+  WHERE id = v_user_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
@@ -205,62 +193,42 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-DECLARE
-  v_user_id uuid;
-  v_completed boolean;
 BEGIN
-  v_user_id := auth.uid();
-  IF v_user_id IS NULL THEN
+  IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
-  END IF;
-
-  SELECT COALESCE(onboarding_completed, false) INTO v_completed
-  FROM public.profiles
-  WHERE id = v_user_id;
-
-  IF v_completed IS NOT TRUE THEN
-    RAISE EXCEPTION 'Profile must be completed before acknowledging basic intro' USING ERRCODE = '42501';
   END IF;
 
   UPDATE public.profiles
   SET 
     basic_account_intro_seen = true,
     updated_at = now()
-  WHERE id = v_user_id AND onboarding_completed = true;
+  WHERE id = auth.uid() AND onboarding_completed = true;
 
-  RETURN true;
+  RETURN FOUND;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.acknowledge_basic_account_intro() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.acknowledge_basic_account_intro() TO authenticated;
 
--- 6. Profile System-Fields Protection Trigger
+-- 6. Profile System-Fields Protection Trigger (NOT SECURITY DEFINER, exact production behavior)
 CREATE OR REPLACE FUNCTION public.protect_profile_system_fields()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path TO public, pg_temp
 AS $$
 BEGIN
-  -- Allow service_role
-  IF current_setting('role', true) = 'service_role' THEN
-    RETURN NEW;
-  END IF;
-
-  -- Allow when executing within SECURITY DEFINER functions (current_user != session_user)
-  IF current_user != session_user THEN
-    RETURN NEW;
-  END IF;
-
-  -- Block direct REST API client updates modifying protected system fields
-  IF (OLD.onboarding_completed IS DISTINCT FROM NEW.onboarding_completed) OR
-     (OLD.basic_account_intro_seen IS DISTINCT FROM NEW.basic_account_intro_seen) OR
-     (OLD.profile_type IS DISTINCT FROM NEW.profile_type) OR
-     (OLD.account_status IS DISTINCT FROM NEW.account_status) OR
-     (OLD.email_verified_for_actions IS DISTINCT FROM NEW.email_verified_for_actions) OR
-     (OLD.verified_email_at IS DISTINCT FROM NEW.verified_email_at) THEN
-    RAISE EXCEPTION 'Direct modification of profile system fields is restricted' USING ERRCODE = '42501';
+  IF current_user IN ('anon', 'authenticated') THEN
+    IF NEW.onboarding_completed IS DISTINCT FROM OLD.onboarding_completed
+       OR NEW.basic_account_intro_seen IS DISTINCT FROM OLD.basic_account_intro_seen
+       OR NEW.profile_type IS DISTINCT FROM OLD.profile_type
+       OR NEW.account_status IS DISTINCT FROM OLD.account_status
+       OR NEW.email_verified_for_actions IS DISTINCT FROM OLD.email_verified_for_actions
+       OR NEW.verified_email_at IS DISTINCT FROM OLD.verified_email_at THEN
+      RAISE EXCEPTION
+        'Protected profile state can only be changed through approved server functions.'
+        USING ERRCODE = '42501';
+    END IF;
   END IF;
 
   RETURN NEW;
@@ -273,33 +241,30 @@ BEFORE UPDATE ON public.profiles
 FOR EACH ROW
 EXECUTE FUNCTION public.protect_profile_system_fields();
 
--- 7. Messaging Sender Profile-Ready Protection Trigger
+REVOKE ALL ON FUNCTION public.protect_profile_system_fields() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.protect_profile_system_fields() TO service_role;
+
+-- 7. Messaging Sender Profile-Ready Protection Trigger (exact production behavior)
 CREATE OR REPLACE FUNCTION public.enforce_message_sender_profile_ready()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, auth, pg_temp
 AS $$
-DECLARE
-  v_status text;
-  v_completed boolean;
-  v_email_confirmed timestamptz;
 BEGIN
-  IF NEW.sender_id IS NULL OR NEW.role = 'system' OR current_setting('role', true) = 'service_role' THEN
-    RETURN NEW;
-  END IF;
-
-  SELECT account_status, COALESCE(onboarding_completed, false)
-  INTO v_status, v_completed
-  FROM public.profiles
-  WHERE id = NEW.sender_id;
-
-  SELECT email_confirmed_at INTO v_email_confirmed
-  FROM auth.users
-  WHERE id = NEW.sender_id;
-
-  IF v_status IS DISTINCT FROM 'active' OR v_completed IS NOT TRUE OR v_email_confirmed IS NULL THEN
-    RAISE EXCEPTION 'Active account with completed profile and verified email required to send messages' USING ERRCODE = '42501';
+  IF NEW.role = 'user' AND NEW.sender_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.profiles p
+      JOIN auth.users u ON u.id = p.id
+      WHERE p.id = NEW.sender_id
+        AND p.account_status = 'active'
+        AND p.onboarding_completed = true
+        AND u.email_confirmed_at IS NOT NULL
+    ) THEN
+      RAISE EXCEPTION 'Complete and verify your profile before sending messages.'
+        USING ERRCODE = '42501';
+    END IF;
   END IF;
 
   RETURN NEW;
@@ -312,10 +277,13 @@ BEFORE INSERT ON public.messages
 FOR EACH ROW
 EXECUTE FUNCTION public.enforce_message_sender_profile_ready();
 
+REVOKE ALL ON FUNCTION public.enforce_message_sender_profile_ready() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.enforce_message_sender_profile_ready() TO service_role;
+
 -- 8. Drop any legacy/incorrect create_my_worker_profile overloads
 DROP FUNCTION IF EXISTS public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric);
 
--- 9. Hardened canonical create_my_worker_profile RPC matching exact production & frontend signature
+-- 9. Hardened canonical create_my_worker_profile RPC matching exact production & frontend body
 CREATE OR REPLACE FUNCTION public.create_my_worker_profile(
   p_profession text,
   p_skills text[],
@@ -332,42 +300,30 @@ CREATE OR REPLACE FUNCTION public.create_my_worker_profile(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
-  v_user_id uuid;
-  v_status text;
-  v_completed boolean;
+  v_prof RECORD;
   v_email_confirmed timestamptz;
+  v_clean_skills text[];
   v_result RECORD;
 BEGIN
-  v_user_id := auth.uid();
-  IF v_user_id IS NULL THEN
+  IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
-  END IF;
-
-  SELECT account_status, COALESCE(onboarding_completed, false)
-  INTO v_status, v_completed
-  FROM public.profiles
-  WHERE id = v_user_id;
-
-  IF NOT FOUND OR v_status IS DISTINCT FROM 'active' OR v_completed IS NOT TRUE THEN
-    RAISE EXCEPTION 'Active account and completed profile required to register worker profile' USING ERRCODE = '42501';
-  END IF;
-
-  SELECT email_confirmed_at INTO v_email_confirmed
-  FROM auth.users
-  WHERE id = v_user_id;
-
-  IF v_email_confirmed IS NULL THEN
-    RAISE EXCEPTION 'Verified email required to register worker profile' USING ERRCODE = '42501';
   END IF;
 
   IF p_profession IS NULL OR length(trim(p_profession)) = 0 THEN
     RAISE EXCEPTION 'Valid profession is required' USING ERRCODE = '22023';
   END IF;
 
-  IF p_skills IS NULL OR array_length(p_skills, 1) IS NULL OR array_length(p_skills, 1) = 0 THEN
+  SELECT ARRAY(
+    SELECT DISTINCT trim(s)
+    FROM unnest(p_skills) AS s
+    WHERE length(trim(s)) > 0
+    ORDER BY 1
+  ) INTO v_clean_skills;
+
+  IF array_length(v_clean_skills, 1) IS NULL OR array_length(v_clean_skills, 1) = 0 THEN
     RAISE EXCEPTION 'At least one skill is required' USING ERRCODE = '22023';
   END IF;
 
@@ -383,29 +339,46 @@ BEGIN
     RAISE EXCEPTION 'Invalid availability status' USING ERRCODE = '22023';
   END IF;
 
+  SELECT *
+  INTO v_prof
+  FROM public.profiles
+  WHERE id = auth.uid()
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_prof.account_status IS DISTINCT FROM 'active' OR v_prof.onboarding_completed IS NOT TRUE THEN
+    RAISE EXCEPTION 'Active account and completed profile required to register worker profile' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT email_confirmed_at INTO v_email_confirmed
+  FROM auth.users
+  WHERE id = auth.uid();
+
+  IF v_email_confirmed IS NULL THEN
+    RAISE EXCEPTION 'Verified email required to register worker profile' USING ERRCODE = '42501';
+  END IF;
+
   INSERT INTO public.worker_profiles (
-    id, user_id, profession, professional_title, skills, experience_years, years_experience,
-    work_location, availability, availability_status, bio_summary, hourly_rate,
-    expected_salary, portfolio_url, languages, updated_at
+    id, profession, skills, experience_years, work_location, availability,
+    bio_summary, hourly_rate, expected_salary, portfolio_url, certificates,
+    languages, created_at, updated_at
   )
   VALUES (
-    v_user_id, v_user_id, trim(p_profession), trim(p_profession), p_skills, GREATEST(0, p_experience_years), GREATEST(0, p_experience_years),
-    NULLIF(trim(p_work_location), ''), p_availability, p_availability, NULLIF(trim(p_bio_summary), ''),
-    p_hourly_rate, NULLIF(trim(p_expected_salary), ''), NULLIF(trim(p_portfolio_url), ''), COALESCE(p_languages, '{}'::text[]), now()
+    auth.uid(), trim(p_profession), v_clean_skills, GREATEST(0, p_experience_years),
+    NULLIF(trim(p_work_location), ''), p_availability, NULLIF(trim(p_bio_summary), ''),
+    p_hourly_rate, NULLIF(trim(p_expected_salary), ''), NULLIF(trim(p_portfolio_url), ''),
+    COALESCE(p_certificates, '{}'::text[]), COALESCE(p_languages, '{}'::text[]), now(), now()
   )
   ON CONFLICT (id) DO UPDATE SET
     profession = EXCLUDED.profession,
-    professional_title = EXCLUDED.professional_title,
     skills = EXCLUDED.skills,
     experience_years = EXCLUDED.experience_years,
-    years_experience = EXCLUDED.years_experience,
     work_location = EXCLUDED.work_location,
     availability = EXCLUDED.availability,
-    availability_status = EXCLUDED.availability_status,
     bio_summary = EXCLUDED.bio_summary,
     hourly_rate = EXCLUDED.hourly_rate,
     expected_salary = EXCLUDED.expected_salary,
     portfolio_url = EXCLUDED.portfolio_url,
+    certificates = EXCLUDED.certificates,
     languages = EXCLUDED.languages,
     updated_at = now()
   RETURNING * INTO v_result;
@@ -416,7 +389,7 @@ BEGIN
     profile_type = 'worker',
     basic_account_intro_seen = true,
     updated_at = now()
-  WHERE id = v_user_id;
+  WHERE id = auth.uid();
 
   RETURN to_jsonb(v_result);
 END;
@@ -430,7 +403,7 @@ DROP POLICY IF EXISTS "Workers can insert/update their own profile" ON public.wo
 DROP POLICY IF EXISTS "Workers can upsert their own profile details" ON public.worker_profiles;
 DROP POLICY IF EXISTS "Users can manage own worker profile" ON public.worker_profiles;
 
-CREATE POLICY "Users can manage own worker profile"
+CREATE POLICY "Workers can upsert their own profile details"
 ON public.worker_profiles
 FOR ALL
 TO authenticated

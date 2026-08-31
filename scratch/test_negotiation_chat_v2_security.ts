@@ -471,37 +471,47 @@ function runPreflightAndUnitChecks() {
     'Test L: Basic Worker intro dismissal/action invokes canonical dbService.acknowledgeBasicAccountIntro() RPC'
   );
 
-  // 48. Test M: Reconciliation migration contains exact production create_my_worker_profile signature and no incorrect overloads
+  // 48. Test M: Reconciliation migration contains exact production create_my_worker_profile signature, body, FOR UPDATE locks, and skills unnest
   const reconcSql = fs.readFileSync(path.join(rootDir, 'supabase/migrations/20260901020000_reconcile_simplified_signup_production_state.sql'), 'utf8');
   const reconcHasExactWorkerSig = reconcSql.includes('p_profession text') && reconcSql.includes('p_skills text[]') && reconcSql.includes('p_experience_years integer');
   const reconcNoIncorrectOverload = !reconcSql.includes('p_title text') && !reconcSql.includes('p_primary_category text');
+  const reconcWorkerBodyParity = reconcSql.includes('search_path = public, auth, pg_temp') &&
+    reconcSql.includes('FOR UPDATE;') &&
+    reconcSql.includes('unnest(p_skills)') &&
+    reconcSql.includes('certificates');
   assert(
-    reconcHasExactWorkerSig && reconcNoIncorrectOverload,
-    'Test M: Reconciliation migration defines EXACT frontend/production create_my_worker_profile signature and contains NO incorrect p_title overload'
+    reconcHasExactWorkerSig && reconcNoIncorrectOverload && reconcWorkerBodyParity,
+    'Test M: create_my_worker_profile uses exact 11-param signature, search_path with auth, FOR UPDATE lock, unnest skill cleaning, and certificates persistence'
   );
 
-  // 49. Test N: Reconciliation migration mirrors production security triggers and policies
-  const reconcHasProfileTrigger = reconcSql.includes('protect_profile_system_fields()') && reconcSql.includes('trg_protect_profile_system_fields');
-  const reconcHasMessageTrigger = reconcSql.includes('enforce_message_sender_profile_ready()') && reconcSql.includes('trg_enforce_message_sender_profile_ready');
-  const reconcDropsLegacyPolicies = reconcSql.includes('DROP POLICY IF EXISTS "Workers can insert/update their own profile"') && reconcSql.includes('DROP POLICY IF EXISTS "Workers can upsert their own profile details"');
+  // 49. Test N: protect_profile_system_fields is NOT SECURITY DEFINER and checks current_user IN ('anon', 'authenticated')
+  const protectFuncCode = reconcSql.slice(reconcSql.indexOf('protect_profile_system_fields()'), reconcSql.indexOf('trg_protect_profile_system_fields'));
+  const protectNotDefiner = !protectFuncCode.includes('SECURITY DEFINER');
+  const protectNoSessionUserBypass = !protectFuncCode.includes('current_user != session_user');
+  const protectUserRoleCheck = protectFuncCode.includes("current_user IN ('anon', 'authenticated')");
   assert(
-    reconcHasProfileTrigger && reconcHasMessageTrigger && reconcDropsLegacyPolicies,
-    'Test N: Reconciliation migration mirrors production system-field & messaging triggers and cleans legacy worker policies'
+    protectNotDefiner && protectNoSessionUserBypass && protectUserRoleCheck,
+    'Test N: protect_profile_system_fields is NOT SECURITY DEFINER, has NO session_user bypass, and checks current_user IN (anon, authenticated)'
   );
 
-  // 50. Test O: requireEmailVerification uses fresh authUserId without currentProfileObj fallback
-  const gateUsesFreshAuthId = appCode.includes('dbService.getProfile(authUserId)');
-  const gateNoStaleFallback = !appCode.includes('isProfileComplete = currentProfileObj?.onboarding_completed');
+  // 50. Test O: Messaging trigger mirrors production exact error message & joins auth.users
+  const messageTriggerCode = reconcSql.slice(reconcSql.indexOf('enforce_message_sender_profile_ready()'), reconcSql.indexOf('trg_enforce_message_sender_profile_ready'));
+  const msgTriggerUserCheck = messageTriggerCode.includes("NEW.role = 'user'") && messageTriggerCode.includes("NEW.sender_id IS NOT NULL");
+  const msgTriggerJoinUsers = messageTriggerCode.includes("profiles p") && messageTriggerCode.includes("JOIN auth.users u ON u.id = p.id");
+  const msgTriggerExactErrMsg = messageTriggerCode.includes("Complete and verify your profile before sending messages.");
   assert(
-    gateUsesFreshAuthId && gateNoStaleFallback,
-    'Test O: requireEmailVerification uses fresh authUserId for DB profile lookup and eliminates currentProfileObj permission fallback'
+    msgTriggerUserCheck && msgTriggerJoinUsers && msgTriggerExactErrMsg,
+    'Test O: enforce_message_sender_profile_ready mirrors production JOIN auth.users check and exact user error message'
   );
 
-  // 51. Test P: pageshow listener includes isLoggedIn and isOnboardingCompleted in dependency array
-  const pageshowDepsFresh = appCode.includes('}, [showAuthModal, navigate, isLoggedIn, isOnboardingCompleted]);');
+  // 51. Test P: STABLE helper functions & acknowledge_basic_account_intro RETURN FOUND
+  const isProfileCompleteStableSql = /is_current_user_profile_complete[\s\S]*?LANGUAGE sql[\s\S]*?STABLE/i.test(reconcSql);
+  const isActiveStableSql = /is_current_user_active[\s\S]*?LANGUAGE sql[\s\S]*?STABLE/i.test(reconcSql);
+  const acknowledgeReturnsFound = reconcSql.includes('RETURN FOUND;');
+  const workerPolicyUpsertName = reconcSql.includes('Workers can upsert their own profile details');
   assert(
-    pageshowDepsFresh,
-    'Test P: BFCache pageshow listener includes isLoggedIn and isOnboardingCompleted in dependency array preventing stale closures'
+    isProfileCompleteStableSql && isActiveStableSql && acknowledgeReturnsFound && workerPolicyUpsertName,
+    'Test P: Helper RPCs are STABLE SQL, acknowledge RPC uses RETURN FOUND, and worker_profiles policy name matches production'
   );
 
   // 49. Document Security Scanner Unit Tests
