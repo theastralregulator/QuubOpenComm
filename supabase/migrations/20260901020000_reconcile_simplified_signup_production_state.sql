@@ -1,5 +1,5 @@
 -- Migration: 20260901020000_reconcile_simplified_signup_production_state.sql
--- Description: Forward-only repository reconciliation migration to align repository schema with production state for simplified signup, profile completion, basic intro acknowledgement, and hardened worker/profile security.
+-- Description: Forward-only repository reconciliation migration to align repository schema with production state for simplified signup, profile completion, basic intro acknowledgement, profile system-field protection, messaging security triggers, and worker profile RLS policies.
 
 -- 1. Ensure basic_account_intro_seen column exists on public.profiles
 ALTER TABLE public.profiles
@@ -235,20 +235,99 @@ $$;
 REVOKE ALL ON FUNCTION public.acknowledge_basic_account_intro() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.acknowledge_basic_account_intro() TO authenticated;
 
--- 6. Hardened create_my_worker_profile RPC
+-- 6. Profile System-Fields Protection Trigger
+CREATE OR REPLACE FUNCTION public.protect_profile_system_fields()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  -- Allow service_role
+  IF current_setting('role', true) = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Allow when executing within SECURITY DEFINER functions (current_user != session_user)
+  IF current_user != session_user THEN
+    RETURN NEW;
+  END IF;
+
+  -- Block direct REST API client updates modifying protected system fields
+  IF (OLD.onboarding_completed IS DISTINCT FROM NEW.onboarding_completed) OR
+     (OLD.basic_account_intro_seen IS DISTINCT FROM NEW.basic_account_intro_seen) OR
+     (OLD.profile_type IS DISTINCT FROM NEW.profile_type) OR
+     (OLD.account_status IS DISTINCT FROM NEW.account_status) OR
+     (OLD.email_verified_for_actions IS DISTINCT FROM NEW.email_verified_for_actions) OR
+     (OLD.verified_email_at IS DISTINCT FROM NEW.verified_email_at) THEN
+    RAISE EXCEPTION 'Direct modification of profile system fields is restricted' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_protect_profile_system_fields ON public.profiles;
+CREATE TRIGGER trg_protect_profile_system_fields
+BEFORE UPDATE ON public.profiles
+FOR EACH ROW
+EXECUTE FUNCTION public.protect_profile_system_fields();
+
+-- 7. Messaging Sender Profile-Ready Protection Trigger
+CREATE OR REPLACE FUNCTION public.enforce_message_sender_profile_ready()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_status text;
+  v_completed boolean;
+  v_email_confirmed timestamptz;
+BEGIN
+  IF NEW.sender_id IS NULL OR NEW.role = 'system' OR current_setting('role', true) = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT account_status, COALESCE(onboarding_completed, false)
+  INTO v_status, v_completed
+  FROM public.profiles
+  WHERE id = NEW.sender_id;
+
+  SELECT email_confirmed_at INTO v_email_confirmed
+  FROM auth.users
+  WHERE id = NEW.sender_id;
+
+  IF v_status IS DISTINCT FROM 'active' OR v_completed IS NOT TRUE OR v_email_confirmed IS NULL THEN
+    RAISE EXCEPTION 'Active account with completed profile and verified email required to send messages' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_enforce_message_sender_profile_ready ON public.messages;
+CREATE TRIGGER trg_enforce_message_sender_profile_ready
+BEFORE INSERT ON public.messages
+FOR EACH ROW
+EXECUTE FUNCTION public.enforce_message_sender_profile_ready();
+
+-- 8. Drop any legacy/incorrect create_my_worker_profile overloads
+DROP FUNCTION IF EXISTS public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric);
+
+-- 9. Hardened canonical create_my_worker_profile RPC matching exact production & frontend signature
 CREATE OR REPLACE FUNCTION public.create_my_worker_profile(
-  p_title text,
-  p_primary_category text,
+  p_profession text,
   p_skills text[],
   p_experience_years integer,
-  p_work_location text,
-  p_availability_status text,
+  p_work_location text DEFAULT NULL,
+  p_availability text DEFAULT 'Available Now',
   p_bio_summary text DEFAULT NULL,
   p_hourly_rate numeric DEFAULT NULL,
+  p_expected_salary text DEFAULT NULL,
   p_portfolio_url text DEFAULT NULL,
-  p_work_preference text DEFAULT 'both',
-  p_rate_period text DEFAULT 'hourly',
-  p_rate_amount numeric DEFAULT NULL
+  p_certificates text[] DEFAULT '{}'::text[],
+  p_languages text[] DEFAULT '{}'::text[]
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -257,7 +336,8 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_user_id uuid;
-  v_is_active boolean;
+  v_status text;
+  v_completed boolean;
   v_email_confirmed timestamptz;
   v_result RECORD;
 BEGIN
@@ -266,8 +346,12 @@ BEGIN
     RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
   END IF;
 
-  SELECT public.is_current_user_active() INTO v_is_active;
-  IF NOT v_is_active THEN
+  SELECT account_status, COALESCE(onboarding_completed, false)
+  INTO v_status, v_completed
+  FROM public.profiles
+  WHERE id = v_user_id;
+
+  IF NOT FOUND OR v_status IS DISTINCT FROM 'active' OR v_completed IS NOT TRUE THEN
     RAISE EXCEPTION 'Active account and completed profile required to register worker profile' USING ERRCODE = '42501';
   END IF;
 
@@ -276,41 +360,57 @@ BEGIN
   WHERE id = v_user_id;
 
   IF v_email_confirmed IS NULL THEN
-    RAISE EXCEPTION 'Verified email required' USING ERRCODE = '42501';
+    RAISE EXCEPTION 'Verified email required to register worker profile' USING ERRCODE = '42501';
   END IF;
 
-  IF p_availability_status NOT IN ('Available Now', 'Busy', 'On Vacation') THEN
+  IF p_profession IS NULL OR length(trim(p_profession)) = 0 THEN
+    RAISE EXCEPTION 'Valid profession is required' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_skills IS NULL OR array_length(p_skills, 1) IS NULL OR array_length(p_skills, 1) = 0 THEN
+    RAISE EXCEPTION 'At least one skill is required' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_experience_years IS NULL OR p_experience_years < 0 THEN
+    RAISE EXCEPTION 'Experience years must be a non-negative number' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_hourly_rate IS NOT NULL AND p_hourly_rate < 0 THEN
+    RAISE EXCEPTION 'Hourly rate cannot be negative' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_availability NOT IN ('Available Now', 'Busy', 'On Vacation') THEN
     RAISE EXCEPTION 'Invalid availability status' USING ERRCODE = '22023';
   END IF;
 
   INSERT INTO public.worker_profiles (
-    id, profession, skills, experience_years, work_location, availability,
-    bio_summary, hourly_rate, portfolio_url, primary_category, work_preference,
-    rate_period, rate_amount, updated_at
+    id, user_id, profession, professional_title, skills, experience_years, years_experience,
+    work_location, availability, availability_status, bio_summary, hourly_rate,
+    expected_salary, portfolio_url, languages, updated_at
   )
   VALUES (
-    v_user_id, trim(p_title), p_skills, GREATEST(0, p_experience_years),
-    trim(p_work_location), p_availability_status, NULLIF(trim(p_bio_summary), ''),
-    p_hourly_rate, NULLIF(trim(p_portfolio_url), ''), NULLIF(trim(p_primary_category), ''),
-    p_work_preference, p_rate_period, COALESCE(p_rate_amount, p_hourly_rate), now()
+    v_user_id, v_user_id, trim(p_profession), trim(p_profession), p_skills, GREATEST(0, p_experience_years), GREATEST(0, p_experience_years),
+    NULLIF(trim(p_work_location), ''), p_availability, p_availability, NULLIF(trim(p_bio_summary), ''),
+    p_hourly_rate, NULLIF(trim(p_expected_salary), ''), NULLIF(trim(p_portfolio_url), ''), COALESCE(p_languages, '{}'::text[]), now()
   )
   ON CONFLICT (id) DO UPDATE SET
     profession = EXCLUDED.profession,
+    professional_title = EXCLUDED.professional_title,
     skills = EXCLUDED.skills,
     experience_years = EXCLUDED.experience_years,
+    years_experience = EXCLUDED.years_experience,
     work_location = EXCLUDED.work_location,
     availability = EXCLUDED.availability,
+    availability_status = EXCLUDED.availability_status,
     bio_summary = EXCLUDED.bio_summary,
     hourly_rate = EXCLUDED.hourly_rate,
+    expected_salary = EXCLUDED.expected_salary,
     portfolio_url = EXCLUDED.portfolio_url,
-    primary_category = EXCLUDED.primary_category,
-    work_preference = EXCLUDED.work_preference,
-    rate_period = EXCLUDED.rate_period,
-    rate_amount = EXCLUDED.rate_amount,
+    languages = EXCLUDED.languages,
     updated_at = now()
   RETURNING * INTO v_result;
 
-  -- Only after worker profile successfully created/updated, promote profile_type and mark intro seen
+  -- Only after worker profile insert/upsert succeeds, promote profile_type and mark basic intro seen
   UPDATE public.profiles
   SET 
     profile_type = 'worker',
@@ -322,11 +422,14 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric) TO authenticated;
+REVOKE ALL ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) TO authenticated;
 
--- 7. Ensure worker_profiles own-write RLS policy requires is_current_user_active()
+-- 10. Clean up legacy own-write policies and enforce canonical policy on worker_profiles
+DROP POLICY IF EXISTS "Workers can insert/update their own profile" ON public.worker_profiles;
+DROP POLICY IF EXISTS "Workers can upsert their own profile details" ON public.worker_profiles;
 DROP POLICY IF EXISTS "Users can manage own worker profile" ON public.worker_profiles;
+
 CREATE POLICY "Users can manage own worker profile"
 ON public.worker_profiles
 FOR ALL

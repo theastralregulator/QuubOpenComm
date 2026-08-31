@@ -619,7 +619,7 @@ export default function App() {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [showAuthModal, navigate]);
+  }, [showAuthModal, navigate, isLoggedIn, isOnboardingCompleted]);
 
   const protectedRouteProps = {
     isAuthLoading,
@@ -1294,16 +1294,24 @@ export default function App() {
     }
 
     let isVerified = isEmailVerified;
+    let authUserId: string | null = null;
     if (supabase) {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          authUserId = user.id;
           isVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
           setIsEmailVerified(isVerified);
         }
       } catch (err) {
         console.error("Failed to check fresh verification status:", err);
       }
+    }
+
+    if (!authUserId) {
+      setLockedFeature(actionName);
+      setShowAuthModal('locked');
+      return;
     }
 
     if (!isVerified) {
@@ -1315,25 +1323,19 @@ export default function App() {
       return;
     }
 
-    const currentUserId = userIdState;
-    let isProfileComplete = false;
-    if (currentUserId) {
-      const freshProf = await dbService.getProfile(currentUserId);
+    const freshProf = await dbService.getProfile(authUserId);
+    if (!freshProf || freshProf.onboarding_completed !== true) {
       if (freshProf) {
         setCurrentProfileObj(freshProf);
-        isProfileComplete = freshProf.onboarding_completed === true;
-        setIsOnboardingCompleted(isProfileComplete);
+        setIsOnboardingCompleted(false);
       }
-    } else {
-      isProfileComplete = currentProfileObj?.onboarding_completed === true;
-    }
-
-    if (!isProfileComplete) {
       triggerToast("Complete your profile to continue.");
       navigate('/complete-profile');
       return;
     }
 
+    setCurrentProfileObj(freshProf);
+    setIsOnboardingCompleted(true);
     onVerified();
   };
 

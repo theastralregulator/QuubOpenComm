@@ -440,7 +440,7 @@ function runPreflightAndUnitChecks() {
   );
 
   // 44. Test H & I: Action gate re-validates canonical DB profile & incomplete users redirect to /complete-profile
-  const requireGateRefetchesProfile = /dbService\.getProfile\(currentUserId\)/i.test(
+  const requireGateRefetchesProfile = /dbService\.getProfile\(authUserId\)/i.test(
     appCode.slice(appCode.indexOf('const requireEmailVerification'), appCode.indexOf('checkEmailVerificationFreshStatus'))
   );
   const actionGateRedirectToast = appCode.includes('Complete your profile to continue.') && appCode.includes("navigate('/complete-profile')");
@@ -471,18 +471,37 @@ function runPreflightAndUnitChecks() {
     'Test L: Basic Worker intro dismissal/action invokes canonical dbService.acknowledgeBasicAccountIntro() RPC'
   );
 
-  // 48. Test M: Reconciliation migration contains required production security objects
+  // 48. Test M: Reconciliation migration contains exact production create_my_worker_profile signature and no incorrect overloads
   const reconcSql = fs.readFileSync(path.join(rootDir, 'supabase/migrations/20260901020000_reconcile_simplified_signup_production_state.sql'), 'utf8');
-  const reconcHasProfileCompleteFunc = reconcSql.includes('is_current_user_profile_complete()');
-  const reconcHasIsActiveFunc = reconcSql.includes('is_current_user_active()');
-  const reconcHasUpdateProfileFunc = reconcSql.includes('update_my_basic_profile(');
-  const reconcHasAcknowledgeIntroFunc = reconcSql.includes('acknowledge_basic_account_intro()') && reconcSql.includes('RETURNS boolean');
-  const reconcHasCreateWorkerFunc = reconcSql.includes('create_my_worker_profile(');
-  const reconcHasWorkerPolicy = reconcSql.includes('Users can manage own worker profile');
+  const reconcHasExactWorkerSig = reconcSql.includes('p_profession text') && reconcSql.includes('p_skills text[]') && reconcSql.includes('p_experience_years integer');
+  const reconcNoIncorrectOverload = !reconcSql.includes('p_title text') && !reconcSql.includes('p_primary_category text');
   assert(
-    reconcHasProfileCompleteFunc && reconcHasIsActiveFunc && reconcHasUpdateProfileFunc &&
-    reconcHasAcknowledgeIntroFunc && reconcHasCreateWorkerFunc && reconcHasWorkerPolicy,
-    'Test M: Reconciliation migration contains all required production security RPCs, policies, and hardened validation'
+    reconcHasExactWorkerSig && reconcNoIncorrectOverload,
+    'Test M: Reconciliation migration defines EXACT frontend/production create_my_worker_profile signature and contains NO incorrect p_title overload'
+  );
+
+  // 49. Test N: Reconciliation migration mirrors production security triggers and policies
+  const reconcHasProfileTrigger = reconcSql.includes('protect_profile_system_fields()') && reconcSql.includes('trg_protect_profile_system_fields');
+  const reconcHasMessageTrigger = reconcSql.includes('enforce_message_sender_profile_ready()') && reconcSql.includes('trg_enforce_message_sender_profile_ready');
+  const reconcDropsLegacyPolicies = reconcSql.includes('DROP POLICY IF EXISTS "Workers can insert/update their own profile"') && reconcSql.includes('DROP POLICY IF EXISTS "Workers can upsert their own profile details"');
+  assert(
+    reconcHasProfileTrigger && reconcHasMessageTrigger && reconcDropsLegacyPolicies,
+    'Test N: Reconciliation migration mirrors production system-field & messaging triggers and cleans legacy worker policies'
+  );
+
+  // 50. Test O: requireEmailVerification uses fresh authUserId without currentProfileObj fallback
+  const gateUsesFreshAuthId = appCode.includes('dbService.getProfile(authUserId)');
+  const gateNoStaleFallback = !appCode.includes('isProfileComplete = currentProfileObj?.onboarding_completed');
+  assert(
+    gateUsesFreshAuthId && gateNoStaleFallback,
+    'Test O: requireEmailVerification uses fresh authUserId for DB profile lookup and eliminates currentProfileObj permission fallback'
+  );
+
+  // 51. Test P: pageshow listener includes isLoggedIn and isOnboardingCompleted in dependency array
+  const pageshowDepsFresh = appCode.includes('}, [showAuthModal, navigate, isLoggedIn, isOnboardingCompleted]);');
+  assert(
+    pageshowDepsFresh,
+    'Test P: BFCache pageshow listener includes isLoggedIn and isOnboardingCompleted in dependency array preventing stale closures'
   );
 
   // 49. Document Security Scanner Unit Tests
