@@ -52,7 +52,7 @@ $$;
 REVOKE ALL ON FUNCTION public.is_current_user_active() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_current_user_active() TO authenticated, service_role;
 
--- 4. Hardened update_my_basic_profile RPC
+-- 4. Hardened update_my_basic_profile RPC matching exact production validation & COALESCE logic
 CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
   p_username text DEFAULT NULL,
   p_full_name text DEFAULT NULL,
@@ -81,7 +81,8 @@ DECLARE
   v_user_id uuid;
   v_email_confirmed timestamptz;
   v_current public.profiles%ROWTYPE;
-  v_new_full_name text;
+  v_trimmed_username text;
+  v_trimmed_full_name text;
   v_final_full_name text;
   v_final_city text;
   v_final_state text;
@@ -110,38 +111,40 @@ BEGIN
     RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
   END IF;
 
-  v_final_full_name := v_current.full_name;
-  v_final_city := v_current.city;
-  v_final_state := v_current.state;
-  v_final_country := v_current.country;
-  v_final_district := v_current.district;
-  v_final_lat := v_current.latitude;
-  v_final_lng := v_current.longitude;
-
-  IF p_full_name IS NOT NULL THEN
-    v_new_full_name := trim(p_full_name);
-    IF length(v_new_full_name) > 0 THEN
-      v_final_full_name := v_new_full_name;
+  IF p_username IS NOT NULL THEN
+    v_trimmed_username := trim(p_username);
+    IF length(v_trimmed_username) = 0 THEN
+      RAISE EXCEPTION 'Username cannot be empty or whitespace' USING ERRCODE = '22023';
     END IF;
   END IF;
 
-  IF p_city IS NOT NULL AND length(trim(p_city)) > 0 THEN v_final_city := trim(p_city); END IF;
-  IF p_state IS NOT NULL AND length(trim(p_state)) > 0 THEN v_final_state := trim(p_state); END IF;
-  IF p_country IS NOT NULL AND length(trim(p_country)) > 0 THEN v_final_country := trim(p_country); END IF;
-  IF p_district IS NOT NULL AND length(trim(p_district)) > 0 THEN v_final_district := trim(p_district); END IF;
+  IF p_full_name IS NOT NULL THEN
+    v_trimmed_full_name := trim(p_full_name);
+    IF length(v_trimmed_full_name) = 0 THEN
+      RAISE EXCEPTION 'Full name cannot be empty or whitespace' USING ERRCODE = '22023';
+    END IF;
+    v_final_full_name := v_trimmed_full_name;
+  ELSE
+    v_final_full_name := v_current.full_name;
+  END IF;
+
+  v_final_city := COALESCE(NULLIF(trim(p_city), ''), v_current.city);
+  v_final_state := COALESCE(NULLIF(trim(p_state), ''), v_current.state);
+  v_final_country := COALESCE(NULLIF(trim(p_country), ''), v_current.country);
+  v_final_district := COALESCE(NULLIF(trim(p_district), ''), v_current.district);
+  v_final_lat := COALESCE(p_latitude, v_current.latitude);
+  v_final_lng := COALESCE(p_longitude, v_current.longitude);
 
   IF p_latitude IS NOT NULL THEN
     IF p_latitude < -90.0 OR p_latitude > 90.0 THEN
       RAISE EXCEPTION 'Latitude must be between -90 and 90 degrees' USING ERRCODE = '22023';
     END IF;
-    v_final_lat := p_latitude;
   END IF;
 
   IF p_longitude IS NOT NULL THEN
     IF p_longitude < -180.0 OR p_longitude > 180.0 THEN
       RAISE EXCEPTION 'Longitude must be between -180 and 180 degrees' USING ERRCODE = '22023';
     END IF;
-    v_final_lng := p_longitude;
   END IF;
 
   -- First false -> true completion transition validation
@@ -171,9 +174,9 @@ BEGIN
   SET 
     username = COALESCE(NULLIF(trim(p_username), ''), username),
     full_name = v_final_full_name,
-    avatar_url = CASE WHEN p_avatar_url IS NULL THEN avatar_url ELSE NULLIF(trim(p_avatar_url), '') END,
-    banner_url = CASE WHEN p_banner_url IS NULL THEN banner_url ELSE NULLIF(trim(p_banner_url), '') END,
-    phone = CASE WHEN p_phone IS NULL THEN phone ELSE NULLIF(trim(p_phone), '') END,
+    avatar_url = COALESCE(NULLIF(trim(p_avatar_url), ''), avatar_url),
+    banner_url = COALESCE(NULLIF(trim(p_banner_url), ''), banner_url),
+    phone = COALESCE(NULLIF(trim(p_phone), ''), phone),
     city = v_final_city,
     state = v_final_state,
     country = v_final_country,
@@ -185,7 +188,7 @@ BEGIN
     preferred_language = COALESCE(NULLIF(trim(p_preferred_language), ''), preferred_language),
     bio = CASE WHEN p_bio IS NULL THEN bio ELSE trim(p_bio) END,
     show_location_publicly = COALESCE(p_show_location_publicly, show_location_publicly),
-    onboarding_completed = CASE WHEN COALESCE(v_current.onboarding_completed, false) = true THEN true ELSE COALESCE(p_onboarding_completed, v_current.onboarding_completed) END,
+    onboarding_completed = CASE WHEN p_onboarding_completed IS TRUE THEN true ELSE v_current.onboarding_completed END,
     updated_at = now()
   WHERE id = v_user_id
   RETURNING 
@@ -302,7 +305,7 @@ GRANT EXECUTE ON FUNCTION public.enforce_message_sender_profile_ready() TO servi
 -- 8. Drop any legacy/incorrect create_my_worker_profile overloads
 DROP FUNCTION IF EXISTS public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric);
 
--- 9. Hardened canonical create_my_worker_profile RPC matching exact production & frontend body
+-- 9. Hardened canonical create_my_worker_profile RPC matching exact production body & COALESCE semantics
 CREATE OR REPLACE FUNCTION public.create_my_worker_profile(
   p_profession text,
   p_skills text[],
@@ -322,12 +325,14 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
-  v_prof RECORD;
+  v_user_id uuid;
+  v_profile public.profiles%ROWTYPE;
   v_email_confirmed timestamptz;
   v_clean_skills text[];
-  v_result RECORD;
+  v_worker RECORD;
 BEGIN
-  IF auth.uid() IS NULL THEN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
   END IF;
 
@@ -339,7 +344,7 @@ BEGIN
     SELECT DISTINCT trim(s)
     FROM unnest(p_skills) AS s
     WHERE length(trim(s)) > 0
-    ORDER BY 1
+    ORDER BY trim(s)
   ) INTO v_clean_skills;
 
   IF array_length(v_clean_skills, 1) IS NULL OR array_length(v_clean_skills, 1) = 0 THEN
@@ -359,18 +364,26 @@ BEGIN
   END IF;
 
   SELECT *
-  INTO v_prof
+  INTO v_profile
   FROM public.profiles
-  WHERE id = auth.uid()
+  WHERE id = v_user_id
   FOR UPDATE;
 
-  IF NOT FOUND OR v_prof.account_status IS DISTINCT FROM 'active' OR v_prof.onboarding_completed IS NOT TRUE THEN
-    RAISE EXCEPTION 'Active account and completed profile required to register worker profile' USING ERRCODE = '42501';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF v_profile.account_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'Active account required to register worker profile' USING ERRCODE = '42501';
+  END IF;
+
+  IF v_profile.onboarding_completed IS NOT TRUE THEN
+    RAISE EXCEPTION 'Completed profile required to register worker profile' USING ERRCODE = '42501';
   END IF;
 
   SELECT email_confirmed_at INTO v_email_confirmed
   FROM auth.users
-  WHERE id = auth.uid();
+  WHERE id = v_user_id;
 
   IF v_email_confirmed IS NULL THEN
     RAISE EXCEPTION 'Verified email required to register worker profile' USING ERRCODE = '42501';
@@ -382,7 +395,7 @@ BEGIN
     languages, created_at, updated_at
   )
   VALUES (
-    auth.uid(), trim(p_profession), v_clean_skills, GREATEST(0, p_experience_years),
+    v_user_id, trim(p_profession), v_clean_skills, GREATEST(0, p_experience_years),
     NULLIF(trim(p_work_location), ''), p_availability, NULLIF(trim(p_bio_summary), ''),
     p_hourly_rate, NULLIF(trim(p_expected_salary), ''), NULLIF(trim(p_portfolio_url), ''),
     COALESCE(p_certificates, '{}'::text[]), COALESCE(p_languages, '{}'::text[]), now(), now()
@@ -397,10 +410,10 @@ BEGIN
     hourly_rate = COALESCE(EXCLUDED.hourly_rate, public.worker_profiles.hourly_rate),
     expected_salary = COALESCE(EXCLUDED.expected_salary, public.worker_profiles.expected_salary),
     portfolio_url = COALESCE(EXCLUDED.portfolio_url, public.worker_profiles.portfolio_url),
-    certificates = CASE WHEN array_length(EXCLUDED.certificates, 1) > 0 THEN EXCLUDED.certificates ELSE public.worker_profiles.certificates END,
-    languages = CASE WHEN array_length(EXCLUDED.languages, 1) > 0 THEN EXCLUDED.languages ELSE public.worker_profiles.languages END,
+    certificates = COALESCE(EXCLUDED.certificates, public.worker_profiles.certificates),
+    languages = COALESCE(EXCLUDED.languages, public.worker_profiles.languages),
     updated_at = now()
-  RETURNING * INTO v_result;
+  RETURNING * INTO v_worker;
 
   -- Only after worker profile insert/upsert succeeds, promote profile_type and mark basic intro seen
   UPDATE public.profiles
@@ -408,9 +421,9 @@ BEGIN
     profile_type = 'worker',
     basic_account_intro_seen = true,
     updated_at = now()
-  WHERE id = auth.uid();
+  WHERE id = v_user_id;
 
-  RETURN to_jsonb(v_result);
+  RETURN to_jsonb(v_worker);
 END;
 $$;
 
