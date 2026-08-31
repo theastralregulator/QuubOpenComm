@@ -13,7 +13,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT EXISTS (
+  SELECT auth.uid() IS NOT NULL AND EXISTS (
     SELECT 1
     FROM public.profiles
     WHERE id = auth.uid()
@@ -22,27 +22,35 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.is_current_user_profile_complete() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.is_current_user_profile_complete() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_current_user_profile_complete() TO authenticated, service_role;
 
 -- 3. Update is_current_user_active() to require both active account_status and onboarding_completed = true
 CREATE OR REPLACE FUNCTION public.is_current_user_active()
 RETURNS boolean
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.profiles
-    WHERE id = auth.uid()
-      AND account_status = 'active'
-      AND onboarding_completed = true
-  );
+DECLARE
+  v_status text;
+  v_completed boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN false;
+  END IF;
+
+  SELECT account_status, COALESCE(onboarding_completed, false)
+  INTO v_status, v_completed
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  RETURN (v_status = 'active' AND v_completed = true);
+END;
 $$;
 
 REVOKE ALL ON FUNCTION public.is_current_user_active() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.is_current_user_active() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_current_user_active() TO authenticated, service_role;
 
 -- 4. Hardened update_my_basic_profile RPC
 CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
@@ -72,7 +80,7 @@ AS $$
 DECLARE
   v_user_id uuid;
   v_email_confirmed timestamptz;
-  v_old_completed boolean;
+  v_current public.profiles%ROWTYPE;
   v_new_full_name text;
   v_final_full_name text;
   v_final_city text;
@@ -92,8 +100,8 @@ BEGIN
   FROM auth.users
   WHERE id = v_user_id;
 
-  SELECT onboarding_completed, full_name, city, state, country, district, latitude, longitude
-  INTO v_old_completed, v_final_full_name, v_final_city, v_final_state, v_final_country, v_final_district, v_final_lat, v_final_lng
+  SELECT *
+  INTO v_current
   FROM public.profiles
   WHERE id = v_user_id
   FOR UPDATE;
@@ -101,6 +109,14 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
   END IF;
+
+  v_final_full_name := v_current.full_name;
+  v_final_city := v_current.city;
+  v_final_state := v_current.state;
+  v_final_country := v_current.country;
+  v_final_district := v_current.district;
+  v_final_lat := v_current.latitude;
+  v_final_lng := v_current.longitude;
 
   IF p_full_name IS NOT NULL THEN
     v_new_full_name := trim(p_full_name);
@@ -129,7 +145,7 @@ BEGIN
   END IF;
 
   -- First false -> true completion transition validation
-  IF (COALESCE(v_old_completed, false) = false AND p_onboarding_completed = true) THEN
+  IF (COALESCE(v_current.onboarding_completed, false) = false AND p_onboarding_completed = true) THEN
     IF v_email_confirmed IS NULL THEN
       RAISE EXCEPTION 'Email verification required before profile completion' USING ERRCODE = '42501';
     END IF;
@@ -169,7 +185,7 @@ BEGIN
     preferred_language = COALESCE(NULLIF(trim(p_preferred_language), ''), preferred_language),
     bio = CASE WHEN p_bio IS NULL THEN bio ELSE trim(p_bio) END,
     show_location_publicly = COALESCE(p_show_location_publicly, show_location_publicly),
-    onboarding_completed = CASE WHEN COALESCE(v_old_completed, false) = true THEN true ELSE COALESCE(p_onboarding_completed, onboarding_completed) END,
+    onboarding_completed = CASE WHEN COALESCE(v_current.onboarding_completed, false) = true THEN true ELSE COALESCE(p_onboarding_completed, v_current.onboarding_completed) END,
     updated_at = now()
   WHERE id = v_user_id
   RETURNING 
@@ -184,9 +200,12 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) TO authenticated, service_role;
 
 -- 5. RPC: acknowledge_basic_account_intro() returning boolean
+-- MUST DROP PREVIOUS jsonb OVERLOAD FROM MIGRATION 20260901010000 TO PREVENT RETURN TYPE ALTERATION FAILURE
+DROP FUNCTION IF EXISTS public.acknowledge_basic_account_intro();
+
 CREATE OR REPLACE FUNCTION public.acknowledge_basic_account_intro()
 RETURNS boolean
 LANGUAGE plpgsql
@@ -209,7 +228,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.acknowledge_basic_account_intro() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.acknowledge_basic_account_intro() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.acknowledge_basic_account_intro() TO authenticated, service_role;
 
 -- 6. Profile System-Fields Protection Trigger (NOT SECURITY DEFINER, exact production behavior)
 CREATE OR REPLACE FUNCTION public.protect_profile_system_fields()
@@ -372,14 +391,14 @@ BEGIN
     profession = EXCLUDED.profession,
     skills = EXCLUDED.skills,
     experience_years = EXCLUDED.experience_years,
-    work_location = EXCLUDED.work_location,
+    work_location = COALESCE(EXCLUDED.work_location, public.worker_profiles.work_location),
     availability = EXCLUDED.availability,
-    bio_summary = EXCLUDED.bio_summary,
-    hourly_rate = EXCLUDED.hourly_rate,
-    expected_salary = EXCLUDED.expected_salary,
-    portfolio_url = EXCLUDED.portfolio_url,
-    certificates = EXCLUDED.certificates,
-    languages = EXCLUDED.languages,
+    bio_summary = COALESCE(EXCLUDED.bio_summary, public.worker_profiles.bio_summary),
+    hourly_rate = COALESCE(EXCLUDED.hourly_rate, public.worker_profiles.hourly_rate),
+    expected_salary = COALESCE(EXCLUDED.expected_salary, public.worker_profiles.expected_salary),
+    portfolio_url = COALESCE(EXCLUDED.portfolio_url, public.worker_profiles.portfolio_url),
+    certificates = CASE WHEN array_length(EXCLUDED.certificates, 1) > 0 THEN EXCLUDED.certificates ELSE public.worker_profiles.certificates END,
+    languages = CASE WHEN array_length(EXCLUDED.languages, 1) > 0 THEN EXCLUDED.languages ELSE public.worker_profiles.languages END,
     updated_at = now()
   RETURNING * INTO v_result;
 
@@ -396,7 +415,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(text, text[], integer, text, text, text, numeric, text, text, text[], text[]) TO authenticated, service_role;
 
 -- 10. Clean up legacy own-write policies and enforce canonical policy on worker_profiles
 DROP POLICY IF EXISTS "Workers can insert/update their own profile" ON public.worker_profiles;

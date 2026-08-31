@@ -471,17 +471,18 @@ function runPreflightAndUnitChecks() {
     'Test L: Basic Worker intro dismissal/action invokes canonical dbService.acknowledgeBasicAccountIntro() RPC'
   );
 
-  // 48. Test M: Reconciliation migration contains exact production create_my_worker_profile signature, body, FOR UPDATE locks, and skills unnest
+  // 48. Test M: Reconciliation migration contains exact production create_my_worker_profile signature, body, FOR UPDATE locks, unnest skills, and COALESCE upsert
   const reconcSql = fs.readFileSync(path.join(rootDir, 'supabase/migrations/20260901020000_reconcile_simplified_signup_production_state.sql'), 'utf8');
   const reconcHasExactWorkerSig = reconcSql.includes('p_profession text') && reconcSql.includes('p_skills text[]') && reconcSql.includes('p_experience_years integer');
   const reconcNoIncorrectOverload = !reconcSql.includes('p_title text') && !reconcSql.includes('p_primary_category text');
   const reconcWorkerBodyParity = reconcSql.includes('search_path = public, auth, pg_temp') &&
     reconcSql.includes('FOR UPDATE;') &&
     reconcSql.includes('unnest(p_skills)') &&
-    reconcSql.includes('certificates');
+    reconcSql.includes('certificates') &&
+    reconcSql.includes('COALESCE(EXCLUDED.work_location, public.worker_profiles.work_location)');
   assert(
     reconcHasExactWorkerSig && reconcNoIncorrectOverload && reconcWorkerBodyParity,
-    'Test M: create_my_worker_profile uses exact 11-param signature, search_path with auth, FOR UPDATE lock, unnest skill cleaning, and certificates persistence'
+    'Test M: create_my_worker_profile uses exact 11-param signature, FOR UPDATE lock, unnest skill cleaning, and COALESCE upsert semantics'
   );
 
   // 49. Test N: protect_profile_system_fields is NOT SECURITY DEFINER and checks current_user IN ('anon', 'authenticated')
@@ -504,14 +505,15 @@ function runPreflightAndUnitChecks() {
     'Test O: enforce_message_sender_profile_ready mirrors production JOIN auth.users check and exact user error message'
   );
 
-  // 51. Test P: STABLE helper functions & acknowledge_basic_account_intro RETURN FOUND
+  // 51. Test P: Migration chain return-type fix & exact production helper RPC attributes
+  const dropAcknowledgeBeforeCreate = reconcSql.indexOf('DROP FUNCTION IF EXISTS public.acknowledge_basic_account_intro();') < reconcSql.indexOf('CREATE OR REPLACE FUNCTION public.acknowledge_basic_account_intro()');
   const isProfileCompleteStableSql = /is_current_user_profile_complete[\s\S]*?LANGUAGE sql[\s\S]*?STABLE/i.test(reconcSql);
-  const isActiveStableSql = /is_current_user_active[\s\S]*?LANGUAGE sql[\s\S]*?STABLE/i.test(reconcSql);
+  const isActivePlpgsqlStable = /is_current_user_active[\s\S]*?LANGUAGE plpgsql[\s\S]*?STABLE/i.test(reconcSql);
   const acknowledgeReturnsFound = reconcSql.includes('RETURN FOUND;');
   const workerPolicyUpsertName = reconcSql.includes('Workers can upsert their own profile details');
   assert(
-    isProfileCompleteStableSql && isActiveStableSql && acknowledgeReturnsFound && workerPolicyUpsertName,
-    'Test P: Helper RPCs are STABLE SQL, acknowledge RPC uses RETURN FOUND, and worker_profiles policy name matches production'
+    dropAcknowledgeBeforeCreate && isProfileCompleteStableSql && isActivePlpgsqlStable && acknowledgeReturnsFound && workerPolicyUpsertName,
+    'Test P: 20260901020000 drops acknowledge_basic_account_intro before recreate (JSONB->BOOLEAN fix), uses PL/pgSQL STABLE is_current_user_active, and RETURN FOUND'
   );
 
   // 49. Document Security Scanner Unit Tests
