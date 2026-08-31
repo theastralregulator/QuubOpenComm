@@ -294,7 +294,7 @@ export default function App() {
     _setShowAuthModal(tab);
   };
   const [lockedFeature, setLockedFeature] = useState<string | null>(null);
-  const [signupStep, setSignupStep] = useState<1 | 2 | 3 | 4>(1);
+  const [signupStep, setSignupStep] = useState<1 | 3>(1);
   const [signupType, setSignupType] = useState<'normal' | 'worker' | 'company'>('normal');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
@@ -428,9 +428,7 @@ export default function App() {
   const [isEmailNotConfirmedError, setIsEmailNotConfirmedError] = useState<boolean>(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(() => {
-    return localStorage.getItem('opencomm_onboarding_completed') === 'true';
-  });
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState<boolean>(false);
 
   // --- AUTH CALLBACK ROUTE STATES ---
   const [authCallbackStatus, setAuthCallbackStatus] = useState<'processing' | 'success' | 'error'>('processing');
@@ -536,7 +534,6 @@ export default function App() {
         p === '/signup' ||
         p === '/login' ||
         p === '/verify-email' ||
-        p === '/complete-profile' ||
         p.startsWith('/auth/callback') ||
         p.startsWith('/reset-password') ||
         p.startsWith('/recovery')) {
@@ -607,9 +604,7 @@ export default function App() {
 
     const handlePageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
-        const isUserLoggedIn = localStorage.getItem('opencomm_is_logged_in') === 'true';
-        const isOnboarded = localStorage.getItem('opencomm_onboarding_completed') === 'true';
-        if (isUserLoggedIn && isOnboarded) {
+        if (isLoggedIn && isOnboardingCompleted) {
           _setShowAuthModal(null);
           if (window.location.pathname === '/signup' || window.location.pathname === '/login') {
             navigate('/', { replace: true });
@@ -1072,7 +1067,8 @@ export default function App() {
       setTheme('light');
     }
 
-    // Removed opencomm_user_id and opencomm_is_logged_in from localStorage
+    // Populate canonical profile state for authenticated user
+    setCurrentProfileObj(profile);
 
     const isOnboarded = profile?.onboarding_completed === true;
     setIsOnboardingCompleted(isOnboarded);
@@ -1080,17 +1076,18 @@ export default function App() {
     if (isOnboarded) {
       _setShowAuthModal(null);
     }
+
+    // Basic Account Intro Modal eligibility check
     if (
       profile &&
+      profile.onboarding_completed === true &&
       profile.profile_type === 'basic' &&
       !profile.is_worker_listed &&
-      profile.basic_account_intro_seen === false &&
-      localStorage.getItem(`opencomm_basic_intro_seen_${userId}`) !== 'true'
+      profile.basic_account_intro_seen === false
     ) {
       dbService.hasWorkerProfile(userId).then(workerExists => {
         if (workerExists) {
-          localStorage.setItem(`opencomm_basic_intro_seen_${userId}`, 'true');
-          dbService.updateProfile(userId, { basic_account_intro_seen: true }).catch(() => {});
+          dbService.acknowledgeBasicAccountIntro().catch(() => {});
         } else {
           setShowBasicWorkerIntroModal(true);
         }
@@ -1213,12 +1210,18 @@ export default function App() {
   const handleLogoutCleanState = () => {
     setIsLoggedIn(false);
     setIsEmailVerified(false);
+    setIsOnboardingCompleted(false);
+    setCurrentProfileObj(null);
     setUsername('');
     setUserPhoto('');
     setUserType('normal');
     setTheme('light'); // Reset theme state to Light Mode on logout
 
     localStorage.removeItem('opencomm_username');
+    localStorage.removeItem('opencomm_is_logged_in');
+    localStorage.removeItem('opencomm_user_type');
+    localStorage.removeItem('opencomm_onboarding_completed');
+    localStorage.removeItem('opencomm_pending_email');
     setUserIdState(null);
 
     // Clear saved-state flags & refs for previous user
@@ -1312,7 +1315,19 @@ export default function App() {
       return;
     }
 
-    const isProfileComplete = currentProfileObj?.onboarding_completed === true;
+    const currentUserId = userIdState;
+    let isProfileComplete = false;
+    if (currentUserId) {
+      const freshProf = await dbService.getProfile(currentUserId);
+      if (freshProf) {
+        setCurrentProfileObj(freshProf);
+        isProfileComplete = freshProf.onboarding_completed === true;
+        setIsOnboardingCompleted(isProfileComplete);
+      }
+    } else {
+      isProfileComplete = currentProfileObj?.onboarding_completed === true;
+    }
+
     if (!isProfileComplete) {
       triggerToast("Complete your profile to continue.");
       navigate('/complete-profile');

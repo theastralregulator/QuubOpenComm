@@ -1,0 +1,335 @@
+-- Migration: 20260901020000_reconcile_simplified_signup_production_state.sql
+-- Description: Forward-only repository reconciliation migration to align repository schema with production state for simplified signup, profile completion, basic intro acknowledgement, and hardened worker/profile security.
+
+-- 1. Ensure basic_account_intro_seen column exists on public.profiles
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS basic_account_intro_seen boolean DEFAULT false;
+
+-- 2. Helper function: is_current_user_profile_complete()
+CREATE OR REPLACE FUNCTION public.is_current_user_profile_complete()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_completed boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN false;
+  END IF;
+
+  SELECT COALESCE(onboarding_completed, false) INTO v_completed
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  RETURN COALESCE(v_completed, false);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.is_current_user_profile_complete() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_current_user_profile_complete() TO authenticated;
+
+-- 3. Update is_current_user_active() to require both active account_status and onboarding_completed = true
+CREATE OR REPLACE FUNCTION public.is_current_user_active()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_status text;
+  v_completed boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN false;
+  END IF;
+
+  SELECT account_status, COALESCE(onboarding_completed, false)
+  INTO v_status, v_completed
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  RETURN (v_status = 'active' AND v_completed = true);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.is_current_user_active() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_current_user_active() TO authenticated;
+
+-- 4. Hardened update_my_basic_profile RPC
+CREATE OR REPLACE FUNCTION public.update_my_basic_profile(
+  p_username text DEFAULT NULL,
+  p_full_name text DEFAULT NULL,
+  p_avatar_url text DEFAULT NULL,
+  p_banner_url text DEFAULT NULL,
+  p_phone text DEFAULT NULL,
+  p_city text DEFAULT NULL,
+  p_state text DEFAULT NULL,
+  p_country text DEFAULT NULL,
+  p_preferred_language text DEFAULT NULL,
+  p_bio text DEFAULT NULL,
+  p_show_location_publicly boolean DEFAULT NULL,
+  p_onboarding_completed boolean DEFAULT NULL,
+  p_country_code text DEFAULT NULL,
+  p_state_code text DEFAULT NULL,
+  p_district text DEFAULT NULL,
+  p_latitude double precision DEFAULT NULL,
+  p_longitude double precision DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_email_confirmed timestamptz;
+  v_old_completed boolean;
+  v_new_full_name text;
+  v_final_full_name text;
+  v_final_city text;
+  v_final_state text;
+  v_final_country text;
+  v_final_district text;
+  v_final_lat double precision;
+  v_final_lng double precision;
+  v_updated RECORD;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT email_confirmed_at INTO v_email_confirmed
+  FROM auth.users
+  WHERE id = v_user_id;
+
+  SELECT onboarding_completed, full_name, city, state, country, district, latitude, longitude
+  INTO v_old_completed, v_final_full_name, v_final_city, v_final_state, v_final_country, v_final_district, v_final_lat, v_final_lng
+  FROM public.profiles
+  WHERE id = v_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Profile not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF p_full_name IS NOT NULL THEN
+    v_new_full_name := trim(p_full_name);
+    IF length(v_new_full_name) > 0 THEN
+      v_final_full_name := v_new_full_name;
+    END IF;
+  END IF;
+
+  IF p_city IS NOT NULL AND length(trim(p_city)) > 0 THEN v_final_city := trim(p_city); END IF;
+  IF p_state IS NOT NULL AND length(trim(p_state)) > 0 THEN v_final_state := trim(p_state); END IF;
+  IF p_country IS NOT NULL AND length(trim(p_country)) > 0 THEN v_final_country := trim(p_country); END IF;
+  IF p_district IS NOT NULL AND length(trim(p_district)) > 0 THEN v_final_district := trim(p_district); END IF;
+
+  IF p_latitude IS NOT NULL THEN
+    IF p_latitude < -90.0 OR p_latitude > 90.0 THEN
+      RAISE EXCEPTION 'Latitude must be between -90 and 90 degrees' USING ERRCODE = '22023';
+    END IF;
+    v_final_lat := p_latitude;
+  END IF;
+
+  IF p_longitude IS NOT NULL THEN
+    IF p_longitude < -180.0 OR p_longitude > 180.0 THEN
+      RAISE EXCEPTION 'Longitude must be between -180 and 180 degrees' USING ERRCODE = '22023';
+    END IF;
+    v_final_lng := p_longitude;
+  END IF;
+
+  -- First false -> true completion transition validation
+  IF (COALESCE(v_old_completed, false) = false AND p_onboarding_completed = true) THEN
+    IF v_email_confirmed IS NULL THEN
+      RAISE EXCEPTION 'Email verification required before profile completion' USING ERRCODE = '42501';
+    END IF;
+
+    IF v_final_full_name IS NULL OR length(trim(v_final_full_name)) = 0 THEN
+      RAISE EXCEPTION 'Full name is required for profile completion' USING ERRCODE = '22023';
+    END IF;
+
+    IF v_final_country IS NULL OR length(trim(v_final_country)) = 0 OR v_final_lat IS NULL OR v_final_lng IS NULL THEN
+      RAISE EXCEPTION 'Valid location with coordinates is required for profile completion' USING ERRCODE = '22023';
+    END IF;
+
+    IF NOT (
+      (v_final_city IS NOT NULL AND length(trim(v_final_city)) > 0)
+      OR
+      ((v_final_state IS NOT NULL AND length(trim(v_final_state)) > 0) AND (v_final_district IS NOT NULL AND length(trim(v_final_district)) > 0))
+    ) THEN
+      RAISE EXCEPTION 'Complete location details (city or state+district) are required for profile completion' USING ERRCODE = '22023';
+    END IF;
+  END IF;
+
+  UPDATE public.profiles
+  SET 
+    username = COALESCE(NULLIF(trim(p_username), ''), username),
+    full_name = v_final_full_name,
+    avatar_url = CASE WHEN p_avatar_url IS NULL THEN avatar_url ELSE NULLIF(trim(p_avatar_url), '') END,
+    banner_url = CASE WHEN p_banner_url IS NULL THEN banner_url ELSE NULLIF(trim(p_banner_url), '') END,
+    phone = CASE WHEN p_phone IS NULL THEN phone ELSE NULLIF(trim(p_phone), '') END,
+    city = v_final_city,
+    state = v_final_state,
+    country = v_final_country,
+    country_code = COALESCE(NULLIF(trim(p_country_code), ''), country_code),
+    state_code = COALESCE(NULLIF(trim(p_state_code), ''), state_code),
+    district = v_final_district,
+    latitude = v_final_lat,
+    longitude = v_final_lng,
+    preferred_language = COALESCE(NULLIF(trim(p_preferred_language), ''), preferred_language),
+    bio = CASE WHEN p_bio IS NULL THEN bio ELSE trim(p_bio) END,
+    show_location_publicly = COALESCE(p_show_location_publicly, show_location_publicly),
+    onboarding_completed = CASE WHEN COALESCE(v_old_completed, false) = true THEN true ELSE COALESCE(p_onboarding_completed, onboarding_completed) END,
+    updated_at = now()
+  WHERE id = v_user_id
+  RETURNING 
+    id, username, full_name, avatar_url, banner_url, phone, city, state, country, 
+    country_code, state_code, district, latitude, longitude,
+    preferred_language, bio, show_location_publicly, onboarding_completed, 
+    basic_account_intro_seen, profile_type, created_at, updated_at 
+  INTO v_updated;
+
+  RETURN to_jsonb(v_updated);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_my_basic_profile(text, text, text, text, text, text, text, text, text, text, boolean, boolean, text, text, text, double precision, double precision) TO authenticated;
+
+-- 5. RPC: acknowledge_basic_account_intro() returning boolean
+CREATE OR REPLACE FUNCTION public.acknowledge_basic_account_intro()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_completed boolean;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT COALESCE(onboarding_completed, false) INTO v_completed
+  FROM public.profiles
+  WHERE id = v_user_id;
+
+  IF v_completed IS NOT TRUE THEN
+    RAISE EXCEPTION 'Profile must be completed before acknowledging basic intro' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.profiles
+  SET 
+    basic_account_intro_seen = true,
+    updated_at = now()
+  WHERE id = v_user_id AND onboarding_completed = true;
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.acknowledge_basic_account_intro() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.acknowledge_basic_account_intro() TO authenticated;
+
+-- 6. Hardened create_my_worker_profile RPC
+CREATE OR REPLACE FUNCTION public.create_my_worker_profile(
+  p_title text,
+  p_primary_category text,
+  p_skills text[],
+  p_experience_years integer,
+  p_work_location text,
+  p_availability_status text,
+  p_bio_summary text DEFAULT NULL,
+  p_hourly_rate numeric DEFAULT NULL,
+  p_portfolio_url text DEFAULT NULL,
+  p_work_preference text DEFAULT 'both',
+  p_rate_period text DEFAULT 'hourly',
+  p_rate_amount numeric DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_is_active boolean;
+  v_email_confirmed timestamptz;
+  v_result RECORD;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT public.is_current_user_active() INTO v_is_active;
+  IF NOT v_is_active THEN
+    RAISE EXCEPTION 'Active account and completed profile required to register worker profile' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT email_confirmed_at INTO v_email_confirmed
+  FROM auth.users
+  WHERE id = v_user_id;
+
+  IF v_email_confirmed IS NULL THEN
+    RAISE EXCEPTION 'Verified email required' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_availability_status NOT IN ('Available Now', 'Busy', 'On Vacation') THEN
+    RAISE EXCEPTION 'Invalid availability status' USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.worker_profiles (
+    id, profession, skills, experience_years, work_location, availability,
+    bio_summary, hourly_rate, portfolio_url, primary_category, work_preference,
+    rate_period, rate_amount, updated_at
+  )
+  VALUES (
+    v_user_id, trim(p_title), p_skills, GREATEST(0, p_experience_years),
+    trim(p_work_location), p_availability_status, NULLIF(trim(p_bio_summary), ''),
+    p_hourly_rate, NULLIF(trim(p_portfolio_url), ''), NULLIF(trim(p_primary_category), ''),
+    p_work_preference, p_rate_period, COALESCE(p_rate_amount, p_hourly_rate), now()
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    profession = EXCLUDED.profession,
+    skills = EXCLUDED.skills,
+    experience_years = EXCLUDED.experience_years,
+    work_location = EXCLUDED.work_location,
+    availability = EXCLUDED.availability,
+    bio_summary = EXCLUDED.bio_summary,
+    hourly_rate = EXCLUDED.hourly_rate,
+    portfolio_url = EXCLUDED.portfolio_url,
+    primary_category = EXCLUDED.primary_category,
+    work_preference = EXCLUDED.work_preference,
+    rate_period = EXCLUDED.rate_period,
+    rate_amount = EXCLUDED.rate_amount,
+    updated_at = now()
+  RETURNING * INTO v_result;
+
+  -- Only after worker profile successfully created/updated, promote profile_type and mark intro seen
+  UPDATE public.profiles
+  SET 
+    profile_type = 'worker',
+    basic_account_intro_seen = true,
+    updated_at = now()
+  WHERE id = v_user_id;
+
+  RETURN to_jsonb(v_result);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.create_my_worker_profile(text, text, text[], integer, text, text, text, numeric, text, text, text, numeric) TO authenticated;
+
+-- 7. Ensure worker_profiles own-write RLS policy requires is_current_user_active()
+DROP POLICY IF EXISTS "Users can manage own worker profile" ON public.worker_profiles;
+CREATE POLICY "Users can manage own worker profile"
+ON public.worker_profiles
+FOR ALL
+TO authenticated
+USING (auth.uid() = id AND public.is_current_user_active())
+WITH CHECK (auth.uid() = id AND public.is_current_user_active());

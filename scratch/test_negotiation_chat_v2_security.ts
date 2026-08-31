@@ -400,7 +400,92 @@ function runPreflightAndUnitChecks() {
     'RLS Defense-in-Depth: WITH CHECK policy requires status = pending and enforces NULL workflow linkage fields'
   );
 
-  // 39. Document Security Scanner Unit Tests
+  // 39. Test A: syncUserSession populates currentProfileObj
+  const syncPopulatesCurrentProfile = /setCurrentProfileObj\(profile\)/i.test(appCode);
+  assert(
+    syncPopulatesCurrentProfile,
+    'Test A: syncUserSession populates currentProfileObj with loaded canonical DB profile'
+  );
+
+  // 40. Test B & C: handleLogoutCleanState clears currentProfileObj and onboarding state
+  const logoutClearsCurrentProfile = /setCurrentProfileObj\(null\)/i.test(appCode);
+  const logoutClearsOnboardingState = /setIsOnboardingCompleted\(false\)/i.test(appCode);
+  assert(
+    logoutClearsCurrentProfile && logoutClearsOnboardingState,
+    'Test B & C: handleLogoutCleanState clears currentProfileObj and resets onboarding state to false'
+  );
+
+  // 41. Test D: /complete-profile is not anonymously accessible (removed from isPublicPath)
+  const isPublicPathIncludesCompleteProfile = /p === '\/complete-profile'/i.test(
+    appCode.slice(appCode.indexOf('const isPublicPath'), appCode.indexOf('return false;'))
+  );
+  assert(
+    !isPublicPathIncludesCompleteProfile,
+    'Test D: /complete-profile is NOT included in isPublicPath and requires authentication'
+  );
+
+  // 42. Test E: Basic Account intro requires onboarding_completed === true
+  const syncIntroRequiresOnboarding = /profile\.onboarding_completed === true[\s\S]*?profile\.profile_type === 'basic'[\s\S]*?profile\.basic_account_intro_seen === false/i.test(appCode);
+  assert(
+    syncIntroRequiresOnboarding,
+    'Test E: Basic Account intro modal eligibility strictly requires profile.onboarding_completed === true'
+  );
+
+  // 43. Test F & G: opencomm_onboarding_completed and intro localStorage keys are NOT authorization sources
+  const useStateLocalStorageOnboarding = /useState<boolean>\(\(\) => \{[\s\S]*?opencomm_onboarding_completed/i.test(appCode);
+  const introLocalStorageAuthority = /localStorage\.getItem\(`opencomm_basic_intro_seen_\$\{userId\}`\)/i.test(appCode);
+  assert(
+    !useStateLocalStorageOnboarding && !introLocalStorageAuthority,
+    'Test F & G: localStorage keys (opencomm_onboarding_completed, opencomm_basic_intro_seen_*) are removed as authorization sources'
+  );
+
+  // 44. Test H & I: Action gate re-validates canonical DB profile & incomplete users redirect to /complete-profile
+  const requireGateRefetchesProfile = /dbService\.getProfile\(currentUserId\)/i.test(
+    appCode.slice(appCode.indexOf('const requireEmailVerification'), appCode.indexOf('checkEmailVerificationFreshStatus'))
+  );
+  const actionGateRedirectToast = appCode.includes('Complete your profile to continue.') && appCode.includes("navigate('/complete-profile')");
+  assert(
+    requireGateRefetchesProfile && actionGateRedirectToast,
+    'Test H & I: requireEmailVerification re-validates canonical DB profile and redirects incomplete users to /complete-profile'
+  );
+
+  // 45. Test J: Account isolation in handleLogoutCleanState
+  const logoutRemovesAuthKeys = appCode.includes("localStorage.removeItem('opencomm_is_logged_in')") &&
+    appCode.includes("localStorage.removeItem('opencomm_user_type')");
+  assert(
+    logoutRemovesAuthKeys,
+    'Test J: Account isolation: handleLogoutCleanState purges user tokens, profile objects, and auth states'
+  );
+
+  // 46. Test K: Google-auth callback redirects to /complete-profile
+  const googleOAuthRedirectPath = appCode.includes('next=/complete-profile');
+  assert(
+    googleOAuthRedirectPath,
+    'Test K: Google OAuth callback options target /complete-profile as primary onboarding entry point'
+  );
+
+  // 47. Test L: Intro acknowledgement calls canonical RPC
+  const introModalRpcCall = appCode.includes('dbService.acknowledgeBasicAccountIntro()');
+  assert(
+    introModalRpcCall,
+    'Test L: Basic Worker intro dismissal/action invokes canonical dbService.acknowledgeBasicAccountIntro() RPC'
+  );
+
+  // 48. Test M: Reconciliation migration contains required production security objects
+  const reconcSql = fs.readFileSync(path.join(rootDir, 'supabase/migrations/20260901020000_reconcile_simplified_signup_production_state.sql'), 'utf8');
+  const reconcHasProfileCompleteFunc = reconcSql.includes('is_current_user_profile_complete()');
+  const reconcHasIsActiveFunc = reconcSql.includes('is_current_user_active()');
+  const reconcHasUpdateProfileFunc = reconcSql.includes('update_my_basic_profile(');
+  const reconcHasAcknowledgeIntroFunc = reconcSql.includes('acknowledge_basic_account_intro()') && reconcSql.includes('RETURNS boolean');
+  const reconcHasCreateWorkerFunc = reconcSql.includes('create_my_worker_profile(');
+  const reconcHasWorkerPolicy = reconcSql.includes('Users can manage own worker profile');
+  assert(
+    reconcHasProfileCompleteFunc && reconcHasIsActiveFunc && reconcHasUpdateProfileFunc &&
+    reconcHasAcknowledgeIntroFunc && reconcHasCreateWorkerFunc && reconcHasWorkerPolicy,
+    'Test M: Reconciliation migration contains all required production security RPCs, policies, and hardened validation'
+  );
+
+  // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
   const pdfCheck = verifyDocumentBuffer(dummyPdfHeader, 'application/pdf');
@@ -410,7 +495,7 @@ function runPreflightAndUnitChecks() {
   const exeCheck = verifyDocumentBuffer(exeMasquerade, 'application/pdf');
   assert(exeCheck.valid === false, 'Scanner Unit Test: Executable file masquerading as PDF is rejected');
 
-  // 40. Unit Testing Deadline Utilities UTC Functions
+  // 50. Unit Testing Deadline Utilities UTC Functions
   console.log('\n--- Unit Testing Deadline Utilities ---');
   const testIsoDeadline = '2026-12-31T00:00:00.000Z';
   const deadlineInfo = getDeadlineInfo(testIsoDeadline);
