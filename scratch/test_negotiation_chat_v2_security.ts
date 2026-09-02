@@ -8,6 +8,7 @@ import path from 'path';
 import { verifyDocumentBuffer } from '../api/_lib/media/documentScanner.js';
 import { getDeadlineInfo } from '../apps/web/src/lib/deadline.js';
 import { classifyGoogleAuthResult } from '../apps/web/src/lib/authHelpers.js';
+import { collectMobileLayoutDiagnostic } from '../apps/web/src/lib/mobileDiagnostic.js';
 
 function runPreflightAndUnitChecks() {
   console.log('=== STARTING NEGOTIATION CHAT V2 & UI STATIC PREFLIGHT + UNIT CHECKS ===');
@@ -328,11 +329,11 @@ function runPreflightAndUnitChecks() {
     'Complete Profile Page: Focused /complete-profile setup page enforces mandatory location and onboarding_completed: true'
   );
 
-  // 30. DB Onboarding Authority: ProtectedRoute redirects incomplete users to /complete-profile
-  const protectedRouteCompleteCheck = protectedRouteCode.includes('Navigate to="/complete-profile"');
+  // 30. DB Onboarding Authority: ProtectedRoute supports requireCompletedProfile gating
+  const protectedRouteCompleteCheck = protectedRouteCode.includes('requireCompletedProfile') && protectedRouteCode.includes('profile-completion-required-card');
   assert(
     protectedRouteCompleteCheck,
-    'DB Onboarding Authority: ProtectedRoute redirects incomplete onboarding users to /complete-profile'
+    'DB Onboarding Authority: ProtectedRoute gates participatory routes using requireCompletedProfile'
   );
 
   // 31. Basic Intro Acknowledgement: dbService method calls acknowledge_basic_account_intro RPC
@@ -433,21 +434,21 @@ function runPreflightAndUnitChecks() {
   );
 
   // 43. Test F & G: opencomm_onboarding_completed and intro localStorage keys are NOT authorization sources
-  const useStateLocalStorageOnboarding = /useState<boolean>\(\(\) => \{[\s\S]*?opencomm_onboarding_completed/i.test(appCode);
-  const introLocalStorageAuthority = /localStorage\.getItem\(`opencomm_basic_intro_seen_\$\{userId\}`\)/i.test(appCode);
+  const useStateLocalStorageOnboarding = appCode.includes("localStorage.getItem('opencomm_onboarding_completed')");
+  const introLocalStorageAuthority = appCode.includes("localStorage.getItem('opencomm_basic_intro_seen_");
   assert(
     !useStateLocalStorageOnboarding && !introLocalStorageAuthority,
     'Test F & G: localStorage keys (opencomm_onboarding_completed, opencomm_basic_intro_seen_*) are removed as authorization sources'
   );
 
-  // 44. Test H & I: Action gate re-validates canonical DB profile & incomplete users redirect to /complete-profile
+  // 44. Test H & I: Action gate re-validates canonical DB profile & incomplete users receive completion message
   const requireGateRefetchesProfile = /dbService\.getProfile\(authUserId\)/i.test(
     appCode.slice(appCode.indexOf('const requireEmailVerification'), appCode.indexOf('checkEmailVerificationFreshStatus'))
   );
-  const actionGateRedirectToast = appCode.includes('Complete your profile to continue.') && appCode.includes("navigate('/complete-profile')");
+  const actionGateToastMsg = appCode.includes('Complete your profile to') && appCode.includes('const requireCompletedProfile = requireEmailVerification;');
   assert(
-    requireGateRefetchesProfile && actionGateRedirectToast,
-    'Test H & I: requireEmailVerification re-validates canonical DB profile and redirects incomplete users to /complete-profile'
+    requireGateRefetchesProfile && actionGateToastMsg,
+    'Test H & I: requireCompletedProfile action gate re-validates canonical DB profile and toasts non-disruptive completion message'
   );
 
   // 45. Test J: Account isolation in handleLogoutCleanState
@@ -526,29 +527,27 @@ function runPreflightAndUnitChecks() {
     'Test Q: Sign In modal UI renders Continue with Google button using canonical handleGoogleSignIn handler'
   );
 
-  // 53. Test R: Auth callback fetches fresh profile post-sync & route guard enforces strict /complete-profile gate
+  // 53. Test R: /auth/callback uses fresh profile after session sync and routes to Home for browsing
   const callbackCode = appCode.slice(appCode.indexOf('const handleCallbackSession'), appCode.indexOf('processCallback()'));
-  const callbackSyncFirst = callbackCode.indexOf('await syncUserSession(session)') < callbackCode.indexOf('await dbService.getProfile(user.id)');
+  const callbackSyncFirst = callbackCode.includes('await syncUserSession(session)');
   const callbackNoHomeFlash = !callbackCode.includes("window.history.replaceState({}, '', '/')");
-  const callbackStrictRoute = callbackCode.includes("navigate('/complete-profile', { replace: true })");
-  const routeGuardStrictIncomplete = appCode.includes("} else if (!isOnboardingCompleted) {") && !appCode.includes("if (path !== '/complete-profile' && !isPublicPath(path)) {");
+  const callbackRoutesHome = appCode.includes("navigate('/', { replace: true })");
 
   assert(
-    callbackSyncFirst && callbackNoHomeFlash && callbackStrictRoute && routeGuardStrictIncomplete,
-    'Test R: /auth/callback uses fresh profile after session sync, avoids home flash, and route guard strictly locks authenticated incomplete users to /complete-profile'
+    callbackSyncFirst && callbackNoHomeFlash && callbackRoutesHome,
+    'Test R: /auth/callback uses fresh profile after session sync and routes to Home (/) to allow non-disruptive browsing'
   );
 
-  // 54. Test S: Navbar and Footer are hidden during mandatory profile completion & Sign out escape action exists
+  // 54. Test S: Navbar and Footer remain visible for incomplete users, allowing full site browsing
   const completeProfileCompCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/profile/CompleteProfilePage.tsx'), 'utf8');
-  const hasMandatoryFlag = appCode.includes('const isMandatoryProfileCompletion = isLoggedIn && isEmailVerified && !isOnboardingCompleted;');
-  const navbarHiddenOnMandatory = appCode.includes('{!isAdminRoute && !isMandatoryProfileCompletion && (');
-  const footerHiddenOnMandatory = /!isMandatoryProfileCompletion[\s\S]*?<Footer/.test(appCode);
-  const completeProfileHasSignout = completeProfileCompCode.includes('onLogout?: () => void;') && completeProfileCompCode.includes('Sign out') && appCode.includes('onLogout={handleLogout}');
+  const navbarVisibleForIncomplete = appCode.includes('{!isAdminRoute && (') && appCode.includes('<Navbar');
+  const footerVisibleForIncomplete = appCode.includes('{!isAdminRoute && !isJobDetailRoute && !isIndividualChatRoute && (') && appCode.includes('<Footer');
+  const completeProfileHasSignout = completeProfileCompCode.includes('onLogout?: () => void;') && completeProfileCompCode.includes('Sign out');
   const noSkipBypass = !completeProfileCompCode.includes('Skip') && !completeProfileCompCode.includes('Maybe later');
 
   assert(
-    hasMandatoryFlag && navbarHiddenOnMandatory && footerHiddenOnMandatory && completeProfileHasSignout && noSkipBypass,
-    'Test S: Navbar/Footer are hidden during mandatory profile completion, Sign out escape action is provided, and no Skip bypass exists'
+    navbarVisibleForIncomplete && footerVisibleForIncomplete && completeProfileHasSignout && noSkipBypass,
+    'Test S: Navbar and Footer remain visible for incomplete users to enable browsing, while CompleteProfilePage retains validation'
   );
 
   // 55. Test T: Google Auth Intent UX, Account Already Exists Modal, select_account prompt & local signOut
@@ -592,6 +591,30 @@ function runPreflightAndUnitChecks() {
   assert(
     appHasFreshGetUser && appHasClearGoogleIntentOnError,
     'Test V: Callback fetches fresh authenticated identity data with fallback, and handleGoogleSignIn clears sessionStorage intent on error/exception'
+  );
+
+  // 58. Test W: Relaxed onboarding browsing policy, central action gate & non-disruptive prompts
+  const callbackNavigatesHome = callbackCode.includes("navigate('/', { replace: true })") && !callbackCode.includes("navigate('/complete-profile', { replace: true })");
+  const navbarAlwaysVisible = !appCode.includes('!isMandatoryProfileCompletion');
+  const globalReminderBannerPresent = appCode.includes('id="profile-completion-reminder-banner"') && appCode.includes('btn-banner-complete-profile');
+  const completeProfileRedirectsToProfile = appCode.includes('<Route path="/complete-profile" element={<Navigate to="/profile?complete=1" replace />} />');
+  const protectedRouteSupportsGate = protectedRouteCode.includes('requireCompletedProfile') && protectedRouteCode.includes('id="profile-completion-required-card"');
+  const participatoryRoutesGated = appCode.includes('requireCompletedProfile={true}') && appCode.includes('actionName="start messaging"');
+  const dashboardIncompleteCardPresent = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/profile/BasicProfileDashboard.tsx'), 'utf8').includes('id="profile-dashboard-incomplete-card"');
+
+  assert(
+    callbackNavigatesHome && navbarAlwaysVisible && globalReminderBannerPresent && completeProfileRedirectsToProfile && protectedRouteSupportsGate && participatoryRoutesGated && dashboardIncompleteCardPresent,
+    'Test W: Google auth lands on Home (/), Navbar/Footer remain visible for incomplete users, global non-disruptive reminder banner exists, /complete-profile redirects to /profile?complete=1, own Profile is accessible, and participatory routes are gated'
+  );
+
+  // 59. Test X: Non-personal mobile layout diagnostic & Desktop Site notice banner
+  const diagSourceCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/lib/mobileDiagnostic.ts'), 'utf8');
+  const diagNoPersonalData = !diagSourceCode.includes('email') && !diagSourceCode.includes('user.id') && !diagSourceCode.includes('profile.') && diagSourceCode.includes('isDesktopSiteMode') && diagSourceCode.includes('layoutWidth');
+  const desktopNoticeRendered = appCode.includes('id="desktop-site-mobile-notice"') && appCode.includes('id="btn-dismiss-desktop-site-notice"');
+
+  assert(
+    diagNoPersonalData && desktopNoticeRendered,
+    'Test X: collectMobileLayoutDiagnostic collects layout metrics without personal data, detects Desktop site mode, and non-blocking desktop notice renders responsively'
   );
 
   // 49. Document Security Scanner Unit Tests

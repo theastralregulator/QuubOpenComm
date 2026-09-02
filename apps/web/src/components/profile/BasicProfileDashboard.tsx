@@ -6,7 +6,7 @@ import {
   MapPin, Calendar, Globe, Camera, Edit2,
   Briefcase, Bookmark, Users, Wrench,
   ChevronRight, Share2, LogOut, MoreHorizontal, Settings,
-  CheckCircle2, ShieldCheck, Clock
+  CheckCircle2, ShieldCheck, Clock, AlertCircle, ArrowRight
 } from 'lucide-react';
 import UserAvatar from '../common/UserAvatar';
 import { supabase, LocalProfile, dbService } from '../../lib/supabase';
@@ -207,6 +207,36 @@ export default function BasicProfileDashboard({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-3 sm:py-6 px-2 sm:px-6 pb-24 sm:pb-12 text-slate-800 dark:text-slate-100 text-left">
+
+      {/* INCOMPLETE PROFILE PROMPT CARD */}
+      {isOwner && profile && !profile.onboarding_completed && (
+        <div className="bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 border border-indigo-500/20 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4" id="profile-dashboard-incomplete-card">
+          <div className="flex items-start space-x-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div className="space-y-1 text-left">
+              <div className="flex items-center space-x-2">
+                <span className="text-[10px] uppercase font-mono tracking-widest font-extrabold text-amber-600 dark:text-amber-400 block">Profile Incomplete</span>
+              </div>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                Complete your profile to unlock all features
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed font-medium">
+                Complete your profile to unlock job applications, hiring, messaging, and other marketplace features.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/profile?complete=1')}
+            className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center space-x-2 shrink-0"
+            id="btn-profile-dashboard-complete-profile"
+          >
+            <span>Complete Profile</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 1. HERO PROFILE CARD */}

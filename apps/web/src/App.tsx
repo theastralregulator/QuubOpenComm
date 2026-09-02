@@ -9,6 +9,7 @@ import {
 import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
 import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL, LocalProfile } from './lib/supabase';
 import { classifyGoogleAuthResult, GoogleAuthIntent, clearGoogleAuthIntent } from './lib/authHelpers';
+import { collectMobileLayoutDiagnostic } from './lib/mobileDiagnostic';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
 import { mapWorkerProfileToForm, mapFormToDbPayloads } from './lib/workerProfileMapper';
@@ -277,6 +278,12 @@ export default function App() {
 
   const [showHireModal, setShowHireModal] = useState<Worker | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [showDesktopSiteNotice, setShowDesktopSiteNotice] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const diag = collectMobileLayoutDiagnostic();
+    const dismissed = window.sessionStorage?.getItem('opencomm_desktop_site_notice_dismissed') === 'true';
+    return Boolean(diag?.isDesktopSiteMode && !dismissed);
+  });
 
   const [showAccountExistsModal, setShowAccountExistsModal] = useState(false);
   const [accountExistsSession, setAccountExistsSession] = useState<any>(null);
@@ -591,7 +598,7 @@ export default function App() {
     return false;
   };
 
-  // --- ROUTE GUARD & ONBOARDING REDIRECT EFFECT ---
+  // --- ROUTE GUARD EFFECT ---
   useEffect(() => {
     if (isAuthLoading || isSavingProfileRef.current) return;
 
@@ -600,14 +607,10 @@ export default function App() {
         if (path !== '/verify-email') {
           navigate('/verify-email', { replace: true });
         }
-      } else if (!isOnboardingCompleted) {
-        if (path !== '/complete-profile') {
-          navigate('/complete-profile', { replace: true });
-        }
       } else {
-        // Authenticated, confirmed, onboarding completed -> NEVER REDIRECT TO SIGNUP OR COMPLETE PROFILE
+        // Authenticated, confirmed -> NEVER REDIRECT TO SIGNUP OR VERIFY-EMAIL
         _setShowAuthModal(null);
-        if (path === '/signup' || path === '/login' || path === '/verify-email' || path === '/complete-profile') {
+        if (path === '/signup' || path === '/login' || path === '/verify-email') {
           navigate('/', { replace: true });
         }
       }
@@ -617,7 +620,7 @@ export default function App() {
         navigate(`/login?redirect=${encodeURIComponent(path)}`, { replace: true });
       }
     }
-  }, [isLoggedIn, isEmailVerified, isOnboardingCompleted, path, isAuthLoading]);
+  }, [isLoggedIn, isEmailVerified, path, isAuthLoading]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -1076,24 +1079,13 @@ export default function App() {
       setIsOnboardingCompleted(completed);
       _setShowAuthModal(null);
 
-      if (completed) {
-        navigate('/', { replace: true });
-        if (validIntent === 'signup' && classification === 'new') {
-          triggerToast("Account created successfully! Welcome to OpenComm.");
-          analytics.trackSignUp('google', authUser.id);
-        } else {
-          triggerToast("Authentication successful! Welcome back.");
-          analytics.trackLogin('google', authUser.id);
-        }
+      navigate('/', { replace: true });
+      if (validIntent === 'signup' && classification === 'new') {
+        triggerToast("Account created successfully! Welcome to OpenComm.");
+        analytics.trackSignUp('google', authUser.id);
       } else {
-        navigate('/complete-profile', { replace: true });
-        if (validIntent === 'signup' && classification === 'new') {
-          triggerToast("Account created! Let's complete your profile setup.");
-          analytics.trackSignUp('google', authUser.id);
-        } else {
-          triggerToast("Authentication successful! Let's complete your profile setup.");
-          analytics.trackLogin('google', authUser.id);
-        }
+        triggerToast(completed ? "Authentication successful! Welcome back." : "Authentication successful! Complete your profile whenever you are ready.");
+        analytics.trackLogin('google', authUser.id);
       }
     };
 
@@ -1421,20 +1413,21 @@ export default function App() {
     }
 
     const freshProf = await dbService.getProfile(authUserId);
-    if (!freshProf || freshProf.onboarding_completed !== true) {
-      if (freshProf) {
-        setCurrentProfileObj(freshProf);
-        setIsOnboardingCompleted(false);
-      }
-      triggerToast("Complete your profile to continue.");
-      navigate('/complete-profile');
+    const completed = freshProf?.onboarding_completed === true;
+    if (freshProf) {
+      setCurrentProfileObj(freshProf);
+      setIsOnboardingCompleted(completed);
+    }
+
+    if (!completed) {
+      triggerToast(`Complete your profile to ${actionName.toLowerCase()}.`);
       return;
     }
 
-    setCurrentProfileObj(freshProf);
-    setIsOnboardingCompleted(true);
     onVerified();
   };
+
+  const requireCompletedProfile = requireEmailVerification;
 
   const checkEmailVerificationFreshStatus = async () => {
     setAuthError('');
@@ -2603,7 +2596,7 @@ export default function App() {
       )}
 
       {/* STICKY TOP NAVBAR */}
-      {!isAdminRoute && !isMandatoryProfileCompletion && (
+      {!isAdminRoute && (
         <Navbar
           currentView={currentView}
           setCurrentView={setCurrentView}
@@ -2625,6 +2618,57 @@ export default function App() {
           }}
           onLogout={handleLogout}
         />
+      )}
+
+      {/* DESKTOP SITE MOBILE BROWSER NOTICE */}
+      {showDesktopSiteNotice && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-4 text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3 relative z-40 animate-fadeIn" id="desktop-site-mobile-notice">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              <strong>Your browser is using Desktop site.</strong> Turn off "Desktop site" in your browser menu for the best OpenComm mobile experience.
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setShowDesktopSiteNotice(false);
+              if (typeof window !== 'undefined' && window.sessionStorage) {
+                window.sessionStorage.setItem('opencomm_desktop_site_notice_dismissed', 'true');
+              }
+            }}
+            className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 text-[11px] font-bold rounded-lg transition-colors cursor-pointer shrink-0"
+            id="btn-dismiss-desktop-site-notice"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* GLOBAL NON-DISRUPTIVE COMPLETE PROFILE REMINDER BANNER */}
+      {isLoggedIn && !isAuthLoading && isEmailVerified && !isOnboardingCompleted && !isAdminRoute && (
+        <div className="bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 border-b border-indigo-500/15 py-2.5 px-4 text-center flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4 relative z-30 max-w-[1600px] mx-auto transition-all" id="profile-completion-reminder-banner">
+          <div className="flex items-center space-x-2.5 text-left">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+              <UserCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-black text-slate-900 dark:text-white block">
+                Complete your profile to unlock all features
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-medium block">
+                Apply for jobs, hire workers, post jobs and message people after completing your profile.
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/profile?complete=1')}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:opacity-95 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs shrink-0 active:scale-95 flex items-center space-x-1.5"
+            id="btn-banner-complete-profile"
+          >
+            <span>Complete Profile</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
 
       {/* UNVERIFIED EMAIL WARNING BANNER */}
@@ -2866,7 +2910,7 @@ export default function App() {
 
           {/* Messages View */}
           <Route path="/messages" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="start messaging">
               <motion.div
                 key="messages-view"
                 initial={{ opacity: 0, y: 12 }}
@@ -2879,7 +2923,7 @@ export default function App() {
             </ProtectedRoute>
           } />
           <Route path="/messages/:conversationId" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="start messaging">
               <motion.div
                 key="messages-view-detail"
                 initial={{ opacity: 0, y: 12 }}
@@ -2894,56 +2938,56 @@ export default function App() {
 
           {/* Profile Pages */}
           <Route path="/profile/my-job-posts" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="manage job posts">
               <MyJobPostsPage />
             </ProtectedRoute>
           } />
 
           <Route path="/profile/manage-applications" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="manage applications">
               <Navigate to="/profile/my-job-posts" replace />
             </ProtectedRoute>
           } />
 
           <Route path="/profile/jobs-applied" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="view applied jobs">
               <MyJobsAppliedPage handleStartConversation={handleOpenConversationForApplication} />
             </ProtectedRoute>
           } />
 
           <Route path="/jobs/:jobId/applications" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="manage job applications">
               <ManageApplicationsPage handleStartConversation={handleOpenConversationForApplication} />
             </ProtectedRoute>
           } />
 
           {/* Hiring Workflow Routes */}
           <Route path="/profile/hire-requests" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="access hire requests">
               <HireRequestsPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/hire-requests/:requestId" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="view hire request details">
               <HireRequestDetailsPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/hire-requests/:requestId/negotiation" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="access negotiations">
               <NegotiationPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/applications/:applicationId/negotiation" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="access negotiations">
               <NegotiationPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
 
           <Route path="/work-contracts/:contractId" element={
-            <ProtectedRoute {...protectedRouteProps}>
+            <ProtectedRoute {...protectedRouteProps} requireCompletedProfile={true} actionName="view work contracts">
               <WorkContractPage triggerToast={triggerToast} />
             </ProtectedRoute>
           } />
@@ -3312,28 +3356,7 @@ export default function App() {
           </Route>
 
           {/* Complete Profile Route */}
-          <Route path="/complete-profile" element={
-            <CompleteProfilePage
-              user={{ id: userIdState, email: signupForm.email || pendingEmail || '' }}
-              profile={currentProfileObj}
-              onCompleteSuccess={async (updatedProfile) => {
-                setCurrentProfileObj(updatedProfile);
-                setIsOnboardingCompleted(true);
-                if (updatedProfile.profile_type === 'basic' && updatedProfile.basic_account_intro_seen === false) {
-                  const workerExists = await dbService.hasWorkerProfile(updatedProfile.id);
-                  if (!workerExists) {
-                    setShowBasicWorkerIntroModal(true);
-                  } else {
-                    navigate('/');
-                  }
-                } else {
-                  navigate('/');
-                }
-              }}
-              triggerToast={triggerToast}
-              onLogout={handleLogout}
-            />
-          } />
+          <Route path="/complete-profile" element={<Navigate to="/profile?complete=1" replace />} />
 
           {/* 404 Wildcard Page */}
           <Route path="*" element={<NotFoundPage />} />
@@ -3341,7 +3364,7 @@ export default function App() {
       </main>
 
       {/* SITE-WIDE FOOTER NAVIGATION */}
-      {!isAdminRoute && !isJobDetailRoute && !isIndividualChatRoute && !isMandatoryProfileCompletion && (
+      {!isAdminRoute && !isJobDetailRoute && !isIndividualChatRoute && (
         <Footer navigate={navigate} />
       )}
 

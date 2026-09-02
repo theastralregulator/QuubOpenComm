@@ -19,6 +19,7 @@ import { navigateWithOrigin, SESSION_STORAGE_KEYS } from '../../lib/navigation';
 import UserAvatar from '../common/UserAvatar';
 import BasicProfileDashboard from './BasicProfileDashboard';
 import PublicBasicProfile from './PublicBasicProfile';
+import CompleteProfilePage from './CompleteProfilePage';
 import AvatarUploadMenu from './AvatarUploadMenu';
 import ProfileReviewsSection from './ProfileReviewsSection';
 import LocationSelector, { LocationData } from '../common/LocationSelector';
@@ -1071,6 +1072,27 @@ export default function ProfilePage({
   const displayedSkills = showSkillsExpanded ? skillsList : skillsList.slice(0, 6);
   const remainingSkillsCount = Math.max(0, skillsList.length - 6);
   const isBasicAccount = profile && (!profile.profile_type || profile.profile_type === 'basic' || profile.profile_type === 'normal');
+
+  const isCompletingProfile = searchParams.get('complete') === '1';
+
+  if (isOwner && isCompletingProfile && profile) {
+    return (
+      <div className="max-w-md mx-auto py-6 px-4" id="inline-complete-profile-wrapper">
+        <CompleteProfilePage
+          user={{ id: loggedInId, user_metadata: { full_name: username } }}
+          profile={profile}
+          onCompleteSuccess={(updatedProf) => {
+            setProfile(updatedProf);
+            setSearchParams({});
+            triggerToast("Profile completed successfully! All marketplace features unlocked.");
+            loadProfileData();
+          }}
+          triggerToast={triggerToast}
+          onLogout={onLogout}
+        />
+      </div>
+    );
+  }
 
   if (profile && isBasicAccount) {
     if (isOwner) {
