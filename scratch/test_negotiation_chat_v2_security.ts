@@ -700,6 +700,18 @@ function runPreflightAndUnitChecks() {
     'Test AD: handleLoginSuccess is removed, authentication fails closed when Supabase is unavailable, and no mock login sets localStorage onboarding state'
   );
 
+  // 66. Test AE: handleResetData removal and complete elimination of demo reset paths
+  const navCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/navigation/Navbar.tsx'), 'utf8');
+  const noHandleResetData = !appCode.includes('const handleResetData =') && !appCode.includes('handleResetData()');
+  const noOnResetDataProp = !navCode.includes('onResetData') && !appCode.includes('onResetData={');
+  const noResetAppDataControl = !navCode.includes('Reset App Data');
+  const noDemoDataInjection = !appCode.includes('setJobs(INITIAL_JOBS)');
+
+  assert(
+    noHandleResetData && noOnResetDataProp && noResetAppDataControl && noDemoDataInjection,
+    'Test AE: handleResetData is completely removed, NavbarProps has no onResetData, "Reset App Data" UI control is removed, and no runtime function injects demo INITIAL_* data'
+  );
+
   // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');

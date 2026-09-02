@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Home, Briefcase, Users, MessageSquare, User,
-  Sun, Moon, Settings, X, RefreshCcw,
+  Sun, Moon, Settings, X,
   Info, Star, ChevronRight, Bookmark, Heart, LogOut
 } from 'lucide-react';
 import UserAvatar from '../common/UserAvatar';
@@ -21,7 +21,6 @@ export interface NavbarProps {
   username: string;
   setUsername: (name: string) => void;
   userPhoto: string;
-  onResetData: () => void;
   isLoggedIn: boolean;
   userType: 'normal' | 'worker' | 'company';
   onOpenAuth: (tab: 'signin' | 'signup') => void;
@@ -41,7 +40,6 @@ export default function Navbar({
   username,
   setUsername,
   userPhoto,
-  onResetData,
   isLoggedIn,
   userType,
   onOpenAuth,
@@ -54,7 +52,6 @@ export default function Navbar({
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
-  const [showSettingsSub, setShowSettingsSub] = useState(false);
 
   const profileButtonRef = useRef<HTMLButtonElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -71,13 +68,11 @@ export default function Navbar({
         return;
       }
       setShowProfileMenu(false);
-      setShowSettingsSub(false);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowProfileMenu(false);
-        setShowSettingsSub(false);
       }
     };
 
@@ -227,7 +222,6 @@ export default function Navbar({
                     ref={profileButtonRef}
                     onClick={() => {
                       setShowProfileMenu(!showProfileMenu);
-                      setShowSettingsSub(false); // Reset settings expansion on open
                     }}
                     className="relative w-8 h-8 md:w-9 md:h-9 rounded-full border border-slate-200 dark:border-slate-800 hover:scale-105 transition-all cursor-pointer shrink-0"
                     id="profile-avatar-btn"
@@ -362,67 +356,6 @@ export default function Navbar({
                                 </span>
                                 <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                               </button>
-
-                            <AnimatePresence>
-                              {showSettingsSub && (
-                                <motion.div 
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: 'auto' }}
-                                  exit={{ opacity: 0, height: 0 }}
-                                  className="px-4 py-3 bg-slate-50 dark:bg-[#172033]/30 border-y border-slate-100 dark:border-slate-800/50 space-y-3 overflow-hidden"
-                                >
-                                  <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 pl-0.5">Edit Display Name</label>
-                                    <input 
-                                      type="text" 
-                                      value={username}
-                                      onChange={(e) => setUsername(e.target.value)}
-                                      className="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#273449] bg-white dark:bg-slate-900 text-slate-950 dark:text-white focus:outline-none focus:border-blue-500"
-                                      placeholder="Username"
-                                    />
-                                  </div>
-                                  {isLoggedIn && setThemeMode && (
-                                    <div>
-                                      <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 pl-0.5">Appearance Theme</label>
-                                      <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-[#111827] rounded-lg border border-slate-200/50 dark:border-slate-800/40">
-                                        {[
-                                          { id: 'light', label: 'Light', icon: Sun },
-                                          { id: 'dark', label: 'Dark', icon: Moon }
-                                        ].map((mode) => {
-                                          const ModeIcon = mode.icon;
-                                          const isSelected = themeMode === mode.id;
-                                          return (
-                                            <button
-                                              key={mode.id}
-                                              type="button"
-                                              onClick={() => setThemeMode(mode.id as any)}
-                                              className={`py-1.5 rounded-md text-[10px] font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${
-                                                isSelected 
-                                                  ? 'bg-white dark:bg-[#172033] text-[#2563EB] dark:text-[#60A5FA] shadow-xs' 
-                                                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
-                                              }`}
-                                            >
-                                              <ModeIcon className="w-3.5 h-3.5 mb-0.5" />
-                                              <span>{mode.label}</span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                  <button 
-                                    onClick={() => {
-                                      onResetData();
-                                      setShowProfileMenu(false);
-                                    }}
-                                    className="w-full text-left py-1 text-xs hover:underline flex items-center space-x-1.5 text-rose-500 font-bold cursor-pointer"
-                                  >
-                                    <RefreshCcw className="w-3.5 h-3.5 animate-spin-slow" />
-                                    <span>Reset App Data</span>
-                                  </button>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
 
                             <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
 

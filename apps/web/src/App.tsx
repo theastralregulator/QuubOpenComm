@@ -1335,35 +1335,6 @@ export default function App() {
     }, 4000);
   };
 
-  // --- REST DATA HANDLER ---
-  const handleResetData = () => {
-    setJobs(INITIAL_JOBS);
-    setWorkers(INITIAL_WORKERS);
-    setActivities(INITIAL_ACTIVITIES);
-    setMessages(INITIAL_MESSAGES);
-    setConversations(INITIAL_CONVERSATIONS);
-    setApplications(INITIAL_APPLICATIONS);
-    setAppMessages(INITIAL_APP_MESSAGES);
-    setSearchQuery('');
-    setSelectedCategory(null);
-    setCurrentView('home');
-
-    setIsLoggedIn(true);
-    setUserType('normal');
-    setUsername('');
-    setUserPhoto('');
-    setUserType('normal');
-    setIsOnboardingCompleted(false);
-
-    localStorage.removeItem('opencomm_is_logged_in');
-    localStorage.removeItem('opencomm_username');
-    if (userIdState) {
-      localStorage.removeItem(`opencomm_user_photo_${userIdState}`);
-    }
-
-    triggerToast("App data has been reset.");
-  };
-
   // --- AUTH GATEWAY HELPERS ---
   const requireAuth = (actionName: string, onAuthorized: () => void) => {
     if (isLoggedIn) {
@@ -2592,7 +2563,6 @@ export default function App() {
           username={username}
           setUsername={setUsername}
           userPhoto={userPhoto}
-          onResetData={handleResetData}
           isLoggedIn={isLoggedIn}
           userType={userType}
           isEmailVerified={isEmailVerified}
