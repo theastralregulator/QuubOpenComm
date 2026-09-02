@@ -15,6 +15,7 @@ interface SavedJobsPageProps {
   onRetryApplications?: () => void;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
   triggerToast?: (msg: string) => void;
+  requireCompletedProfile?: (actionName: string, onAllowed: () => void) => void;
 }
 
 export default function SavedJobsPage({
@@ -28,6 +29,7 @@ export default function SavedJobsPage({
   onRetryApplications,
   onApplicationCreated,
   triggerToast,
+  requireCompletedProfile,
 }: SavedJobsPageProps) {
   const [applyingJob, setApplyingJob] = React.useState<Job | null>(null);
   const savedList = jobs.filter(j => j.bookmarked);
@@ -128,7 +130,11 @@ export default function SavedJobsPage({
                     if (triggerToast) triggerToast("Unable to load application status. Please retry.");
                     return;
                   }
-                  setApplyingJob(job);
+                  if (requireCompletedProfile) {
+                    requireCompletedProfile('apply for jobs', () => setApplyingJob(job));
+                  } else {
+                    setApplyingJob(job);
+                  }
                 }}
               />
             );

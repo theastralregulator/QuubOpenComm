@@ -29,6 +29,7 @@ interface RecommendedForYouProps {
   onOpenAuth?: (tab: 'signin' | 'signup' | 'locked') => void;
   triggerToast?: (msg: string) => void;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
+  requireCompletedProfile?: (actionName: string, onAllowed: () => void) => void;
 }
 
 export default function RecommendedForYou({
@@ -50,6 +51,7 @@ export default function RecommendedForYou({
   onOpenAuth,
   triggerToast,
   onApplicationCreated,
+  requireCompletedProfile,
 }: RecommendedForYouProps) {
   const [activeTab, setActiveTab] = useState<'jobs' | 'workers'>('jobs');
   const [applyingJob, setApplyingJob] = useState<Job | null>(null);
@@ -180,7 +182,11 @@ export default function RecommendedForYou({
                             if (onOpenAuth) onOpenAuth('locked');
                             return;
                           }
-                          setApplyingJob(job);
+                          if (requireCompletedProfile) {
+                            requireCompletedProfile('apply for jobs', () => setApplyingJob(job));
+                          } else {
+                            setApplyingJob(job);
+                          }
                         }}
                       />
                     </div>

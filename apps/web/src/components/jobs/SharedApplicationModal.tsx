@@ -45,12 +45,20 @@ export default function SharedApplicationModal({
           return;
         }
 
-        const { assertUserEmailConfirmed } = await import('../../lib/supabase');
+        const { assertUserEmailConfirmed, dbService } = await import('../../lib/supabase');
         try {
           await assertUserEmailConfirmed();
         } catch (verr: any) {
           if (triggerToast) triggerToast(verr.message || "Email verification is required before submitting job applications.");
           setIsSubmitting(false);
+          return;
+        }
+
+        const freshProfile = await dbService.getProfile(realApplicantId);
+        if (!freshProfile || freshProfile.onboarding_completed !== true) {
+          if (triggerToast) triggerToast("Complete your profile to apply for jobs.");
+          setIsSubmitting(false);
+          onClose();
           return;
         }
 

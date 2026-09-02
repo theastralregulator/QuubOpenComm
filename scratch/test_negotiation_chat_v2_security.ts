@@ -617,6 +617,40 @@ function runPreflightAndUnitChecks() {
     'Test X: collectMobileLayoutDiagnostic collects layout metrics without personal data, detects Desktop site mode, and non-blocking desktop notice renders responsively'
   );
 
+  // 60. Test Y: Continue-to-Sign-In routes to Home (/), Job Apply gating across all 4 entry points + defense-in-depth in modal
+  const handleContinueCode = appCode.slice(appCode.indexOf('const handleContinueToSignIn'), appCode.indexOf('analytics.trackLogin'));
+  const continueRoutesHome = handleContinueCode.includes("navigate('/', { replace: true })") && !handleContinueCode.includes("navigate('/complete-profile'");
+
+  const jobsPageCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/jobs/JobsPage.tsx'), 'utf8');
+  const jobsPageApplyGated = jobsPageCode.includes('requireCompletedProfile') && jobsPageCode.includes("requireCompletedProfile('apply for jobs',");
+
+  const jobDetailPageCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/jobs/JobDetailPage.tsx'), 'utf8');
+  const jobDetailApplyGated = jobDetailPageCode.includes('requireCompletedProfile') && jobDetailPageCode.includes("requireCompletedProfile('apply for jobs',");
+  const jobDetailDefenseInDepth = jobDetailPageCode.includes('dbService.getProfile(loggedInId)') && jobDetailPageCode.includes('onboarding_completed !== true');
+
+  const sharedModalCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/jobs/SharedApplicationModal.tsx'), 'utf8');
+  const sharedModalDefenseInDepth = sharedModalCode.includes('dbService.getProfile(realApplicantId)') && sharedModalCode.includes('onboarding_completed !== true');
+
+  const recForYouCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/home/RecommendedForYou.tsx'), 'utf8');
+  const recForYouGated = recForYouCode.includes('requireCompletedProfile') && recForYouCode.includes("requireCompletedProfile('apply for jobs',");
+
+  const savedJobsCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/saved/SavedJobsPage.tsx'), 'utf8');
+  const savedJobsGated = savedJobsCode.includes('requireCompletedProfile') && savedJobsCode.includes("requireCompletedProfile('apply for jobs',");
+
+  assert(
+    continueRoutesHome && jobsPageApplyGated && jobDetailApplyGated && jobDetailDefenseInDepth && sharedModalDefenseInDepth && recForYouGated && savedJobsGated,
+    'Test Y: Continue-to-Sign-In routes to Home (/), and all 4 Job Apply entry points + SharedApplicationModal have defense-in-depth profile completion gating'
+  );
+
+  // 61. Test Z: Refined Mobile Layout Diagnostic avoids touch-laptop false positives
+  const diagHasHandheldBound = diagSourceCode.includes('minScreenDim <= 600') && diagSourceCode.includes('layoutWidth > 900');
+  const noUaHacks = !diagSourceCode.includes('navigator.userAgent') && !diagSourceCode.includes('window.open');
+
+  assert(
+    diagHasHandheldBound && noUaHacks,
+    'Test Z: Mobile diagnostic uses physical screen bounds (minScreenDim <= 600) to prevent touch-laptop false positives without UA or zoom hacks'
+  );
+
   // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');

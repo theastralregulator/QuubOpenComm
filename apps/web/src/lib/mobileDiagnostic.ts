@@ -27,9 +27,11 @@ export function collectMobileLayoutDiagnostic(): MobileLayoutDiagnostic | null {
   const screenHeight = window.screen ? window.screen.height : layoutHeight;
   const dpr = window.devicePixelRatio || 1;
 
-  // A physical touch device with a layout viewport wider than 900px strongly indicates
-  // that the browser's "Desktop site" mode is enabled.
-  const isDesktopSiteMode = Boolean(isTouchDevice && layoutWidth > 900);
+  const minScreenDim = Math.min(screenWidth, screenHeight);
+
+  // A physical handheld touch device with a forced desktop layout viewport (> 900px)
+  // and physical handheld screen bounds (minScreenDim <= 600) indicates Desktop site mode.
+  const isDesktopSiteMode = Boolean(isTouchDevice && layoutWidth > 900 && minScreenDim <= 600);
 
   const diag: MobileLayoutDiagnostic = {
     isTouchDevice,

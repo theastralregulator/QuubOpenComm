@@ -303,12 +303,11 @@ export default function App() {
     setIsOnboardingCompleted(completed);
     _setShowAuthModal(null);
 
+    navigate('/', { replace: true });
     if (completed) {
-      navigate('/', { replace: true });
       triggerToast("Welcome back.");
     } else {
-      navigate('/complete-profile', { replace: true });
-      triggerToast("Welcome back! Let's complete your profile setup.");
+      triggerToast("Welcome back. Complete your profile to unlock all features.");
     }
     analytics.trackLogin('google', user.id);
   };
@@ -2775,6 +2774,7 @@ export default function App() {
                 }}
                 triggerToast={triggerToast}
                 onApplicationCreated={handleApplicationCreated}
+                requireCompletedProfile={requireCompletedProfile}
               />
             </motion.div>
           } />
@@ -2809,6 +2809,7 @@ export default function App() {
                 applicationsByJobId={myApplicationsByJobId}
                 currentUserId={userIdState}
                 onApplicationCreated={handleApplicationCreated}
+                requireCompletedProfile={requireCompletedProfile}
               />
             </motion.div>
           } />
@@ -2853,6 +2854,7 @@ export default function App() {
                 applicationsStatus={applicationsState.status}
                 onRetryApplications={handleRetryApplications}
                 onApplicationCreated={handleApplicationCreated}
+                requireCompletedProfile={requireCompletedProfile}
               />
             </motion.div>
           } />
@@ -3135,6 +3137,7 @@ export default function App() {
                   onRetryApplications={handleRetryApplications}
                   onApplicationCreated={handleApplicationCreated}
                   triggerToast={triggerToast}
+                  requireCompletedProfile={requireCompletedProfile}
                 />
               </motion.div>
             </ProtectedRoute>

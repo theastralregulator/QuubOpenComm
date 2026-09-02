@@ -28,6 +28,7 @@ interface JobDetailPageProps {
   applicationsStatus?: 'idle' | 'loading' | 'ready' | 'error';
   onRetryApplications?: () => void;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
+  requireCompletedProfile?: (actionName: string, onAllowed: () => void) => void;
 }
 
 export default function JobDetailPage({
@@ -43,6 +44,7 @@ export default function JobDetailPage({
   applicationsStatus = 'ready',
   onRetryApplications,
   onApplicationCreated,
+  requireCompletedProfile,
 }: JobDetailPageProps) {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -374,7 +376,13 @@ export default function JobDetailPage({
       return;
     }
 
-    setShowApplyForm(true);
+    if (requireCompletedProfile) {
+      requireCompletedProfile('apply for jobs', () => {
+        setShowApplyForm(true);
+      });
+    } else {
+      setShowApplyForm(true);
+    }
   };
 
   const handleApplySubmit = async (e: React.FormEvent) => {
@@ -390,11 +398,19 @@ export default function JobDetailPage({
         return;
       }
 
-      const { assertUserEmailConfirmed } = await import('../../lib/supabase');
+      const { assertUserEmailConfirmed, dbService } = await import('../../lib/supabase');
       try {
         await assertUserEmailConfirmed();
       } catch (verr: any) {
         triggerToast(verr.message || 'Email verification is required before submitting job applications.');
+        setIsSubmitting(false);
+        setShowApplyForm(false);
+        return;
+      }
+
+      const freshProfile = await dbService.getProfile(loggedInId);
+      if (!freshProfile || freshProfile.onboarding_completed !== true) {
+        triggerToast('Complete your profile to apply for jobs.');
         setIsSubmitting(false);
         setShowApplyForm(false);
         return;

@@ -30,6 +30,7 @@ interface JobsPageProps {
   applicationsByJobId?: Map<string, any>;
   currentUserId?: string | null;
   onApplicationCreated?: (jobId: string, appRecord: any) => void;
+  requireCompletedProfile?: (actionName: string, onAllowed: () => void) => void;
 }
 
 export default function JobsPage({
@@ -49,6 +50,7 @@ export default function JobsPage({
   applicationsByJobId,
   currentUserId,
   onApplicationCreated,
+  requireCompletedProfile,
 }: JobsPageProps) {
   const { jobId } = useParams();
   const navigate = useNavigate();
@@ -142,8 +144,13 @@ export default function JobsPage({
       return;
     }
 
-    // Open the application modal instead of directly submitting
-    setApplyingJob(job);
+    if (requireCompletedProfile) {
+      requireCompletedProfile('apply for jobs', () => {
+        setApplyingJob(job);
+      });
+    } else {
+      setApplyingJob(job);
+    }
   };
 
   const handleModalSuccess = (appRecord?: any) => {
