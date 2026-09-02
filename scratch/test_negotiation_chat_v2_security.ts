@@ -443,9 +443,9 @@ function runPreflightAndUnitChecks() {
 
   // 44. Test H & I: Action gate re-validates canonical DB profile & incomplete users receive completion message
   const requireGateRefetchesProfile = /dbService\.getProfile\(authUserId\)/i.test(
-    appCode.slice(appCode.indexOf('const requireEmailVerification'), appCode.indexOf('checkEmailVerificationFreshStatus'))
+    appCode.slice(appCode.indexOf('const requireCompletedProfile = async'), appCode.indexOf('checkEmailVerificationFreshStatus'))
   );
-  const actionGateToastMsg = appCode.includes('Complete your profile to') && appCode.includes('const requireCompletedProfile = requireEmailVerification;');
+  const actionGateToastMsg = appCode.includes('Complete your profile to') && appCode.includes('const requireCompletedProfile = async (');
   assert(
     requireGateRefetchesProfile && actionGateToastMsg,
     'Test H & I: requireCompletedProfile action gate re-validates canonical DB profile and toasts non-disruptive completion message'
@@ -649,6 +649,32 @@ function runPreflightAndUnitChecks() {
   assert(
     diagHasHandheldBound && noUaHacks,
     'Test Z: Mobile diagnostic uses physical screen bounds (minScreenDim <= 600) to prevent touch-laptop false positives without UA or zoom hacks'
+  );
+
+  // 62. Test AA: Email OTP verification & email signup callback options target Home (/) without automatic /complete-profile navigation
+  const otpHandlerCode = appCode.slice(appCode.indexOf('const handleVerifyOTP'), appCode.indexOf('VERIFY OTP EXCEPTION'));
+  const otpRoutesHome = otpHandlerCode.includes("navigate('/', { replace: true })") && !otpHandlerCode.includes("navigate('/complete-profile')");
+  const emailSignupTargetHome = appCode.includes("emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/`");
+
+  assert(
+    otpRoutesHome && emailSignupTargetHome,
+    'Test AA: Email OTP verification success always routes to Home (/) and email signup callback options target Home without automatic /complete-profile navigation'
+  );
+
+  // 63. Test AB: Profile completion App-level state sync, Basic Account intro modal preservation & gate separation
+  const profPageCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/profile/ProfilePage.tsx'), 'utf8');
+  const profilePagePropAdded = profPageCode.includes('onProfileCompleted?: (updatedProfile: LocalProfile) => void;') && profPageCode.includes('onProfileCompleted(updatedProf)');
+  const appProfileCompletedSync = appCode.includes('const handleProfileCompleted = async (updatedProfile: LocalProfile) => {') &&
+    appCode.includes('setCurrentProfileObj(updatedProfile)') &&
+    appCode.includes('setIsOnboardingCompleted(updatedProfile.onboarding_completed === true)') &&
+    appCode.includes('setShowBasicWorkerIntroModal(true)');
+  const gatesSeparated = appCode.includes('const requireEmailVerification = async (') &&
+    appCode.includes('const requireCompletedProfile = async (') &&
+    appCode.includes('await requireEmailVerification(actionName, async () => {');
+
+  assert(
+    profilePagePropAdded && appProfileCompletedSync && gatesSeparated,
+    'Test AB: Profile completion updates App-level state (currentProfileObj, onboarding_completed, intro modal) and email verification is cleanly separated from profile completion'
   );
 
   // 49. Document Security Scanner Unit Tests

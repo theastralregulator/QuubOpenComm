@@ -55,6 +55,7 @@ interface ProfilePageProps {
   onLogout?: () => void;
   isEmailVerified?: boolean;
   requireEmailVerification?: (action: string, onVerified: () => void) => void;
+  onProfileCompleted?: (updatedProfile: LocalProfile) => void;
 }
 
 export const BUILTIN_BANNERS = [
@@ -208,6 +209,7 @@ export default function ProfilePage({
   onLogout,
   isEmailVerified = true,
   requireEmailVerification,
+  onProfileCompleted,
 }: ProfilePageProps) {
   // --- DATABASE STATES ---
   const [profile, setProfile] = useState<LocalProfile | null>(null);
@@ -1084,6 +1086,9 @@ export default function ProfilePage({
           onCompleteSuccess={(updatedProf) => {
             setProfile(updatedProf);
             setSearchParams({});
+            if (onProfileCompleted) {
+              onProfileCompleted(updatedProf);
+            }
             triggerToast("Profile completed successfully! All marketplace features unlocked.");
             loadProfileData();
           }}

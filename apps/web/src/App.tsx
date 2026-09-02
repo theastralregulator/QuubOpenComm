@@ -1411,22 +1411,63 @@ export default function App() {
       return;
     }
 
-    const freshProf = await dbService.getProfile(authUserId);
-    const completed = freshProf?.onboarding_completed === true;
-    if (freshProf) {
-      setCurrentProfileObj(freshProf);
-      setIsOnboardingCompleted(completed);
-    }
-
-    if (!completed) {
-      triggerToast(`Complete your profile to ${actionName.toLowerCase()}.`);
-      return;
-    }
-
     onVerified();
   };
 
-  const requireCompletedProfile = requireEmailVerification;
+  const requireCompletedProfile = async (actionName: string, onAllowed: () => void) => {
+    await requireEmailVerification(actionName, async () => {
+      let authUserId = userIdState;
+      if (supabase) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) authUserId = user.id;
+        } catch (err) {
+          console.error("Failed to check user for requireCompletedProfile:", err);
+        }
+      }
+
+      if (!authUserId) {
+        setLockedFeature(actionName);
+        setShowAuthModal('locked');
+        return;
+      }
+
+      const freshProf = await dbService.getProfile(authUserId);
+      const completed = freshProf?.onboarding_completed === true;
+      if (freshProf) {
+        setCurrentProfileObj(freshProf);
+        setIsOnboardingCompleted(completed);
+      }
+
+      if (!completed) {
+        triggerToast(`Complete your profile to ${actionName.toLowerCase()}.`);
+        return;
+      }
+
+      onAllowed();
+    });
+  };
+
+  const handleProfileCompleted = async (updatedProfile: LocalProfile) => {
+    setCurrentProfileObj(updatedProfile);
+    setIsOnboardingCompleted(updatedProfile.onboarding_completed === true);
+    if (updatedProfile.full_name) {
+      setUsername(updatedProfile.full_name);
+    }
+    if (updatedProfile.avatar_url) {
+      setUserPhoto(updatedProfile.avatar_url);
+    }
+    if (updatedProfile.profile_type === 'basic' && updatedProfile.basic_account_intro_seen === false) {
+      try {
+        const workerExists = await dbService.hasWorkerProfile(updatedProfile.id);
+        if (!workerExists) {
+          setShowBasicWorkerIntroModal(true);
+        }
+      } catch (err) {
+        console.error("Failed to check worker profile for intro modal:", err);
+      }
+    }
+  };
 
   const checkEmailVerificationFreshStatus = async () => {
     setAuthError('');
@@ -1642,7 +1683,7 @@ export default function App() {
         email: signupForm.email.trim().toLowerCase(),
         password: signupPassword,
         options: {
-          emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/complete-profile`,
+          emailRedirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/`,
           data: {
             full_name: signupForm.name.trim()
           }
@@ -1810,14 +1851,14 @@ export default function App() {
       isSavingProfileRef.current = false;
       setIsAuthSubmitting(false);
 
-      if (freshProf?.onboarding_completed) {
-        setIsOnboardingCompleted(true);
-        navigate('/');
-        triggerToast("Email verified successfully! Welcome back.");
+      const completed = freshProf?.onboarding_completed === true;
+      setIsOnboardingCompleted(completed);
+
+      navigate('/', { replace: true });
+      if (completed) {
+        triggerToast("Email verified successfully! Welcome to OpenComm.");
       } else {
-        setIsOnboardingCompleted(false);
-        navigate('/complete-profile');
-        triggerToast("Email verified successfully! Let's complete your profile setup.");
+        triggerToast("Email verified successfully! Complete your profile to unlock all features.");
       }
     } catch (err: any) {
       console.error("VERIFY OTP EXCEPTION:", err);
@@ -3057,6 +3098,7 @@ export default function App() {
                   onLogout={handleLogout}
                   isEmailVerified={isEmailVerified}
                   requireEmailVerification={requireEmailVerification}
+                  onProfileCompleted={handleProfileCompleted}
                 />
               </motion.div>
             </ProtectedRoute>
@@ -3112,6 +3154,7 @@ export default function App() {
                   onLogout={handleLogout}
                   isEmailVerified={isEmailVerified}
                   requireEmailVerification={requireEmailVerification}
+                  onProfileCompleted={handleProfileCompleted}
                 />
               </motion.div>
           } />
