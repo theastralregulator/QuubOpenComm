@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
 import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL, LocalProfile } from './lib/supabase';
-import { classifyGoogleAuthResult, GoogleAuthIntent } from './lib/authHelpers';
+import { classifyGoogleAuthResult, GoogleAuthIntent, clearGoogleAuthIntent } from './lib/authHelpers';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
 import { mapWorkerProfileToForm, mapFormToDbPayloads } from './lib/workerProfileMapper';
@@ -1026,11 +1026,36 @@ export default function App() {
     };
 
     const handleCallbackSession = async (session: any, intent: string | null = null, flowStartedAt: number | null = null) => {
-      const user = session.user;
-      setCallbackEmail(user.email || '');
+      let authUser = session.user;
+      let freshIdentities: any[] | null = null;
+
+      if (supabase) {
+        try {
+          const { data: freshUserData } = await supabase.auth.getUser();
+          if (freshUserData?.user) {
+            authUser = freshUserData.user;
+          }
+        } catch (e) {
+          console.warn('[GoogleAuth] Could not fetch fresh getUser(), falling back to session user:', e);
+        }
+
+        try {
+          if (typeof (supabase.auth as any).getUserIdentities === 'function') {
+            const { data: idsData } = await (supabase.auth as any).getUserIdentities();
+            if (idsData?.identities && Array.isArray(idsData.identities)) {
+              freshIdentities = idsData.identities;
+            }
+          }
+        } catch (e) {
+          console.warn('[GoogleAuth] getUserIdentities unavailable or failed, using user.identities fallback:', e);
+        }
+      }
+
+      const activeIdentities = freshIdentities || authUser.identities || [];
+      setCallbackEmail(authUser.email || '');
 
       const validIntent = (intent === 'signup' || intent === 'signin') ? intent : null;
-      const classification = classifyGoogleAuthResult(user, user.identities, flowStartedAt);
+      const classification = classifyGoogleAuthResult(authUser, activeIdentities, flowStartedAt);
 
       if (validIntent === 'signup' && classification === 'existing') {
         setAccountExistsSession(session);
@@ -1042,7 +1067,7 @@ export default function App() {
 
       await syncUserSession(session);
 
-      const freshProfile = await dbService.getProfile(user.id);
+      const freshProfile = await dbService.getProfile(authUser.id);
       setCurrentProfileObj(freshProfile);
 
       setAuthCallbackStatus('success');
@@ -1055,19 +1080,19 @@ export default function App() {
         navigate('/', { replace: true });
         if (validIntent === 'signup' && classification === 'new') {
           triggerToast("Account created successfully! Welcome to OpenComm.");
-          analytics.trackSignUp('google', user.id);
+          analytics.trackSignUp('google', authUser.id);
         } else {
           triggerToast("Authentication successful! Welcome back.");
-          analytics.trackLogin('google', user.id);
+          analytics.trackLogin('google', authUser.id);
         }
       } else {
         navigate('/complete-profile', { replace: true });
         if (validIntent === 'signup' && classification === 'new') {
           triggerToast("Account created! Let's complete your profile setup.");
-          analytics.trackSignUp('google', user.id);
+          analytics.trackSignUp('google', authUser.id);
         } else {
           triggerToast("Authentication successful! Let's complete your profile setup.");
-          analytics.trackLogin('google', user.id);
+          analytics.trackLogin('google', authUser.id);
         }
       }
     };
@@ -1678,6 +1703,7 @@ export default function App() {
       setAuthError('');
       if (!supabase) {
         setAuthError('Supabase client is not configured.');
+        clearGoogleAuthIntent();
         return;
       }
       if (typeof window !== 'undefined' && window.sessionStorage) {
@@ -1694,10 +1720,12 @@ export default function App() {
         }
       });
       if (error) {
+        clearGoogleAuthIntent();
         setAuthError(error.message);
         triggerToast(error.message);
       }
     } catch (err: any) {
+      clearGoogleAuthIntent();
       console.error('Google Auth Error:', err);
       setAuthError(err.message || 'Failed to initialize Google Sign In');
     } finally {

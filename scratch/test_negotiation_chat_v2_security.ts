@@ -567,25 +567,31 @@ function runPreflightAndUnitChecks() {
     'Test T: Signup/Signin pass explicit intents, Google OAuth specifies prompt=select_account, sessionStorage intent is cleared, Account Exists modal renders responsively, and local signOut is used for account switching'
   );
 
-  // 56. Test U: Unit testing classifyGoogleAuthResult helper for Cases A, B, and C
-  const now = Date.now();
-  const flowStarted = now - 5000;
+  // 56. Test U: Unit testing classifyGoogleAuthResult helper for Cases A, B, C, and D (server timestamps)
+  const nowTs = 1756850000000;
+  const userMultiIdentity = { id: 'u1', created_at: new Date(nowTs).toISOString(), last_sign_in_at: new Date(nowTs).toISOString(), identities: [{ provider: 'email' }, { provider: 'google' }] };
+  const resCaseA = classifyGoogleAuthResult(userMultiIdentity, userMultiIdentity.identities, null);
 
-  // Case A: Existing user with multiple identities
-  const userMultiIdentity = { id: 'u1', created_at: new Date(now - 2000).toISOString(), identities: [{ provider: 'email' }, { provider: 'google' }] };
-  const resCaseA = classifyGoogleAuthResult(userMultiIdentity, userMultiIdentity.identities, flowStarted);
+  const userOlderSignIn = { id: 'u2', created_at: new Date(nowTs - 3600000).toISOString(), last_sign_in_at: new Date(nowTs).toISOString(), identities: [{ provider: 'google' }] };
+  const resCaseB = classifyGoogleAuthResult(userOlderSignIn, userOlderSignIn.identities, null);
 
-  // Case B: Existing user created 10 minutes ago
-  const userOlder = { id: 'u2', created_at: new Date(now - 600000).toISOString(), identities: [{ provider: 'google' }] };
-  const resCaseB = classifyGoogleAuthResult(userOlder, userOlder.identities, flowStarted);
+  const userNewAligned = { id: 'u3', created_at: new Date(nowTs).toISOString(), last_sign_in_at: new Date(nowTs + 1000).toISOString(), identities: [{ provider: 'google', created_at: new Date(nowTs).toISOString() }] };
+  const resCaseC = classifyGoogleAuthResult(userNewAligned, userNewAligned.identities, null);
 
-  // Case C: Truly new Google user created during flow
-  const userNew = { id: 'u3', created_at: new Date(now - 2000).toISOString(), identities: [{ provider: 'google', created_at: new Date(now - 2000).toISOString() }] };
-  const resCaseC = classifyGoogleAuthResult(userNew, userNew.identities, flowStarted);
+  const userAmbiguous = { id: 'u4', created_at: new Date(nowTs).toISOString(), last_sign_in_at: null, identities: [] };
+  const resCaseD = classifyGoogleAuthResult(userAmbiguous, userAmbiguous.identities, null);
 
   assert(
-    resCaseA === 'existing' && resCaseB === 'existing' && resCaseC === 'new',
-    'Test U: classifyGoogleAuthResult correctly classifies Case A (multi-identity), Case B (older creation time), and Case C (truly new Google user)'
+    resCaseA === 'existing' && resCaseB === 'existing' && resCaseC === 'new' && resCaseD === 'existing',
+    'Test U: classifyGoogleAuthResult uses server timestamps primarily: multi-identity -> existing, old creation time -> existing, aligned initial auth -> new, and ambiguous -> existing'
+  );
+
+  // 57. Test V: Fresh identity retrieval & clearGoogleAuthIntent error handling
+  const appHasFreshGetUser = appCode.includes("supabase.auth.getUser()") && appCode.includes("getUserIdentities");
+  const appHasClearGoogleIntentOnError = appCode.includes("clearGoogleAuthIntent()");
+  assert(
+    appHasFreshGetUser && appHasClearGoogleIntentOnError,
+    'Test V: Callback fetches fresh authenticated identity data with fallback, and handleGoogleSignIn clears sessionStorage intent on error/exception'
   );
 
   // 49. Document Security Scanner Unit Tests
