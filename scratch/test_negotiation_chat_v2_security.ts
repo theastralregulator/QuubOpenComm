@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { verifyDocumentBuffer } from '../api/_lib/media/documentScanner.js';
 import { getDeadlineInfo } from '../apps/web/src/lib/deadline.js';
+import { classifyGoogleAuthResult } from '../apps/web/src/lib/authHelpers.js';
 
 function runPreflightAndUnitChecks() {
   console.log('=== STARTING NEGOTIATION CHAT V2 & UI STATIC PREFLIGHT + UNIT CHECKS ===');
@@ -519,7 +520,7 @@ function runPreflightAndUnitChecks() {
   );
 
   // 52. Test Q: Sign In UI contains Continue with Google button using handleGoogleSignIn
-  const signinHasGoogleBtn = appCode.includes("showAuthModal === 'signin'") && appCode.includes("onClick={handleGoogleSignIn}") && appCode.includes("Continue with Google");
+  const signinHasGoogleBtn = appCode.includes("showAuthModal === 'signin'") && appCode.includes("handleGoogleSignIn") && appCode.includes("Continue with Google");
   assert(
     signinHasGoogleBtn,
     'Test Q: Sign In modal UI renders Continue with Google button using canonical handleGoogleSignIn handler'
@@ -548,6 +549,43 @@ function runPreflightAndUnitChecks() {
   assert(
     hasMandatoryFlag && navbarHiddenOnMandatory && footerHiddenOnMandatory && completeProfileHasSignout && noSkipBypass,
     'Test S: Navbar/Footer are hidden during mandatory profile completion, Sign out escape action is provided, and no Skip bypass exists'
+  );
+
+  // 55. Test T: Google Auth Intent UX, Account Already Exists Modal, select_account prompt & local signOut
+  const signupGoogleIntent = appCode.includes("onClick={() => handleGoogleSignIn('signup')}");
+  const signinGoogleIntent = appCode.includes("onClick={() => handleGoogleSignIn('signin')}");
+  const hasSelectAccountPrompt = appCode.includes("prompt: 'select_account'");
+  const clearsSessionStorageIntent = appCode.includes("window.sessionStorage.removeItem('opencomm_google_auth_intent')");
+  const rendersAccountExistsModal = appCode.includes('showAccountExistsModal') && appCode.includes('Account already exists') && appCode.includes('btn-continue-to-signin') && appCode.includes('btn-use-another-google-account');
+  const scopeLocalSignOut = appCode.includes("signOut({ scope: 'local' })");
+  const indexHtmlCode = fs.readFileSync(path.join(rootDir, 'apps/web/index.html'), 'utf8');
+  const metaViewportIntact = indexHtmlCode.includes('<meta name="viewport" content="width=device-width, initial-scale=1.0" />');
+  const noDesktopHacks = !appCode.includes("meta[name=viewport]") && !appCode.includes("window.open(");
+
+  assert(
+    signupGoogleIntent && signinGoogleIntent && hasSelectAccountPrompt && clearsSessionStorageIntent && rendersAccountExistsModal && scopeLocalSignOut && metaViewportIntact && noDesktopHacks,
+    'Test T: Signup/Signin pass explicit intents, Google OAuth specifies prompt=select_account, sessionStorage intent is cleared, Account Exists modal renders responsively, and local signOut is used for account switching'
+  );
+
+  // 56. Test U: Unit testing classifyGoogleAuthResult helper for Cases A, B, and C
+  const now = Date.now();
+  const flowStarted = now - 5000;
+
+  // Case A: Existing user with multiple identities
+  const userMultiIdentity = { id: 'u1', created_at: new Date(now - 2000).toISOString(), identities: [{ provider: 'email' }, { provider: 'google' }] };
+  const resCaseA = classifyGoogleAuthResult(userMultiIdentity, userMultiIdentity.identities, flowStarted);
+
+  // Case B: Existing user created 10 minutes ago
+  const userOlder = { id: 'u2', created_at: new Date(now - 600000).toISOString(), identities: [{ provider: 'google' }] };
+  const resCaseB = classifyGoogleAuthResult(userOlder, userOlder.identities, flowStarted);
+
+  // Case C: Truly new Google user created during flow
+  const userNew = { id: 'u3', created_at: new Date(now - 2000).toISOString(), identities: [{ provider: 'google', created_at: new Date(now - 2000).toISOString() }] };
+  const resCaseC = classifyGoogleAuthResult(userNew, userNew.identities, flowStarted);
+
+  assert(
+    resCaseA === 'existing' && resCaseB === 'existing' && resCaseC === 'new',
+    'Test U: classifyGoogleAuthResult correctly classifies Case A (multi-identity), Case B (older creation time), and Case C (truly new Google user)'
   );
 
   // 49. Document Security Scanner Unit Tests

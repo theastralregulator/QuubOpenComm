@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles, X, Plus, UserPlus, Briefcase, DollarSign, MapPin,
   ChevronRight, ChevronLeft, ChevronDown, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
-  Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck
+  Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck, UserCheck, ArrowRight
 } from 'lucide-react';
 import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
 import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL, LocalProfile } from './lib/supabase';
+import { classifyGoogleAuthResult, GoogleAuthIntent } from './lib/authHelpers';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
 import { mapWorkerProfileToForm, mapFormToDbPayloads } from './lib/workerProfileMapper';
@@ -276,6 +277,51 @@ export default function App() {
 
   const [showHireModal, setShowHireModal] = useState<Worker | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  const [showAccountExistsModal, setShowAccountExistsModal] = useState(false);
+  const [accountExistsSession, setAccountExistsSession] = useState<any>(null);
+
+  const handleContinueToSignIn = async () => {
+    setShowAccountExistsModal(false);
+    if (!accountExistsSession) return;
+    const session = accountExistsSession;
+    setAccountExistsSession(null);
+
+    await syncUserSession(session);
+    const user = session.user;
+    const freshProfile = await dbService.getProfile(user.id);
+    setCurrentProfileObj(freshProfile);
+
+    const completed = freshProfile?.onboarding_completed === true;
+    setIsOnboardingCompleted(completed);
+    _setShowAuthModal(null);
+
+    if (completed) {
+      navigate('/', { replace: true });
+      triggerToast("Welcome back.");
+    } else {
+      navigate('/complete-profile', { replace: true });
+      triggerToast("Welcome back! Let's complete your profile setup.");
+    }
+    analytics.trackLogin('google', user.id);
+  };
+
+  const handleUseAnotherGoogleAccount = async () => {
+    setShowAccountExistsModal(false);
+    setAccountExistsSession(null);
+
+    if (supabase) {
+      await supabase.auth.signOut({ scope: 'local' });
+    }
+    handleLogoutCleanState();
+
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.removeItem('opencomm_google_auth_intent');
+      window.sessionStorage.removeItem('opencomm_google_auth_started_at');
+    }
+
+    handleGoogleSignIn('signup');
+  };
 
   // Auth Modal States & Loading Guards
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -894,6 +940,17 @@ export default function App() {
     if (typeof window === 'undefined' || window.location.pathname !== '/auth/callback') return;
 
     const processCallback = async () => {
+      // Retrieve temporary UX intent from sessionStorage and clear immediately
+      let intentVal: string | null = null;
+      let startedAtVal: number | null = null;
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        intentVal = window.sessionStorage.getItem('opencomm_google_auth_intent');
+        const startedAtStr = window.sessionStorage.getItem('opencomm_google_auth_started_at');
+        startedAtVal = startedAtStr ? parseInt(startedAtStr, 10) : null;
+        window.sessionStorage.removeItem('opencomm_google_auth_intent');
+        window.sessionStorage.removeItem('opencomm_google_auth_started_at');
+      }
+
       // 1. Ensure supabase client is initialized
       const client = await initializeRuntimeSupabase();
       if (!client) {
@@ -935,7 +992,7 @@ export default function App() {
           }
 
           if (data?.session) {
-            await handleCallbackSession(data.session);
+            await handleCallbackSession(data.session, intentVal, startedAtVal);
             return;
           }
         } catch (err: any) {
@@ -949,13 +1006,13 @@ export default function App() {
       try {
         const { data: { session } } = await client.auth.getSession();
         if (session) {
-          await handleCallbackSession(session);
+          await handleCallbackSession(session, intentVal, startedAtVal);
         } else {
           // Wait 1.5s in case hash is being parsed by SDK
           setTimeout(async () => {
             const { data: { session: delayedSession } } = await client.auth.getSession();
             if (delayedSession) {
-              await handleCallbackSession(delayedSession);
+              await handleCallbackSession(delayedSession, intentVal, startedAtVal);
             } else {
               setAuthCallbackStatus('error');
               setAuthCallbackError("No authentication session could be restored. Please try signing up again.");
@@ -968,9 +1025,20 @@ export default function App() {
       }
     };
 
-    const handleCallbackSession = async (session: any) => {
+    const handleCallbackSession = async (session: any, intent: string | null = null, flowStartedAt: number | null = null) => {
       const user = session.user;
       setCallbackEmail(user.email || '');
+
+      const validIntent = (intent === 'signup' || intent === 'signin') ? intent : null;
+      const classification = classifyGoogleAuthResult(user, user.identities, flowStartedAt);
+
+      if (validIntent === 'signup' && classification === 'existing') {
+        setAccountExistsSession(session);
+        setShowAccountExistsModal(true);
+        setAuthCallbackStatus('success');
+        _setShowAuthModal(null);
+        return;
+      }
 
       await syncUserSession(session);
 
@@ -985,10 +1053,22 @@ export default function App() {
 
       if (completed) {
         navigate('/', { replace: true });
-        triggerToast("Authentication successful! Welcome back.");
+        if (validIntent === 'signup' && classification === 'new') {
+          triggerToast("Account created successfully! Welcome to OpenComm.");
+          analytics.trackSignUp('google', user.id);
+        } else {
+          triggerToast("Authentication successful! Welcome back.");
+          analytics.trackLogin('google', user.id);
+        }
       } else {
         navigate('/complete-profile', { replace: true });
-        triggerToast("Authentication successful! Let's complete your profile setup.");
+        if (validIntent === 'signup' && classification === 'new') {
+          triggerToast("Account created! Let's complete your profile setup.");
+          analytics.trackSignUp('google', user.id);
+        } else {
+          triggerToast("Authentication successful! Let's complete your profile setup.");
+          analytics.trackLogin('google', user.id);
+        }
       }
     };
 
@@ -1592,7 +1672,7 @@ export default function App() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = async (intent: GoogleAuthIntent = 'signin') => {
     try {
       setIsAuthSubmitting(true);
       setAuthError('');
@@ -1600,10 +1680,17 @@ export default function App() {
         setAuthError('Supabase client is not configured.');
         return;
       }
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('opencomm_google_auth_intent', intent);
+        window.sessionStorage.setItem('opencomm_google_auth_started_at', Date.now().toString());
+      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/complete-profile`
+          redirectTo: `${NEXT_PUBLIC_APP_URL}/auth/callback?next=/complete-profile`,
+          queryParams: {
+            prompt: 'select_account'
+          }
         }
       });
       if (error) {
@@ -3326,6 +3413,64 @@ export default function App() {
       </AnimatePresence>
 
       {/* ====================================================
+          MODAL: ACCOUNT ALREADY EXISTS (GOOGLE AUTH UX)
+         ==================================================== */}
+      <AnimatePresence>
+        {showAccountExistsModal && (
+          <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn" id="account-exists-modal-overlay">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-[#273449] w-full max-w-md overflow-hidden shadow-2xl text-left relative"
+              id="account-exists-modal-card"
+            >
+              {/* Premium Gradient Accent Line */}
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600" />
+
+              <div className="p-5 sm:p-7 space-y-5">
+                <div className="flex items-start space-x-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-blue-500/10 dark:bg-blue-500/15 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                    <UserCheck className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase font-mono tracking-widest font-extrabold text-blue-600 dark:text-blue-400 block">Existing Account Found</span>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight leading-snug" id="account-exists-modal-title">
+                      Account already exists
+                    </h3>
+                    <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed font-medium" id="account-exists-modal-description">
+                      An OpenComm account already exists for this Google email. Sign in to continue with your existing account.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleContinueToSignIn}
+                    className="flex-1 min-h-[44px] px-4 py-2.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-2"
+                    id="btn-continue-to-signin"
+                  >
+                    <span>Continue to Sign In</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleUseAnotherGoogleAccount}
+                    className="min-h-[44px] px-4 py-2.5 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center"
+                    id="btn-use-another-google-account"
+                  >
+                    <span>Use another Google account</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ====================================================
           MODAL 1: POST A JOB
          ==================================================== */}
       <AnimatePresence>
@@ -4002,7 +4147,7 @@ export default function App() {
                   {/* GOOGLE SIGN IN BUTTON */}
                   <button
                     type="button"
-                    onClick={handleGoogleSignIn}
+                    onClick={() => handleGoogleSignIn('signin')}
                     disabled={isAuthSubmitting}
                     className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-800 dark:text-zinc-200 font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-2.5 disabled:opacity-50"
                   >
@@ -4259,7 +4404,7 @@ export default function App() {
                       {/* GOOGLE SIGN IN BUTTON */}
                       <button
                         type="button"
-                        onClick={handleGoogleSignIn}
+                        onClick={() => handleGoogleSignIn('signup')}
                         disabled={isAuthSubmitting}
                         className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-800 dark:text-zinc-200 font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-2.5 disabled:opacity-50"
                       >
