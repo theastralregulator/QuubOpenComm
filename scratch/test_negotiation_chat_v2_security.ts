@@ -518,6 +518,25 @@ function runPreflightAndUnitChecks() {
     'Test P: 20260901020000 drops acknowledge_basic_account_intro before recreate, enforces whitespace validation in update_my_basic_profile, and uses exact production COALESCE URL semantics'
   );
 
+  // 52. Test Q: Sign In UI contains Continue with Google button using handleGoogleSignIn
+  const signinHasGoogleBtn = appCode.includes("showAuthModal === 'signin'") && appCode.includes("onClick={handleGoogleSignIn}") && appCode.includes("Continue with Google");
+  assert(
+    signinHasGoogleBtn,
+    'Test Q: Sign In modal UI renders Continue with Google button using canonical handleGoogleSignIn handler'
+  );
+
+  // 53. Test R: Auth callback fetches fresh profile post-sync & route guard enforces strict /complete-profile gate
+  const callbackCode = appCode.slice(appCode.indexOf('const handleCallbackSession'), appCode.indexOf('processCallback()'));
+  const callbackSyncFirst = callbackCode.indexOf('await syncUserSession(session)') < callbackCode.indexOf('await dbService.getProfile(user.id)');
+  const callbackNoHomeFlash = !callbackCode.includes("window.history.replaceState({}, '', '/')");
+  const callbackStrictRoute = callbackCode.includes("navigate('/complete-profile', { replace: true })");
+  const routeGuardStrictIncomplete = appCode.includes("} else if (!isOnboardingCompleted) {") && !appCode.includes("if (path !== '/complete-profile' && !isPublicPath(path)) {");
+
+  assert(
+    callbackSyncFirst && callbackNoHomeFlash && callbackStrictRoute && routeGuardStrictIncomplete,
+    'Test R: /auth/callback uses fresh profile after session sync, avoids home flash, and route guard strictly locks authenticated incomplete users to /complete-profile'
+  );
+
   // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
