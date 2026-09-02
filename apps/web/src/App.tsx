@@ -1576,62 +1576,6 @@ export default function App() {
     }
   };
 
-  const handleLoginSuccess = (uName: string, uType: 'normal' | 'worker' | 'company', mockUserId: string = 'mock-user-id') => {
-    setUserIdState(mockUserId);
-    setIsLoggedIn(true);
-    setUserType(uType);
-    setUsername(uName);
-    analytics.trackLogin('direct', uName);
-
-    const pickedPhoto = '';
-    setUserPhoto(pickedPhoto);
-
-    localStorage.setItem('opencomm_is_logged_in', 'true');
-    localStorage.setItem('opencomm_user_type', uType);
-    localStorage.setItem('opencomm_username', uName);
-    if (userIdState) {
-      localStorage.setItem(`opencomm_user_photo_${userIdState}`, pickedPhoto);
-    }
-    localStorage.setItem('opencomm_onboarding_completed', 'true');
-    setIsOnboardingCompleted(true);
-
-    if (uType === 'worker') {
-      const alreadyExists = workers.some(w => w.name.toLowerCase() === uName.toLowerCase());
-      if (!alreadyExists) {
-        const newW: Worker = {
-          id: `worker-user-${Date.now()}`,
-          name: uName,
-          title: signupForm.profession || 'Contractor Specialist',
-          hourlyRate: Number(signupForm.hourlyRate) || 75,
-          rating: 5.0,
-          completedWorks: 0,
-          skills: signupForm.profession ? [signupForm.profession, 'Local Care'] : ['Bespoke Custom Work', 'Escrow Guarded'],
-          location: signupForm.location || 'Austin, TX',
-          bio: signupForm.bio || 'Newly registered local provider ready for certified milestones.',
-          photo: pickedPhoto,
-          verified: true,
-          experience: 1,
-          availability: 'Available Now'
-        };
-        setWorkers(prev => [newW, ...prev]);
-      }
-    }
-
-    const newAct: Activity = {
-      id: `act-login-${Date.now()}`,
-      type: 'complete',
-      title: `Logged in as ${uName}`,
-      status: 'Active Session',
-      statusType: 'success',
-      timestamp: 'Just now'
-    };
-    setActivities(prev => [newAct, ...prev]);
-
-    triggerToast(`Welcome back, ${uName}!`);
-    setShowAuthModal(null);
-    setLockedFeature(null);
-  };
-
   const handleLogout = async () => {
     if (supabase) {
       try {
@@ -2264,7 +2208,7 @@ export default function App() {
       triggerToast("You cannot hire yourself.");
       return;
     }
-    requireEmailVerification("Send Hiring Offer", () => {
+    requireCompletedProfile("hire workers", () => {
       setShowHireModal(worker);
       setHireOfferRate(worker.hourlyRate);
       setHireProjectTitle(`Bespoke ${worker.title.split(' ')[0] || 'Consultation'}`);
@@ -2298,9 +2242,9 @@ export default function App() {
   };
 
   const handleOpenDirectMessage = (contactName: string) => {
-    requireEmailVerification("Direct Messaging", () => {
-      // Switch to messages page and auto-select contact
+    requireCompletedProfile("start messaging", () => {
       setCurrentView('messages');
+      navigate('/messages');
       triggerToast(`Opening direct conversation with ${contactName}...`);
       analytics.trackChatOpened(contactName);
     });
@@ -2768,9 +2712,9 @@ export default function App() {
               <QuickActions
                 onFindJobs={() => navigate('/jobs')}
                 onFindWorkers={() => navigate('/workers')}
-                onPostJob={() => requireEmailVerification('Post Jobs', () => setShowPostJob(true))}
-                onCreateProfile={() => requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true))}
-                onOpenMessages={() => requireAuth('Send Messages', () => navigate('/messages'))}
+                onPostJob={() => requireCompletedProfile('post jobs', () => setShowPostJob(true))}
+                onCreateProfile={() => requireCompletedProfile('create worker profile', () => setShowCreateProfile(true))}
+                onOpenMessages={() => requireCompletedProfile('start messaging', () => navigate('/messages'))}
                 onOpenProfile={() => requireAuth('View Full Profile', () => navigate('/profile'))}
                 hasWorkerProfile={isLoggedIn && userType === 'worker'}
               />
@@ -2924,7 +2868,7 @@ export default function App() {
                   if (tab === 'signin') navigate('/login');
                   else if (tab === 'signup') navigate('/signup');
                 }}
-                onCreateProfile={() => requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true))}
+                onCreateProfile={() => requireCompletedProfile('create worker profile', () => setShowCreateProfile(true))}
               />
             </motion.div>
           } />
@@ -3080,14 +3024,14 @@ export default function App() {
                   setCurrentView={setCurrentView}
                   setShowPostJob={(val) => {
                     if (val) {
-                      requireEmailVerification('Post Jobs', () => setShowPostJob(true));
+                      requireCompletedProfile('post jobs', () => setShowPostJob(true));
                     } else {
                       setShowPostJob(false);
                     }
                   }}
                   setShowCreateProfile={(val) => {
                     if (val) {
-                      requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true));
+                      requireCompletedProfile('create worker profile', () => setShowCreateProfile(true));
                     } else {
                       setShowCreateProfile(false);
                     }
@@ -3136,14 +3080,14 @@ export default function App() {
                   setCurrentView={setCurrentView}
                   setShowPostJob={(val) => {
                     if (val) {
-                      requireEmailVerification('Post Jobs', () => setShowPostJob(true));
+                      requireCompletedProfile('post jobs', () => setShowPostJob(true));
                     } else {
                       setShowPostJob(false);
                     }
                   }}
                   setShowCreateProfile={(val) => {
                     if (val) {
-                      requireEmailVerification('Create Worker Profile', () => setShowCreateProfile(true));
+                      requireCompletedProfile('create worker profile', () => setShowCreateProfile(true));
                     } else {
                       setShowCreateProfile(false);
                     }
@@ -4317,7 +4261,6 @@ export default function App() {
                           } else {
                             setShowAuthModal(null);
                             setLockedFeature(null);
-                            triggerToast("Signed in successfully!");
                             analytics.trackLogin('email', data.user?.id);
 
                             let isComplete = false;
@@ -4329,12 +4272,19 @@ export default function App() {
                                 setIsOnboardingCompleted(isComplete);
                               }
                             }
-                            if (!isComplete) {
-                              navigate('/complete-profile', { replace: true });
+
+                            if (isComplete) {
+                              triggerToast("Signed in successfully!");
                             } else {
-                              const queryParams = new URLSearchParams(window.location.search);
-                              const redirectPath = queryParams.get('redirect');
-                              navigate(redirectPath || '/', { replace: true });
+                              triggerToast("Signed in successfully. Complete your profile to unlock all features.");
+                            }
+
+                            const queryParams = new URLSearchParams(window.location.search);
+                            const redirectPath = queryParams.get('redirect');
+                            if (redirectPath && isPublicPath(redirectPath)) {
+                              navigate(redirectPath, { replace: true });
+                            } else {
+                              navigate('/', { replace: true });
                             }
                           }
                         } catch (err: any) {
@@ -4342,17 +4292,8 @@ export default function App() {
                           setAuthError(err.message || "An unexpected error occurred during sign-in.");
                         }
                       } else {
-                        setTimeout(() => {
-                          setIsAuthSubmitting(false);
-                          const storedType = (localStorage.getItem('opencomm_user_type') as any) || 'normal';
-                          handleLoginSuccess(signinUsername, storedType);
-                          setShowAuthModal(null);
-                          setLockedFeature(null);
-                          analytics.trackLogin('mock', 'mock-user-id');
-                          const queryParams = new URLSearchParams(window.location.search);
-                          const redirectPath = queryParams.get('redirect');
-                          navigate(redirectPath || '/', { replace: true });
-                        }, 800);
+                        setIsAuthSubmitting(false);
+                        setAuthError("Authentication service is temporarily unavailable. Please try again.");
                       }
                     }}
                     className="space-y-4"

@@ -677,6 +677,29 @@ function runPreflightAndUnitChecks() {
     'Test AB: Profile completion updates App-level state (currentProfileObj, onboarding_completed, intro modal) and email verification is cleanly separated from profile completion'
   );
 
+  // 64. Test AC: Email/password sign-in routes to Home or redirect path, and all participatory actions use requireCompletedProfile
+  const signInCode = appCode.slice(appCode.indexOf('supabase.auth.signInWithPassword'), appCode.indexOf('Authentication service is temporarily unavailable'));
+  const signInNoCompleteRedirect = !signInCode.includes("navigate('/complete-profile'");
+  const postJobGated = appCode.includes("requireCompletedProfile('post jobs',");
+  const createProfileGated = appCode.includes("requireCompletedProfile('create worker profile',");
+  const hireWorkerGated = appCode.includes('const triggerHireModal =') && appCode.includes("requireCompletedProfile(\"hire workers\",");
+  const directMessageGated = appCode.includes('const handleOpenDirectMessage =') && appCode.includes("requireCompletedProfile(\"start messaging\",");
+
+  assert(
+    signInNoCompleteRedirect && postJobGated && createProfileGated && hireWorkerGated && directMessageGated,
+    'Test AC: Email/password sign-in does NOT redirect to /complete-profile, and Post Job, Create Worker Profile, Hire Worker, and Direct Messaging use requireCompletedProfile'
+  );
+
+  // 65. Test AD: Production mock login fallback (handleLoginSuccess) removed and auth fails closed
+  const noHandleLoginSuccess = !appCode.includes('const handleLoginSuccess =') && !appCode.includes('handleLoginSuccess(');
+  const authFailsClosedIfNoSupabase = appCode.includes('Authentication service is temporarily unavailable. Please try again.');
+  const noMockOnboardingSet = !appCode.includes("localStorage.setItem('opencomm_onboarding_completed', 'true')");
+
+  assert(
+    noHandleLoginSuccess && authFailsClosedIfNoSupabase && noMockOnboardingSet,
+    'Test AD: handleLoginSuccess is removed, authentication fails closed when Supabase is unavailable, and no mock login sets localStorage onboarding state'
+  );
+
   // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
