@@ -537,6 +537,19 @@ function runPreflightAndUnitChecks() {
     'Test R: /auth/callback uses fresh profile after session sync, avoids home flash, and route guard strictly locks authenticated incomplete users to /complete-profile'
   );
 
+  // 54. Test S: Navbar and Footer are hidden during mandatory profile completion & Sign out escape action exists
+  const completeProfileCompCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/profile/CompleteProfilePage.tsx'), 'utf8');
+  const hasMandatoryFlag = appCode.includes('const isMandatoryProfileCompletion = isLoggedIn && isEmailVerified && !isOnboardingCompleted;');
+  const navbarHiddenOnMandatory = appCode.includes('{!isAdminRoute && !isMandatoryProfileCompletion && (');
+  const footerHiddenOnMandatory = /!isMandatoryProfileCompletion[\s\S]*?<Footer/.test(appCode);
+  const completeProfileHasSignout = completeProfileCompCode.includes('onLogout?: () => void;') && completeProfileCompCode.includes('Sign out') && appCode.includes('onLogout={handleLogout}');
+  const noSkipBypass = !completeProfileCompCode.includes('Skip') && !completeProfileCompCode.includes('Maybe later');
+
+  assert(
+    hasMandatoryFlag && navbarHiddenOnMandatory && footerHiddenOnMandatory && completeProfileHasSignout && noSkipBypass,
+    'Test S: Navbar/Footer are hidden during mandatory profile completion, Sign out escape action is provided, and no Skip bypass exists'
+  );
+
   // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');

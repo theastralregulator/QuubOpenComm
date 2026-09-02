@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserCheck, Sparkles, AlertCircle, ArrowRight, ShieldCheck, Camera, Globe, Phone, FileText } from 'lucide-react';
+import { UserCheck, Sparkles, AlertCircle, ArrowRight, ShieldCheck, Camera, Globe, Phone, FileText, LogOut } from 'lucide-react';
 import LocationSelector, { LocationData } from '../common/LocationSelector';
 import AvatarUploadMenu from './AvatarUploadMenu';
 import { dbService, LocalProfile } from '../../lib/supabase';
@@ -10,13 +10,15 @@ interface CompleteProfilePageProps {
   profile: LocalProfile | null;
   onCompleteSuccess: (updatedProfile: LocalProfile) => void;
   triggerToast?: (msg: string) => void;
+  onLogout?: () => void;
 }
 
 export default function CompleteProfilePage({
   user,
   profile,
   onCompleteSuccess,
-  triggerToast
+  triggerToast,
+  onLogout
 }: CompleteProfilePageProps) {
   const defaultName = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || '';
   const [fullName, setFullName] = useState(defaultName);
@@ -118,18 +120,31 @@ export default function CompleteProfilePage({
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1020] text-slate-900 dark:text-white flex items-center justify-center p-4 sm:p-6 text-left">
       <div className="w-full max-w-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#273449] rounded-3xl p-6 sm:p-10 shadow-xl space-y-8 relative overflow-hidden">
         
-        {/* Header Title */}
-        <div className="space-y-2 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 bg-blue-500/10 dark:bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-full text-xs font-extrabold uppercase tracking-wider">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Core Profile Setup</span>
+        {/* Header Title & Sign Out Escape Action */}
+        <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="space-y-2">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 bg-blue-500/10 dark:bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-full text-xs font-extrabold uppercase tracking-wider">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Core Profile Setup</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 dark:text-white">
+              Complete Your Basic Profile
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Provide your basic account information to activate your OpenComm account.
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 dark:text-white">
-            Complete Your Basic Profile
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-            Provide your basic account information to activate your OpenComm account.
-          </p>
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs font-bold transition-all shrink-0 cursor-pointer"
+              title="Sign out of this account"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign out</span>
+            </button>
+          )}
         </div>
 
         {errorMsg && (

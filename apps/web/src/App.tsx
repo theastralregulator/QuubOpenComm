@@ -2439,6 +2439,7 @@ export default function App() {
   const isAdminRoute = path.startsWith('/admin');
   const isJobDetailRoute = path.startsWith('/jobs/') && path !== '/jobs';
   const isIndividualChatRoute = path.startsWith('/messages/') && path !== '/messages';
+  const isMandatoryProfileCompletion = isLoggedIn && isEmailVerified && !isOnboardingCompleted;
 
 
   return (
@@ -2487,7 +2488,7 @@ export default function App() {
       )}
 
       {/* STICKY TOP NAVBAR */}
-      {!isAdminRoute && (
+      {!isAdminRoute && !isMandatoryProfileCompletion && (
         <Navbar
           currentView={currentView}
           setCurrentView={setCurrentView}
@@ -3215,6 +3216,7 @@ export default function App() {
                 }
               }}
               triggerToast={triggerToast}
+              onLogout={handleLogout}
             />
           } />
 
@@ -3224,7 +3226,7 @@ export default function App() {
       </main>
 
       {/* SITE-WIDE FOOTER NAVIGATION */}
-      {!isAdminRoute && !isJobDetailRoute && !isIndividualChatRoute && (
+      {!isAdminRoute && !isJobDetailRoute && !isIndividualChatRoute && !isMandatoryProfileCompletion && (
         <Footer navigate={navigate} />
       )}
 
