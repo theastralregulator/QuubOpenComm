@@ -6,23 +6,14 @@ import {
   ChevronRight, ChevronLeft, ChevronDown, Calendar, AlertCircle, RefreshCw, Compass, Eye, EyeOff, Lock,
   Mail, ShieldAlert, CheckCircle2, Send, ExternalLink, ShieldCheck, UserCheck, ArrowRight
 } from 'lucide-react';
-import { Job, Worker, Category, Activity, Message, JobApplication, ApplicationMessage, Conversation, Work } from './types';
+import { Job, Worker, Category, Work } from './types';
 import { supabase, initializeRuntimeSupabase, dbService, NEXT_PUBLIC_APP_URL, LocalProfile } from './lib/supabase';
 import { classifyGoogleAuthResult, GoogleAuthIntent, clearGoogleAuthIntent } from './lib/authHelpers';
 import { collectMobileLayoutDiagnostic } from './lib/mobileDiagnostic';
 import { signUpSchema, basicProfileSchema } from './lib/auth-schemas';
 import { analytics } from './lib/analytics';
 import { mapWorkerProfileToForm, mapFormToDbPayloads } from './lib/workerProfileMapper';
-import {
-  INITIAL_CATEGORIES,
-  INITIAL_JOBS,
-  INITIAL_WORKERS,
-  INITIAL_MESSAGES,
-  INITIAL_ACTIVITIES,
-  INITIAL_CONVERSATIONS,
-  INITIAL_APPLICATIONS,
-  INITIAL_APP_MESSAGES
-} from './data';
+
 
 // Import our highly polished subcomponents
 import Navbar from './components/navigation/Navbar';
@@ -159,13 +150,6 @@ export default function App() {
       }
     };
   }, []);
-
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
-  const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
-
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [applications, setApplications] = useState<JobApplication[]>(INITIAL_APPLICATIONS);
-  const [appMessages, setAppMessages] = useState<ApplicationMessage[]>(INITIAL_APP_MESSAGES);
 
   // Custom states
   const [searchQuery, setSearchQuery] = useState('');
@@ -754,11 +738,6 @@ export default function App() {
   const [newWorkerLang, setNewWorkerLang] = useState('');
   const [newWorkerListingEnabled, setNewWorkerListingEnabled] = useState(true);
   const [newWorkerTermsAccepted, setNewWorkerTermsAccepted] = useState(false);
-
-  // Form states for Hiring a Worker
-  const [hireProjectTitle, setHireProjectTitle] = useState('');
-  const [hireProjectDesc, setHireProjectDesc] = useState('');
-  const [hireOfferRate, setHireOfferRate] = useState(0);
 
   // --- THEME SYNC (Manual User Preference Only - Light Default for Public) ---
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -2181,35 +2160,7 @@ export default function App() {
     }
     requireCompletedProfile("hire workers", () => {
       setShowHireModal(worker);
-      setHireOfferRate(worker.hourlyRate);
-      setHireProjectTitle(`Bespoke ${worker.title.split(' ')[0] || 'Consultation'}`);
     });
-  };
-
-  const handleHireWorkerSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!showHireModal) return;
-
-    if (userIdState && showHireModal.id === userIdState) {
-      triggerToast("You cannot hire yourself.");
-      setShowHireModal(null);
-      return;
-    }
-
-    const newAct: Activity = {
-      id: `act-${Date.now()}`,
-      type: 'hire',
-      title: `Hired ${showHireModal.name} for "${hireProjectTitle}"`,
-      status: 'Awaiting Response',
-      statusType: 'pending',
-      timestamp: 'Just now'
-    };
-    setActivities(prev => [newAct, ...prev]);
-
-    triggerToast(`Hiring contract offer transmitted securely to ${showHireModal.name}!`);
-    setShowHireModal(null);
-    setHireProjectTitle('');
-    setHireProjectDesc('');
   };
 
   const handleOpenDirectMessage = (contactName: string) => {
@@ -2976,21 +2927,11 @@ export default function App() {
                   setUsername={setUsername}
                   userPhoto={userPhoto}
                   setUserPhoto={setUserPhoto}
-                  activities={activities}
-                  setActivities={setActivities}
                   triggerToast={triggerToast}
                   jobs={jobs}
                   setJobs={setJobs}
                   workers={workers}
                   setWorkers={setWorkers}
-                  messages={messages}
-                  setMessages={setMessages}
-                  conversations={conversations}
-                  setConversations={setConversations}
-                  applications={applications}
-                  setApplications={setApplications}
-                  appMessages={appMessages}
-                  setAppMessages={setAppMessages}
                   setCurrentView={setCurrentView}
                   setShowPostJob={(val) => {
                     if (val) {
@@ -3032,21 +2973,11 @@ export default function App() {
                   setUsername={setUsername}
                   userPhoto={userPhoto}
                   setUserPhoto={setUserPhoto}
-                  activities={activities}
-                  setActivities={setActivities}
                   triggerToast={triggerToast}
                   jobs={jobs}
                   setJobs={setJobs}
                   workers={workers}
                   setWorkers={setWorkers}
-                  messages={messages}
-                  setMessages={setMessages}
-                  conversations={conversations}
-                  setConversations={setConversations}
-                  applications={applications}
-                  setApplications={setApplications}
-                  appMessages={appMessages}
-                  setAppMessages={setAppMessages}
                   setCurrentView={setCurrentView}
                   setShowPostJob={(val) => {
                     if (val) {

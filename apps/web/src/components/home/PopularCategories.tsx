@@ -4,27 +4,30 @@ import {
   Code, Palette, Zap, Hammer, Car, Utensils, 
   GraduationCap, Camera, Wrench, Sparkles 
 } from 'lucide-react';
+import { Job } from '../../types';
 
 interface PopularCategoriesProps {
   onCategorySelect: (categoryName: string) => void;
   selectedCategory: string | null;
+  jobs?: Job[];
 }
 
 export default function PopularCategories({
   onCategorySelect,
   selectedCategory,
+  jobs,
 }: PopularCategoriesProps) {
   const categoriesList = [
-    { name: 'Developer', icon: Code, count: 142, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-950/30' },
-    { name: 'Designer', icon: Palette, count: 98, color: 'text-purple-500 bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-950/30' },
-    { name: 'Electrician', icon: Zap, count: 34, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-950/30' },
-    { name: 'Carpenter', icon: Hammer, count: 27, color: 'text-orange-500 bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-950/30' },
-    { name: 'Driver', icon: Car, count: 56, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-950/30' },
-    { name: 'Chef', icon: Utensils, count: 41, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-950/30' },
-    { name: 'Teacher', icon: GraduationCap, count: 73, color: 'text-sky-500 bg-sky-50 dark:bg-sky-950/20 border-sky-200 dark:border-sky-950/30' },
-    { name: 'Photographer', icon: Camera, count: 48, color: 'text-violet-500 bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-950/30' },
-    { name: 'Mechanic', icon: Wrench, count: 19, color: 'text-zinc-500 bg-zinc-50 dark:bg-zinc-950/20 border-zinc-200 dark:border-zinc-950/30' },
-    { name: 'Cleaner', icon: Sparkles, count: 62, color: 'text-teal-500 bg-teal-50 dark:bg-teal-950/20 border-teal-200 dark:border-teal-950/30' },
+    { name: 'Developer', icon: Code, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-950/30' },
+    { name: 'Designer', icon: Palette, color: 'text-purple-500 bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-950/30' },
+    { name: 'Electrician', icon: Zap, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-950/30' },
+    { name: 'Carpenter', icon: Hammer, color: 'text-orange-500 bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-950/30' },
+    { name: 'Driver', icon: Car, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-950/30' },
+    { name: 'Chef', icon: Utensils, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-950/30' },
+    { name: 'Teacher', icon: GraduationCap, color: 'text-sky-500 bg-sky-50 dark:bg-sky-950/20 border-sky-200 dark:border-sky-950/30' },
+    { name: 'Photographer', icon: Camera, color: 'text-violet-500 bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-950/30' },
+    { name: 'Mechanic', icon: Wrench, color: 'text-zinc-500 bg-zinc-50 dark:bg-zinc-950/20 border-zinc-200 dark:border-zinc-950/30' },
+    { name: 'Cleaner', icon: Sparkles, color: 'text-teal-500 bg-teal-50 dark:bg-teal-950/20 border-teal-200 dark:border-teal-950/30' },
   ];
 
   return (
@@ -48,6 +51,7 @@ export default function PopularCategories({
         {categoriesList.map((cat) => {
           const IconComponent = cat.icon;
           const isSelected = selectedCategory === cat.name;
+          const realCount = jobs ? jobs.filter(j => j.category === cat.name).length : 0;
 
           return (
             <motion.div
@@ -76,7 +80,7 @@ export default function PopularCategories({
                 <span className={`block text-[10px] mt-0.5 ${
                   isSelected ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'
                 }`}>
-                  {cat.count} listings
+                  {jobs ? `${realCount} ${realCount === 1 ? 'listing' : 'listings'}` : 'Browse category'}
                 </span>
               </div>
             </motion.div>

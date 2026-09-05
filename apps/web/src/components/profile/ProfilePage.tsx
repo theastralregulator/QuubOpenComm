@@ -31,21 +31,11 @@ interface ProfilePageProps {
   setUsername: (name: string) => void;
   userPhoto: string;
   setUserPhoto: (url: string) => void;
-  activities: Activity[];
-  setActivities: React.Dispatch<React.SetStateAction<Activity[]>>;
   triggerToast: (msg: string) => void;
   jobs: Job[];
   setJobs: React.Dispatch<React.SetStateAction<Job[]>>;
   workers: Worker[];
   setWorkers: React.Dispatch<React.SetStateAction<Worker[]>>;
-  messages: Message[];
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-  conversations: Conversation[];
-  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>;
-  applications: JobApplication[];
-  setApplications: React.Dispatch<React.SetStateAction<JobApplication[]>>;
-  appMessages: ApplicationMessage[];
-  setAppMessages: React.Dispatch<React.SetStateAction<ApplicationMessage[]>>;
   setCurrentView: (view: string) => void;
   setShowPostJob: (show: boolean) => void;
   setShowCreateProfile: (show: boolean) => void;
@@ -195,12 +185,9 @@ export default function ProfilePage({
   setUsername,
   userPhoto,
   setUserPhoto,
-  activities,
-  setActivities,
   triggerToast,
   jobs,
   workers,
-  messages,
   setCurrentView,
   setShowCreateProfile,
   isLoggedIn = false,

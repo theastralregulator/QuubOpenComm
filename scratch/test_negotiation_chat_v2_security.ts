@@ -712,6 +712,23 @@ function runPreflightAndUnitChecks() {
     'Test AE: handleResetData is completely removed, NavbarProps has no onResetData, "Reset App Data" UI control is removed, and no runtime function injects demo INITIAL_* data'
   );
 
+  // 67. Test AF: Final production demo state cleanup & canonical DB marketplace authority
+  const dataFileCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/data.ts'), 'utf8');
+  const popCatCode = fs.readFileSync(path.join(rootDir, 'apps/web/src/components/home/PopularCategories.tsx'), 'utf8');
+
+  const noAppInitialDataImports = !appCode.includes("from './data'");
+  const noAppDemoActivitiesState = !appCode.includes('INITIAL_ACTIVITIES');
+  const noAppDemoApplicationsState = !appCode.includes('INITIAL_APPLICATIONS');
+  const noAppDemoAppMessagesState = !appCode.includes('INITIAL_APP_MESSAGES');
+  const noDeadHireSubmitHandler = !appCode.includes('const handleHireWorkerSubmit');
+  const popCategoriesUsesRealCounts = popCatCode.includes('jobs ? `${realCount}') && !popCatCode.includes('count: 142');
+  const dataFileContainsNoFakeState = !dataFileCode.includes('Jane Cooper') && !dataFileCode.includes('Senior Full Stack Engineer at Stripe') && !dataFileCode.includes('Sarah Jenkins');
+
+  assert(
+    noAppInitialDataImports && noAppDemoActivitiesState && noAppDemoApplicationsState && noAppDemoAppMessagesState && noDeadHireSubmitHandler && popCategoriesUsesRealCounts && dataFileContainsNoFakeState,
+    'Test AF: App contains no demo INITIAL_* state initialization, handleHireWorkerSubmit is removed, data.ts contains no fake records, and PopularCategories uses real DB listing counts'
+  );
+
   // 49. Document Security Scanner Unit Tests
   console.log('\n--- Unit Testing Document Scanner ---');
   const dummyPdfHeader = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
